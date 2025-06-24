@@ -1,5 +1,8 @@
 # Tari Lightweight Wallet Libraries
 
+# 🚧 Under HEAVY Development, this is not production ready yet. 🚧
+
+
 [![Crates.io](https://img.shields.io/crates/v/lightweight_wallet_libs.svg)](https://crates.io/crates/lightweight_wallet_libs)
 [![Documentation](https://docs.rs/lightweight_wallet_libs/badge.svg)](https://docs.rs/lightweight_wallet_libs)
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
