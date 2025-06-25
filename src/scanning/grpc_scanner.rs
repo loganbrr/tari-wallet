@@ -802,7 +802,7 @@ mod tests {
             }
             
             // Test with a random key to ensure it fails
-            let wrong_key = crate::crypto::keys::RistrettoSecretKey::random(&mut rand::thread_rng());
+            let wrong_key = crate::crypto::RistrettoSecretKey::random(&mut rand::thread_rng());
             let wrong_private_key = crate::data_structures::types::PrivateKey::new(wrong_key.as_bytes().try_into().unwrap());
             let wrong_config = crate::extraction::ExtractionConfig::with_private_key(wrong_private_key);
             

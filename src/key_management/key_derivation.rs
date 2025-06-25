@@ -7,16 +7,16 @@
 //! with the main Tari wallet implementation.
 
 use crate::errors::KeyManagementError;
-use crate::crypto::{DomainSeparatedHasher, KeyManagerDomain, RistrettoSecretKey, RistrettoPublicKey};
-use crate::crypto::keys::ByteArray;
+use crate::crypto::{DomainSeparatedHasher, KeyManagerDomain, RistrettoSecretKey, RistrettoPublicKey, SecretKey, PublicKey};
 use blake2::Blake2b;
 use digest::{Digest, consts::U64};
+use tari_utilities::ByteArray;
 
 /// Derives a public key from a private key
 pub fn derive_public_key_from_private(
     private_key: &RistrettoSecretKey,
 ) -> Result<RistrettoPublicKey, KeyManagementError> {
-    Ok(private_key.public_key())
+    Ok(RistrettoPublicKey::from_secret_key(private_key))
 }
 
 /// Derives view and spend keys from CipherSeed entropy using Tari's exact key derivation pattern
@@ -94,7 +94,8 @@ pub fn derive_stealth_address(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto::keys::ByteArray;
+    use tari_utilities::ByteArray;
+    use crate::crypto::{SecretKey, PublicKey};
 
     #[test]
     fn test_tari_test_vector_validation() {

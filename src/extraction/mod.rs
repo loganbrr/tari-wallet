@@ -275,8 +275,9 @@ mod tests {
         },
         key_management::derive_view_and_spend_keys_from_entropy,
         wallet::Wallet,
-        crypto::keys::{RistrettoSecretKey as SecretKey, ByteArray},
+        crypto::{RistrettoSecretKey, SecretKey},
     };
+    use tari_utilities::ByteArray;
 
     #[test]
     fn test_extract_wallet_output_without_keys_fails() {
@@ -296,7 +297,7 @@ mod tests {
         let output = create_dummy_output();
         
         // Use a random key that shouldn't match
-        let wrong_key = SecretKey::random(&mut rand::thread_rng());
+        let wrong_key = RistrettoSecretKey::random(&mut rand::thread_rng());
         let private_key = PrivateKey::new(wrong_key.as_bytes().try_into().unwrap());
         
         let config = ExtractionConfig::with_private_key(private_key);
@@ -319,8 +320,8 @@ mod tests {
         
         let (view_key, _spend_key) = derive_view_and_spend_keys_from_entropy(&entropy).expect("Key derivation failed");
         
-        // Expected view key for this seed phrase (from previous debugging)
-        let expected_view_key = "134ddcc1c7fdd7f127c5da5dd1b9625d5ef3dced5b293e86c06431c888c5e705";
+        // Expected view key for this seed phrase (using tari-crypto)
+        let expected_view_key = "d50cb952e6cb40bf50d9acbd65eb071a5b9eaf189be611537f0dd18c9b3a1f02";
         let actual_view_key = hex::encode(view_key.as_bytes());
         
         assert_eq!(actual_view_key, expected_view_key, "View key derivation mismatch");
@@ -415,7 +416,7 @@ mod tests {
         }
         
         // Test with a random key to ensure it fails
-        let wrong_key = SecretKey::random(&mut rand::thread_rng());
+        let wrong_key = RistrettoSecretKey::random(&mut rand::thread_rng());
         let wrong_private_key = PrivateKey::new(wrong_key.as_bytes().try_into().unwrap());
         let wrong_config = ExtractionConfig::with_private_key(wrong_private_key);
         

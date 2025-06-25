@@ -3,7 +3,7 @@
 
 //! Hash domain definitions for domain separation
 
-use crate::crypto::domain_separated_hasher::DomainSeparation;
+use tari_crypto::hashing::DomainSeparation;
 
 /// Domain for key manager operations
 pub struct KeyManagerDomain;
