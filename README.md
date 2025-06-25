@@ -2,6 +2,8 @@
 
 # 🚧 Under HEAVY Development, this is not production ready yet. 🚧
 
+> ⚠️ **Development Status**: This library is currently under active development. UTXO scanning functionality is partially complete and will be finished as part of the implementation outlined in the [PRD](create-prd.md).
+
 
 [![Crates.io](https://img.shields.io/crates/v/lightweight_wallet_libs.svg)](https://crates.io/crates/lightweight_wallet_libs)
 [![Documentation](https://docs.rs/lightweight_wallet_libs/badge.svg)](https://docs.rs/lightweight_wallet_libs)
@@ -41,18 +43,18 @@ The Tari Lightweight Wallet Libraries provide essential wallet functionality ext
 - ✅ Payment ID embedding and extraction
 - ✅ Network support (MainNet, StageNet, TestNet)
 
-### 🔍 **Blockchain Scanning**
-- ✅ GRPC-based blockchain scanning
-- ✅ UTXO discovery and validation
-- ✅ Progress tracking and resumable scans
-- ✅ Batch processing for performance
-- ✅ Wallet output reconstruction from blockchain data
+### 🔍 **Blockchain Scanning** (In Development)
+- 🚧 GRPC-based blockchain scanning (partially complete)
+- 🚧 UTXO discovery and validation (partially complete)
+- 🚧 Progress tracking and resumable scans (partially complete)
+- 🚧 Batch processing for performance (partially complete)
+- 🚧 Wallet output reconstruction from blockchain data (in progress)
 
-### ✅ **Cryptographic Validation**
-- ✅ Range proof validation (BulletProof+, RevealedValue)
-- ✅ Signature verification (metadata, script signatures)
-- ✅ Commitment validation and integrity checks
-- ✅ Encrypted data decryption and validation
+### 🔒 **Cryptographic Validation** (In Development)
+- 🚧 Range proof validation (BulletProof+, RevealedValue) (partially complete)
+- 🚧 Signature verification (metadata, script signatures) (partially complete)
+- 🚧 Commitment validation and integrity checks (partially complete)
+- 🚧 Encrypted data decryption and validation (partially complete)
 
 ## 📦 **Installation**
 

@@ -83,15 +83,13 @@ pub enum StealthKeyRecoveryError {
     DecryptionFailed(#[from] LightweightWalletError),
 }
 
-// TODO: Update StealthKeyRecoveryManager to use new entropy-based key derivation approach
-// instead of the removed ConcreteKeyManager
-/*
 /// Stealth address key recovery manager
+/// 
+/// This struct will be implemented once the entropy-based key derivation is complete.
+/// For now, individual functions provide the key recovery functionality.
 pub struct StealthKeyRecoveryManager {
-    key_manager: ConcreteKeyManager,
     options: StealthKeyRecoveryOptions,
 }
-*/
 
 /*
 impl StealthKeyRecoveryManager {

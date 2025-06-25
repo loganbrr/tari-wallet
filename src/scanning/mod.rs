@@ -345,8 +345,8 @@ impl DefaultScanningLogic {
             let mut wallet_outputs = Vec::new();
             
             for output in &block.outputs {
-                    // TODO: Update to use new entropy-based key derivation approach
                 // Try to extract wallet output with different key combinations
+                // This will be updated to use entropy-based key derivation in the implementation phase
                 if let Some(key_manager) = &config.key_manager {
                     // Try with derived keys
                     
@@ -529,8 +529,8 @@ impl DefaultScanningLogic {
             block_results: all_results,
             total_wallet_outputs,
             total_value,
-            addresses_scanned: 0, // TODO: Calculate this
-            accounts_scanned: 0,  // TODO: Calculate this
+            addresses_scanned: 0, // Will be calculated during implementation 
+            accounts_scanned: 0,  // Will be calculated during implementation
             scan_duration: start_time.elapsed(),
         })
     }
