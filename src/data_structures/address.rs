@@ -174,8 +174,8 @@ impl Default for Network {
 pub struct TariAddressFeatures(pub u8);
 
 impl TariAddressFeatures {
-    pub const INTERACTIVE_ONLY: u8 = 0b00000001;
-    pub const ONE_SIDED_ONLY: u8 = 0b00000010;
+    pub const INTERACTIVE_ONLY: u8 = 0b00000010;
+    pub const ONE_SIDED_ONLY: u8 = 0b00000001;
     pub const PAYMENT_ID: u8 = 0b00000100;
 
     pub fn create_interactive_only() -> Self {

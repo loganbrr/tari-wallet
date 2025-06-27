@@ -729,8 +729,8 @@ mod tests {
         assert_eq!(phrase2.split_whitespace().count(), 24);
         
         // Should be able to validate the phrases
-        assert!(validate_seed_phrase(&phrase1).is_ok());
-        assert!(validate_seed_phrase(&phrase2).is_ok());
+        assert!(crate::key_management::validate_seed_phrase(&phrase1).is_ok());
+        assert!(crate::key_management::validate_seed_phrase(&phrase2).is_ok());
         
         // Should be able to recreate the wallets from the exported phrases
         let recreated1 = Wallet::new_from_seed_phrase(&phrase1, None).unwrap();
