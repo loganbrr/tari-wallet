@@ -66,6 +66,9 @@ struct WalletTransaction {
 }
 
 #[cfg(feature = "grpc")]
+use std::collections::HashMap;
+
+#[cfg(feature = "grpc")]
 #[derive(Debug)]
 struct WalletState {
     transactions: Vec<WalletTransaction>,

@@ -39,7 +39,7 @@ use async_trait::async_trait;
 #[cfg(feature = "grpc")]
 use tonic::{transport::Channel, Request};
 #[cfg(feature = "grpc")]
-use tracing::{debug, error, warn, info};
+use tracing::{debug,  info};
 
 #[cfg(feature = "grpc")]
 use crate::{
@@ -51,11 +51,10 @@ use crate::{
         },
         types::{CompressedCommitment, CompressedPublicKey, MicroMinotari, PrivateKey},
         encrypted_data::EncryptedData,
-        payment_id::PaymentId,
         LightweightOutputType,
         LightweightRangeProofType,
     },
-    errors::{LightweightWalletError, LightweightWalletResult, KeyManagementError},
+    errors::{LightweightWalletError, LightweightWalletResult},
     extraction::{extract_wallet_output, ExtractionConfig},
     scanning::{BlockInfo, BlockScanResult, BlockchainScanner, ScanConfig, TipInfo, WalletScanner, WalletScanConfig, WalletScanResult, ProgressCallback, DefaultScanningLogic},
     wallet::Wallet,
@@ -265,7 +264,7 @@ impl GrpcBlockchainScanner {
         }
         
         // Convert metadata signature if available
-        let mut output_metadata_signature = [0u8; 64];
+        let output_metadata_signature = [0u8; 64];
         // Note: metadata_signature might not be available for inputs
         
         crate::data_structures::transaction_input::TransactionInput::new(
@@ -428,36 +427,6 @@ impl GrpcBlockchainScanner {
             Ok(wallet_output) => Ok(Some(wallet_output)),
             Err(_) => Ok(None), // Not a wallet output or decryption failed
         }
-    }
-
-    /// Try stealth address recovery for GRPC scanner
-    fn try_stealth_address_recovery_grpc(
-        output: &LightweightTransactionOutput,
-        extraction_config: &ExtractionConfig,
-    ) -> LightweightWalletResult<Option<LightweightWalletOutput>> {
-        // Check if we have a private key for stealth recovery
-        if let Some(private_key) = &extraction_config.private_key {
-            // Check if the script contains stealth address data
-            if !output.script().bytes.is_empty() {
-                let ephemeral_public_key = &output.sender_offset_public_key();
-                
-                // Attempt stealth key recovery
-                if let Ok(stealth_private_key) = crate::key_management::StealthAddressManager::recover_stealth_private_key(
-                    private_key,
-                    ephemeral_public_key,
-                ) {
-                    // Try to decrypt with the recovered stealth key
-                    let mut stealth_extraction_config = extraction_config.clone();
-                    stealth_extraction_config.set_private_key(stealth_private_key);
-                    
-                    if let Ok(wallet_output) = extract_wallet_output(output, &stealth_extraction_config) {
-                        return Ok(Some(wallet_output));
-                    }
-                }
-            }
-        }
-        
-        Ok(None)
     }
 
     /// Scan for coinbase outputs (GRPC version)
@@ -776,7 +745,7 @@ impl BlockchainScanner for GrpcBlockchainScanner {
                         if !found_output {
                             if let Some(wallet_output) = Self::scan_for_coinbase_output_grpc(output)? {
                                 wallet_outputs.push(wallet_output);
-                                found_output = true;
+                                // found_output = true;
                             }
                         }
                     }

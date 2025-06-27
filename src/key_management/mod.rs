@@ -734,11 +734,13 @@ mod tests {
         buffer.zeroize();
         
         // Verify the buffer is zeroized
-        assert_eq!(buffer.as_slice(), &[] as &[u8]);
+        let empty_slice: &[u8] = &[];
+        assert_eq!(buffer.as_slice(), empty_slice);
         
         // Now clear the buffer
         buffer.clear();
-        assert_eq!(buffer.as_slice(), &[] as &[u8]);
+        let empty_slice: &[u8] = &[];
+        assert_eq!(buffer.as_slice(), empty_slice);
     }
 
    
