@@ -495,7 +495,16 @@ impl DefaultScanningLogic {
                 // Try to find wallet outputs using multiple scanning strategies
                 let mut found_output = false;
                 
-                // Strategy 1: Regular recoverable outputs (encrypted data decryption)
+                 // Strategy 1: One-sided payments (different detection logic)
+                 if !found_output {
+                    if let Some(wallet_output) = Self::scan_for_one_sided_payment(output, extraction_config)? {
+                        wallet_outputs.push(wallet_output);
+                        found_output = true;
+                    }
+                }
+                
+
+                // Strategy 2: Regular recoverable outputs (encrypted data decryption)
                 if !found_output {
                     if let Some(wallet_output) = Self::scan_for_recoverable_output(output, extraction_config)? {
                         wallet_outputs.push(wallet_output);
@@ -503,19 +512,12 @@ impl DefaultScanningLogic {
                     }
                 }
                 
-                // Strategy 2: One-sided payments (different detection logic)
-                if !found_output {
-                    if let Some(wallet_output) = Self::scan_for_one_sided_payment(output, extraction_config)? {
-                        wallet_outputs.push(wallet_output);
-                        found_output = true;
-                    }
-                }
-                
+               
                 // Strategy 3: Coinbase outputs (special handling)
                 if !found_output {
                     if let Some(wallet_output) = Self::scan_for_coinbase_output(output)? {
                         wallet_outputs.push(wallet_output);
-                        found_output = true;
+                        found_output = true; // Leaving this here in case we add additional strategies in the future
                     }
                 }
             }
@@ -567,45 +569,6 @@ impl DefaultScanningLogic {
         }
     }
 
-    /// Try broader key scan for one-sided payments (more comprehensive than regular scan)
-    fn try_broad_key_scan_for_one_sided(
-        output: &LightweightTransactionOutput,
-        _extraction_config: &ExtractionConfig,
-    ) -> LightweightWalletResult<Option<LightweightWalletOutput>> {
-        // For one-sided payments, the broad scan is essentially the same as regular scanning
-        // since we're using the proper view key. The difference is in the detection patterns
-        // not in the key derivation.
-        
-        // The main difference for one-sided payments might be that they don't follow
-        // standard transaction patterns, but they still use the same encryption keys
-        
-        // For now, this is redundant with the previous scanning steps
-        // In the future, this could be used for alternative one-sided payment patterns
-        
-        Ok(None)
-    }
-
-    /// Try to recover stealth address outputs with proper decryption
-    fn try_stealth_address_recovery_with_decryption(
-        output: &LightweightTransactionOutput,
-        extraction_config: &ExtractionConfig,
-    ) -> LightweightWalletResult<Option<LightweightWalletOutput>> {
-        // Check if the script contains stealth address data
-        if output.script().bytes.is_empty() {
-            return Ok(None);
-        }
-        
-        // First try with the regular view key - many stealth outputs can be decrypted with the standard view key
-        if let Ok(wallet_output) = extract_wallet_output(output, extraction_config) {
-            return Ok(Some(wallet_output));
-        }
-        
-        // If standard decryption failed, try stealth address recovery
-        // This would require the proper stealth address implementation
-        // For now, we'll skip this as it requires more complex key derivation
-        
-        Ok(None)
-    }
 
     /// Scan for coinbase outputs (special handling for mining rewards)
     fn scan_for_coinbase_output(
@@ -762,26 +725,7 @@ impl DefaultScanningLogic {
         })
     }
 
-    /// Try to detect one-sided payments by analyzing the sender offset (fallback method)
-    fn try_one_sided_detection_by_offset(
-        output: &LightweightTransactionOutput,
-        _config: &WalletScanConfig,
-    ) -> LightweightWalletResult<Option<LightweightWalletOutput>> {
-        // This is now a fallback method only used when encrypted decryption fails
-        // One-sided payments may have specific patterns in their construction
-        
-        // Only use this as a last resort for outputs that have minimum value revealed
-        // but couldn't be decrypted (which might indicate a different payment type)
-        let has_minimum_value = output.minimum_value_promise().as_u64() > 0;
-        
-        if has_minimum_value {
-            // This is likely a special output type (like coinbase) rather than a one-sided payment
-            // One-sided payments should be decryptable with wallet keys
-            // We'll skip this for now to avoid false positives
-        }
-        
-        Ok(None)
-    }
+    
 }
 
 /// Mock implementation for testing

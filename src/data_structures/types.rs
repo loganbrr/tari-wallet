@@ -96,10 +96,12 @@ mod compressed_ristretto_serde {
 mod scalar_borsh {
     use super::*;
 
+    #[allow(dead_code)]
     pub fn serialize<W: std::io::Write>(scalar: &Scalar, writer: &mut W) -> std::io::Result<()> {
         BorshSerialize::serialize(&scalar.to_bytes(), writer)
     }
 
+    #[allow(dead_code)]
     pub fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Scalar> {
         let bytes = <[u8; 32]>::deserialize_reader(reader)?;
         Ok(Scalar::from_canonical_bytes(bytes).unwrap_or_else(|| {
@@ -109,19 +111,6 @@ mod scalar_borsh {
     }
 }
 
-/// Custom borsh module for CompressedRistretto
-mod compressed_ristretto_borsh {
-    use super::*;
-
-    pub fn serialize<W: std::io::Write>(compressed: &CompressedRistretto, writer: &mut W) -> std::io::Result<()> {
-        BorshSerialize::serialize(&compressed.to_bytes(), writer)
-    }
-
-    pub fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<CompressedRistretto> {
-        let bytes = <[u8; 32]>::deserialize_reader(reader)?;
-        Ok(CompressedRistretto(bytes))
-    }
-}
 
 /// A wrapper around a private key that provides zeroization on drop
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]

@@ -88,7 +88,7 @@ pub enum StealthKeyRecoveryError {
 /// This struct will be implemented once the entropy-based key derivation is complete.
 /// For now, individual functions provide the key recovery functionality.
 pub struct StealthKeyRecoveryManager {
-    options: StealthKeyRecoveryOptions,
+    _options: StealthKeyRecoveryOptions,
 }
 
 /*

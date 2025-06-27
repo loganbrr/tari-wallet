@@ -52,11 +52,6 @@ impl KeyDerivationPath {
         }
     }
 
-    /// Create a standard Tari key derivation path
-    pub fn tari_standard(account: u32, change: u32, address_index: u32) -> Self {
-        Self::new("".to_string(), 0)
-    }
-
     /// Convert path to string representation (e.g., "m/44'/123456'/0'/0/0")
     pub fn to_string(&self) -> String {
         format!(
@@ -676,7 +671,7 @@ mod tests {
     fn test_derived_key_pair_zeroization() {
         let private_key = PrivateKey::new([1u8; 32]);
         let public_key = CompressedPublicKey::from_private_key(&private_key);
-        let path = KeyDerivationPath::tari_standard(0, 0, 0);
+        let path = KeyDerivationPath::new("".to_string(), 0);
         let mut key_pair = DerivedKeyPair::new(private_key, public_key, 0, path);
         
         // Verify the key exists

@@ -244,7 +244,7 @@ impl SpecialOutputHandler {
     }
 
     /// Handle a burn output
-    fn handle_burn_output(&self, transaction_output: &LightweightTransactionOutput) -> SpecialOutputHandlingResult {
+    fn handle_burn_output(&self, _transaction_output: &LightweightTransactionOutput) -> SpecialOutputHandlingResult {
         // Burn outputs are typically not spendable, so we just acknowledge them
         // and potentially extract metadata for tracking purposes
         

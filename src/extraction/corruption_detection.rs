@@ -396,13 +396,13 @@ impl CorruptionDetector {
     }
 
     /// Detect corruption in script
-    fn detect_script_corruption(&self, script: &crate::data_structures::wallet_output::LightweightScript) -> CorruptionDetectionResult {
+    fn detect_script_corruption(&self, _script: &crate::data_structures::wallet_output::LightweightScript) -> CorruptionDetectionResult {
         // Script can be empty, so no corruption detection needed
         CorruptionDetectionResult::clean()
     }
 
     /// Detect corruption in covenant
-    fn detect_covenant_corruption(&self, covenant: &crate::data_structures::wallet_output::LightweightCovenant) -> CorruptionDetectionResult {
+    fn detect_covenant_corruption(&self, _covenant: &crate::data_structures::wallet_output::LightweightCovenant) -> CorruptionDetectionResult {
         // Covenant can be empty, so no corruption detection needed
         CorruptionDetectionResult::clean()
     }

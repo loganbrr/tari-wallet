@@ -111,6 +111,7 @@ mod u256_serde {
     use super::*;
     use serde::{Deserializer, Serializer};
 
+    #[allow(dead_code)]
     pub fn serialize<S>(value: &U256, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -120,6 +121,7 @@ mod u256_serde {
         serde::Serialize::serialize(&hex::encode(&bytes), serializer)
     }
 
+    #[allow(dead_code)]
     pub fn deserialize<'de, D>(deserializer: D) -> Result<U256, D::Error>
     where
         D: Deserializer<'de>,
@@ -171,6 +173,7 @@ impl<'de> Deserialize<'de> for PaymentId {
 mod hex_serde_array_32 {
     use serde::{Deserialize, Deserializer, Serializer};
 
+    #[allow(dead_code)]
     pub fn serialize<S>(value: &[u8; 32], serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -179,6 +182,7 @@ mod hex_serde_array_32 {
         serializer.serialize_str(&hex_string)
     }
 
+    #[allow(dead_code)]
     pub fn deserialize<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
     where
         D: Deserializer<'de>,

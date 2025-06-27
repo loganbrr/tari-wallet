@@ -8,13 +8,13 @@
 
 use crate::{
     data_structures::{
-        encrypted_data::{EncryptedData, EncryptedDataError},
+        encrypted_data::{EncryptedData},
         payment_id::PaymentId,
         types::{CompressedCommitment, MicroMinotari, PrivateKey},
         transaction_output::LightweightTransactionOutput,
     },
     errors::{LightweightWalletError, EncryptionError, KeyManagementError},
-    key_management::{KeyManager, KeyStore, ImportedPrivateKey},
+    key_management::{ KeyStore, ImportedPrivateKey},
 };
 
 /// Options for encrypted data decryption

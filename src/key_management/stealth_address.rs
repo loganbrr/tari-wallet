@@ -125,54 +125,7 @@ impl StealthAddress {
         Ok(Self::new(public_key, ephemeral_public_key, None))
     }
 
-    /// Derive shared secret from public keys (for sender)
-    fn derive_shared_secret(
-        recipient_public_key: &CompressedPublicKey,
-        ephemeral_public_key: &CompressedPublicKey,
-    ) -> [u8; 32] {
-        // This is a simplified version - in practice, you'd need the ephemeral private key
-        // For now, we'll use a hash of both public keys
-        let mut hasher = Blake2b::<U32>::new();
-        hasher.update(b"TARI_STEALTH_ECDH");
-        hasher.update(recipient_public_key.as_bytes());
-        hasher.update(ephemeral_public_key.as_bytes());
-        let result = hasher.finalize();
-        let mut shared_secret = [0u8; 32];
-        shared_secret.copy_from_slice(result.as_slice());
-        shared_secret
-    }
 
-    /// Derive shared secret from private key and public key (for recipient)
-    fn derive_shared_secret_from_private_key(
-        recipient_private_key: &PrivateKey,
-        ephemeral_public_key: &CompressedPublicKey,
-    ) -> [u8; 32] {
-        // Perform ECDH: recipient_private_key * ephemeral_public_key
-        let ephemeral_point = ephemeral_public_key.decompress().unwrap_or_else(|| {
-            // Fallback to identity point if decompression fails
-            RistrettoPoint::identity()
-        });
-        let shared_point = recipient_private_key.0 * ephemeral_point;
-        let mut shared_secret = [0u8; 32];
-        shared_secret.copy_from_slice(shared_point.compress().to_bytes().as_slice());
-        shared_secret
-    }
-
-    /// Derive stealth private key
-    fn derive_stealth_private_key(
-        recipient_private_key: &PrivateKey,
-        shared_secret: &[u8; 32],
-    ) -> PrivateKey {
-        // Use Blake2b to derive the stealth private key
-        let mut hasher = Blake2b::<U32>::new();
-        hasher.update(b"TARI_STEALTH_PRIVKEY");
-        hasher.update(recipient_private_key.as_bytes());
-        hasher.update(shared_secret);
-        let result = hasher.finalize();
-        let mut stealth_key_bytes = [0u8; 32];
-        stealth_key_bytes.copy_from_slice(result.as_slice());
-        PrivateKey::new(stealth_key_bytes)
-    }
 }
 
 /// Stealth address generator and key recovery
@@ -191,16 +144,16 @@ impl StealthAddressManager {
         // 1. Generate ephemeral private key r
         let r = PrivateKey::random().0;
         // 2. Compute ephemeral public key R = r*G
-        let R = (r * RISTRETTO_BASEPOINT_POINT).compress();
+        let ephemeral_public_key = (r * RISTRETTO_BASEPOINT_POINT).compress();
         // 3. Compute shared secret S = r*P
-        let P = recipient_public_key.decompress().ok_or_else(|| KeyManagementError::InvalidPublicKey("Could not decompress recipient public key".to_string()))?;
-        let S = r * P;
+        let recipient_public_key = recipient_public_key.decompress().ok_or_else(|| KeyManagementError::InvalidPublicKey("Could not decompress recipient public key".to_string()))?;
+        let shared_secret = r * recipient_public_key;
         // 4. Hash the shared secret to a scalar
-        let h = hash_to_scalar(&S);
+        let h = hash_to_scalar(&shared_secret);
         // 5. Compute stealth public key: P_stealth = P + h*G
-        let P_stealth = P + h * RISTRETTO_BASEPOINT_POINT;
-        let stealth_public_key = CompressedPublicKey::from_point(&P_stealth);
-        let ephemeral_public_key = CompressedPublicKey(R);
+        let stealth_public_key = recipient_public_key + h * RISTRETTO_BASEPOINT_POINT;
+        let stealth_public_key = CompressedPublicKey::from_point(&stealth_public_key);
+        let ephemeral_public_key = CompressedPublicKey(ephemeral_public_key);
         Ok(StealthAddress::new(stealth_public_key, ephemeral_public_key.clone(), None))
     }
 
@@ -214,10 +167,10 @@ impl StealthAddressManager {
     ) -> Result<PrivateKey, KeyManagementError> {
         // 1. Compute shared secret S = a*R
         let a = recipient_private_key.0;
-        let R = ephemeral_public_key.decompress().ok_or_else(|| KeyManagementError::InvalidPublicKey("Could not decompress ephemeral public key".to_string()))?;
-        let S = a * R;
+        let ephemeral_point = ephemeral_public_key.decompress().ok_or_else(|| KeyManagementError::InvalidPublicKey("Could not decompress ephemeral public key".to_string()))?;
+        let shared_secret = a * ephemeral_point;
         // 2. Hash the shared secret to a scalar
-        let h = hash_to_scalar(&S);
+        let h = hash_to_scalar(&shared_secret);
         // 3. Compute stealth private key: k_stealth = a + h
         let k_stealth = a + h;
         Ok(PrivateKey(k_stealth))
