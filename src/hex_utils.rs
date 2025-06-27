@@ -490,23 +490,22 @@ mod tests {
         let parsed = PaymentId::from_hex(&hex).unwrap();
         assert_eq!(parsed, empty_payment_id);
         
-        // Test U256 payment ID (64 hex chars)
+        // Test U256 payment ID - roundtrip with proper tag
         let u256_value = U256::from(0x123456789abcdef0u64);
-        let u256_hex = format!("{:064x}", u256_value); // pad to 64 chars
-        let u256_payment_id = PaymentId::U256(U256::from_str_radix(&u256_hex, 16).unwrap());
-        let parsed = PaymentId::from_hex(&u256_hex).unwrap();
+        let u256_payment_id = PaymentId::U256(u256_value);
+        let hex = u256_payment_id.to_hex();
+        let parsed = PaymentId::from_hex(&hex).unwrap();
         assert_eq!(parsed, u256_payment_id);
         
-        // Test Raw payment ID (less than 64 chars)
+        // Test Raw payment ID - roundtrip
         let raw_data = vec![0xaa, 0xbb, 0xcc, 0xdd];
-        let hex = hex::encode(&raw_data);
         let raw_payment_id = PaymentId::Raw(raw_data.clone());
+        let hex = raw_payment_id.to_hex();
         let parsed = PaymentId::from_hex(&hex).unwrap();
         assert_eq!(parsed, raw_payment_id);
         
-        // Test validation
+        // Test validation with proper PaymentId hex (includes tags)
         assert!(PaymentId::is_valid_hex(""));
-        assert!(PaymentId::is_valid_hex(&u256_hex));
         assert!(PaymentId::is_valid_hex(&hex));
     }
     

@@ -10,7 +10,6 @@
 //! in base_layer/common_types/src/tari_address/
 
 use crate::errors::{LightweightWalletError, DataStructureError};
-use crate::hex_utils::{HexEncodable};
 use crate::data_structures::types::{CompressedPublicKey, };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -948,6 +947,12 @@ impl TariAddress {
     }
 }
 
+impl Default for TariAddress {
+    fn default() -> Self {
+        TariAddress::new_dual_address_with_default_features(CompressedPublicKey::default(), CompressedPublicKey::default(),    Network::Esmeralda).unwrap()
+    }
+}
+
 // Address format detection
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AddressFormat {
@@ -958,7 +963,7 @@ pub enum AddressFormat {
 
 impl TariAddress {
     pub fn format(&self) -> AddressFormat {
-        // This is a placeholder - in practice, you'd detect based on the string format
+        // TODO: This is a placeholder - in practice, you'd detect based on the string format
         AddressFormat::Emoji
     }
 }

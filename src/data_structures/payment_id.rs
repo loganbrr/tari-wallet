@@ -34,7 +34,7 @@ use crate::data_structures::{
 };
 use crate::hex_utils::{HexEncodable, HexValidatable, HexError};
 use borsh::{BorshSerialize, BorshDeserialize};
-use hex::ToHex;
+
 
 // We pad the bytes to min this size, so that we can use the same size for AddressAndData and TransactionInfo
 const PADDING_SIZE: usize = 130;
@@ -479,7 +479,7 @@ impl PaymentId {
                     user_data: bytes.get(1..).unwrap_or_default().to_vec(),
                 }
             },
-            PTag::Raw => return PaymentId::Raw(raw_bytes),
+            PTag::Raw => return PaymentId::Raw(bytes.to_vec()),
             _ => {},
         }
 

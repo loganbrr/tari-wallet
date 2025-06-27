@@ -404,6 +404,12 @@ impl HexValidatable for CompressedCommitment {}
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct CompressedPublicKey(#[serde(with = "compressed_ristretto_serde")] pub CompressedRistretto);
 
+impl Default for CompressedPublicKey {
+    fn default() -> Self {
+        Self(CompressedRistretto::default())
+    }
+}
+
 impl BorshSerialize for CompressedPublicKey {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         BorshSerialize::serialize(&self.0.to_bytes(), writer)
