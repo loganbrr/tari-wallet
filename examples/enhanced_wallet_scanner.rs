@@ -64,6 +64,8 @@ struct WalletTransaction {
     is_spent: bool,
     spent_in_block: Option<u64>,
     spent_in_input: Option<usize>,
+    transaction_type: String, // "Coinbase", "Payment", etc.
+    is_mature: bool,
 }
 
 #[cfg(feature = "grpc")]
@@ -95,6 +97,8 @@ impl WalletState {
         commitment: CompressedCommitment,
         value: u64,
         payment_id: PaymentId,
+        transaction_type: String,
+        is_mature: bool,
     ) {
         let transaction = WalletTransaction {
             block_height,
@@ -106,6 +110,8 @@ impl WalletState {
             is_spent: false,
             spent_in_block: None,
             spent_in_input: None,
+            transaction_type,
+            is_mature,
         };
 
         let tx_index = self.transactions.len();
@@ -183,12 +189,28 @@ async fn scan_wallet_across_blocks(
     
     // Phase 1: Scan all blocks for received outputs
     println!("📥 Discovering wallet outputs...");
+    
+    // Warning about scanning limitations
+    if from_block > 1 {
+        println!("⚠️  WARNING: Starting scan from block {} (not genesis)", from_block);
+        println!("   📍 This will MISS any wallet outputs received before block {}", from_block);
+        println!("   💡 For complete transaction history, consider scanning from genesis (FROM_BLOCK=1)");
+        println!("   🔄 Spent transactions may not be detected if their outputs were received earlier");
+        println!();
+    }
+    
+    let discovery_from_block = from_block; // Use user's FROM_BLOCK parameter
+    let discovery_to_block = to_block; // Scan up to the requested end block
+    let discovery_range = discovery_to_block - discovery_from_block + 1;
+    
+    println!("🔍 Output discovery range: blocks {} to {} ({} blocks)", discovery_from_block, discovery_to_block, discovery_range);
+    
     let mut transactions_found = 0;
     let mut total_value_found = 0u64;
-    for block_height in from_block..=to_block {
-        let current_block = block_height - from_block + 1;
-        let total_blocks = block_range;
-        let progress_percent = (current_block as f64 / total_blocks as f64) * 100.0;
+    for block_height in discovery_from_block..=discovery_to_block {
+        let current_block = block_height - discovery_from_block + 1;
+        let total_discovery_blocks = discovery_range;
+        let progress_percent = (current_block as f64 / total_discovery_blocks as f64) * 100.0;
         
         // Create progress bar (50 characters wide)
         let bar_width = 50;
@@ -199,7 +221,7 @@ async fn scan_wallet_across_blocks(
         );
         
         print!("\r   [{}] {:.1}% ({}/{} blocks) - Block {} - {} TX ({:.6} T)", 
-            bar, progress_percent, current_block, total_blocks, block_height, transactions_found, total_value_found as f64 / 1_000_000.0);
+            bar, progress_percent, current_block, total_discovery_blocks, block_height, transactions_found, total_value_found as f64 / 1_000_000.0);
         std::io::Write::flush(&mut std::io::stdout()).unwrap();
         
         let block_info = match scanner.get_block_by_height(block_height).await {
@@ -242,6 +264,60 @@ async fn scan_wallet_across_blocks(
         
         // Scan outputs for this wallet
         for (output_index, output) in block_info.outputs.iter().enumerate() {
+            let mut found_output = false;
+            
+            // Check for coinbase outputs first (they don't use encrypted data for value, but we still need to verify ownership)
+            if matches!(output.features.output_type, lightweight_wallet_libs::data_structures::wallet_output::LightweightOutputType::Coinbase) {
+                // Coinbase outputs have their value revealed in minimum_value_promise
+                let coinbase_value = output.minimum_value_promise.as_u64();
+                if coinbase_value > 0 {
+                    // For coinbase outputs, we still need to verify ownership
+                    // Try to decrypt encrypted_data (even though value is public, encrypted_data may contain ownership proof)
+                    let mut is_ours = false;
+                    
+                    if !output.encrypted_data.as_bytes().is_empty() {
+                        // Try regular decryption for ownership verification
+                        if let Ok((_value, _mask, _payment_id)) = EncryptedData::decrypt_data(&view_key, &output.commitment, &output.encrypted_data) {
+                            is_ours = true;
+                        }
+                        // Try one-sided decryption for ownership verification
+                        else if !output.sender_offset_public_key.as_bytes().is_empty() {
+                            if let Ok((_value, _mask, _payment_id)) = EncryptedData::decrypt_one_sided_data(&view_key, &output.commitment, &output.sender_offset_public_key, &output.encrypted_data) {
+                                is_ours = true;
+                            }
+                        }
+                    }
+                    
+                    // Only add to wallet if we can prove ownership through decryption
+                    if is_ours {
+                        // Check if coinbase is mature (can be spent)
+                        let is_mature = block_height >= output.features.maturity;
+                        
+                        println!("\n💰 Found wallet coinbase reward: {} μT in block {} (mature: {})", 
+                            coinbase_value, block_height, is_mature);
+                        
+                        wallet_state.add_received_output(
+                            block_height,
+                            output_index,
+                            output.commitment.clone(),
+                            coinbase_value,
+                            PaymentId::Empty, // Coinbase outputs typically have no payment ID
+                            "Coinbase".to_string(),
+                            is_mature,
+                        );
+                        transactions_found += 1;
+                        total_value_found += coinbase_value;
+                        found_output = true;
+                    }
+                }
+            }
+            
+            // Skip encrypted data processing if we already found a coinbase output
+            if found_output {
+                continue;
+            }
+            
+            // Skip if no encrypted data
             if output.encrypted_data.as_bytes().is_empty() {
                 continue;
             }
@@ -255,6 +331,8 @@ async fn scan_wallet_across_blocks(
                     output.commitment.clone(),
                     value_u64,
                     payment_id,
+                    "Payment".to_string(),
+                    true, // Regular payments are always mature
                 );
                 transactions_found += 1;
                 total_value_found += value_u64;
@@ -271,6 +349,8 @@ async fn scan_wallet_across_blocks(
                         output.commitment.clone(),
                         value_u64,
                         payment_id,
+                        "One-sided".to_string(),
+                        true, // One-sided payments are always mature
                     );
                     transactions_found += 1;
                     total_value_found += value_u64;
@@ -280,16 +360,28 @@ async fn scan_wallet_across_blocks(
     }
     println!("\n✅ Output discovery complete!");
     
-    // Phase 2: Scan all blocks for spent inputs (including future blocks)
+    // Phase 2: Scan for spending of discovered outputs (within requested range + future)
     println!("📤 Tracking spent outputs...");
-    println!("💡 Extending scan range to look for future spending...");
+    println!("💡 Scanning for spending of {} discovered outputs...", wallet_state.transactions.len());
+    
+    if wallet_state.transactions.is_empty() {
+        println!("⚠️  No wallet outputs found in scan range - no spending to track");
+        println!("   💡 Try scanning from an earlier block or from genesis (FROM_BLOCK=1)");
+    }
     
     // Get current tip to scan beyond our initial range for spending
     let current_tip = scanner.get_tip_info().await?.best_block_height;
     let extended_to_block = std::cmp::min(to_block + 1000, current_tip); // Look ahead up to 1000 blocks
     
-    println!("🔍 Scanning for spent outputs from block {} to {} (extended range)", from_block, extended_to_block);
+    println!("🔍 Spending detection range: blocks {} to {} (requested range + future)", from_block, extended_to_block);
     println!("📊 Tracking {} wallet outputs for spending", wallet_state.transactions.len());
+    
+    if !wallet_state.transactions.is_empty() {
+        println!("🔑 Wallet output commitments to track:");
+        for (i, tx) in wallet_state.transactions.iter().enumerate() {
+            println!("   {}. Block {}: {} ({:.6} T)", i + 1, tx.block_height, hex::encode(tx.commitment.as_bytes()), tx.value as f64 / 1_000_000.0);
+        }
+    }
     
     for block_height in from_block..=extended_to_block {
         let current_block = block_height - from_block + 1;
@@ -347,16 +439,26 @@ async fn scan_wallet_across_blocks(
         };
         
         // Check inputs to see if they spend our outputs
+        if !block_info.inputs.is_empty() && block_height >= from_block && block_height <= to_block {
+            // Debug: show inputs found in blocks within our requested range
+            if block_info.inputs.len() > 0 && (block_height - from_block) % 50 == 0 {
+                println!("\n🔍 Block {} has {} inputs (checking for wallet spending)", block_height, block_info.inputs.len());
+            }
+        }
+        
         for (input_index, input) in block_info.inputs.iter().enumerate() {
-            // Convert input commitment bytes to CompressedCommitment
-            if input.commitment.len() == 32 {
-                let commitment_bytes: [u8; 32] = input.commitment.clone().try_into().unwrap_or([0u8; 32]);
-                let input_commitment = CompressedCommitment::new(commitment_bytes);
-                wallet_state.mark_output_spent(
-                    &input_commitment,
-                    block_height,
-                    input_index,
-                );
+            // Input commitment is already [u8; 32], convert directly to CompressedCommitment
+            let input_commitment = CompressedCommitment::new(input.commitment);
+            
+            // Debug: show what we're trying to match
+            if wallet_state.mark_output_spent(
+                &input_commitment,
+                block_height,
+                input_index,
+            ) {
+                // Successfully marked an output as spent
+                println!("\n✅ SPENT! Input {} in block {} spending our commitment: {}", 
+                    input_index, block_height, hex::encode(input.commitment));
             }
         }
     }
@@ -372,6 +474,10 @@ fn display_wallet_activity(wallet_state: &WalletState, from_block: u64, to_block
     
     if received_count == 0 && spent_count == 0 {
         println!("💡 No wallet activity found in blocks {} to {}", from_block, to_block);
+        if from_block > 1 {
+            println!("   ⚠️  Note: Scanning from block {} - wallet history before this block was not checked", from_block);
+            println!("   💡 For complete history, try: FROM_BLOCK=1 cargo run --example enhanced_wallet_scanner --features grpc");
+        }
         return;
     }
     
@@ -394,13 +500,21 @@ fn display_wallet_activity(wallet_state: &WalletState, from_block: u64, to_block
                 "UNSPENT".to_string()
             };
             
-            println!("{}. Block {}, Output #{}: +{} μT ({:.6} T) - {}", 
+            let maturity_indicator = if tx.transaction_type == "Coinbase" && !tx.is_mature {
+                " (IMMATURE)"
+            } else {
+                ""
+            };
+            
+            println!("{}. Block {}, Output #{}: +{} μT ({:.6} T) - {} [{}{}]", 
                 i + 1,
                 tx.block_height,
                 tx.output_index.unwrap_or(0),
                 tx.value,
                 tx.value as f64 / 1_000_000.0,
-                status
+                status,
+                tx.transaction_type,
+                maturity_indicator
             );
             
             // Show payment ID if not empty
@@ -438,6 +552,37 @@ fn display_wallet_activity(wallet_state: &WalletState, from_block: u64, to_block
     println!("Unspent outputs: {} ({:.6} T)", unspent_count, unspent_value as f64 / 1_000_000.0);
     println!("Spent outputs: {} ({:.6} T)", spent_count, total_spent as f64 / 1_000_000.0);
     println!("Total wallet activity: {} transactions", received_count);
+    
+    if from_block > 1 {
+        println!();
+        println!("⚠️  SCAN LIMITATION NOTE");
+        println!("=======================");
+        println!("Scanned from block {} (not genesis) - transactions before this may be missing", from_block);
+        println!("For complete wallet history, scan from genesis: FROM_BLOCK=1");
+    }
+    
+    // Show transaction type breakdown
+    let mut type_counts = std::collections::HashMap::new();
+    let mut coinbase_immature = 0;
+    for tx in &wallet_state.transactions {
+        *type_counts.entry(&tx.transaction_type).or_insert(0) += 1;
+        if tx.transaction_type == "Coinbase" && !tx.is_mature {
+            coinbase_immature += 1;
+        }
+    }
+    
+    if !type_counts.is_empty() {
+        println!();
+        println!("📊 TRANSACTION TYPES");
+        println!("===================");
+        for (tx_type, count) in type_counts {
+            if tx_type == "Coinbase" && coinbase_immature > 0 {
+                println!("{}: {} ({} immature)", tx_type, count, coinbase_immature);
+            } else {
+                println!("{}: {}", tx_type, count);
+            }
+        }
+    }
 }
 
 #[cfg(feature = "grpc")]
