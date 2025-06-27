@@ -67,9 +67,9 @@ impl LightweightBulletProofPlusValidator {
         }
 
         // Check that commitment is valid (basic structure check)
-        if commitment.as_bytes().len() != 33 {
+        if commitment.as_bytes().len() != 32 {
             return Err(ValidationError::commitment_validation_failed(
-                "Commitment must be 33 bytes",
+                "Commitment must be 32 bytes",
             ));
         }
 
@@ -178,9 +178,9 @@ impl LightweightRevealedValueValidator {
         metadata_signature_challenge: &[u8],
     ) -> Result<(), ValidationError> {
         // Check that commitment is valid (basic structure check)
-        if commitment.as_bytes().len() != 33 {
+        if commitment.as_bytes().len() != 32 {
             return Err(ValidationError::commitment_validation_failed(
-                "Commitment must be 33 bytes",
+                "Commitment must be 32 bytes",
             ));
         }
 
@@ -310,7 +310,7 @@ mod tests {
     #[test]
     fn test_single_proof_validation_basic() {
         let validator = LightweightBulletProofPlusValidator::default();
-        let commitment = CompressedCommitment::new([0u8; 33]);
+        let commitment = CompressedCommitment::new([0u8; 32]);
         let minimum_value = MicroMinotari::new(1000);
 
         // Test with valid inputs
@@ -331,7 +331,7 @@ mod tests {
     #[test]
     fn test_batch_validation() {
         let validator = LightweightBulletProofPlusValidator::default();
-        let commitment = CompressedCommitment::new([0u8; 33]);
+        let commitment = CompressedCommitment::new([0u8; 32]);
         let minimum_value = MicroMinotari::new(1000);
 
         let proofs = vec![vec![1, 2, 3, 4], vec![5, 6, 7, 8]];
@@ -347,7 +347,7 @@ mod tests {
     #[test]
     fn test_batch_validation_mismatched_lengths() {
         let validator = LightweightBulletProofPlusValidator::default();
-        let commitment = CompressedCommitment::new([0u8; 33]);
+        let commitment = CompressedCommitment::new([0u8; 32]);
         let minimum_value = MicroMinotari::new(1000);
 
         let proofs = vec![vec![1, 2, 3, 4]];
@@ -362,7 +362,7 @@ mod tests {
 
     #[test]
     fn test_range_proof_statement_creation() {
-        let commitment = CompressedCommitment::new([0u8; 33]);
+        let commitment = CompressedCommitment::new([0u8; 32]);
         let minimum_value = MicroMinotari::new(1000);
         
         let statement = RangeProofStatement::new(commitment.clone(), minimum_value);
@@ -412,7 +412,7 @@ mod tests {
     #[test]
     fn test_revealed_value_proof_validation_valid() {
         let validator = LightweightRevealedValueValidator::default();
-        let commitment = CompressedCommitment::new([0u8; 33]);
+        let commitment = CompressedCommitment::new([0u8; 32]);
         let minimum_value = MicroMinotari::new(1000);
         
         // Create a valid challenge
@@ -441,7 +441,7 @@ mod tests {
     #[test]
     fn test_revealed_value_proof_validation_invalid_signature() {
         let validator = LightweightRevealedValueValidator::default();
-        let commitment = CompressedCommitment::new([0u8; 33]);
+        let commitment = CompressedCommitment::new([0u8; 32]);
         let minimum_value = MicroMinotari::new(1000);
         
         // Create a challenge
@@ -462,7 +462,7 @@ mod tests {
     #[test]
     fn test_revealed_value_proof_validation_invalid_commitment() {
         let validator = LightweightRevealedValueValidator::default();
-        let invalid_commitment = CompressedCommitment::new([0u8; 33]); // This is actually valid size
+        let invalid_commitment = CompressedCommitment::new([0u8; 32]); // This is actually valid size
         let minimum_value = MicroMinotari::new(1000);
         
         let challenge = [1u8; 32];
@@ -489,7 +489,7 @@ mod tests {
     #[test]
     fn test_revealed_value_proof_validation_value_out_of_range() {
         let validator = LightweightRevealedValueValidator::new(16); // Small bit length
-        let commitment = CompressedCommitment::new([0u8; 33]);
+        let commitment = CompressedCommitment::new([0u8; 32]);
         let large_value = MicroMinotari::new(1u64 << 17); // Exceeds 16-bit range
         
         let challenge = [1u8; 32];
@@ -516,7 +516,7 @@ mod tests {
     #[test]
     fn test_revealed_value_proof_validation_invalid_challenge() {
         let validator = LightweightRevealedValueValidator::default();
-        let commitment = CompressedCommitment::new([0u8; 33]);
+        let commitment = CompressedCommitment::new([0u8; 32]);
         let minimum_value = MicroMinotari::new(1000);
         
         // Use an invalid challenge (wrong size)
@@ -536,7 +536,7 @@ mod tests {
     #[test]
     fn test_revealed_value_proof_validation_zero_value() {
         let validator = LightweightRevealedValueValidator::default();
-        let commitment = CompressedCommitment::new([0u8; 33]);
+        let commitment = CompressedCommitment::new([0u8; 32]);
         let zero_value = MicroMinotari::new(0);
         
         let challenge = [1u8; 32];
@@ -563,7 +563,7 @@ mod tests {
     #[test]
     fn test_revealed_value_proof_validation_large_value() {
         let validator = LightweightRevealedValueValidator::new(32);
-        let commitment = CompressedCommitment::new([0u8; 33]);
+        let commitment = CompressedCommitment::new([0u8; 32]);
         let large_value = MicroMinotari::new((1u64 << 31) - 1); // Max 32-bit value
         
         let challenge = [1u8; 32];

@@ -16,8 +16,8 @@ use crate::data_structures::{
 pub mod serde_helpers {
     use super::*;
 
-    /// Serialize a 33-byte array as hex
-    pub fn serialize_array_33<S>(bytes: &[u8; 33], serializer: S) -> Result<S::Ok, S::Error>
+    /// Serialize a 32-byte array as hex (this was incorrectly named serialize_array_33)
+    pub fn serialize_array_33<S>(bytes: &[u8; 32], serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -25,22 +25,22 @@ pub mod serde_helpers {
         hex_string.serialize(serializer)
     }
 
-    /// Deserialize a 33-byte array from hex
-    pub fn deserialize_array_33<'de, D>(deserializer: D) -> Result<[u8; 33], D::Error>
+    /// Deserialize a 32-byte array from hex (this was incorrectly named deserialize_array_33)
+    pub fn deserialize_array_33<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
     where
         D: Deserializer<'de>,
     {
         let hex_string = String::deserialize(deserializer)?;
         let bytes = hex::decode(&hex_string).map_err(serde::de::Error::custom)?;
         
-        if bytes.len() != 33 {
+        if bytes.len() != 32 {
             return Err(serde::de::Error::custom(format!(
-                "Expected 33 bytes, got {}",
+                "Expected 32 bytes, got {}",
                 bytes.len()
             )));
         }
         
-        let mut array = [0u8; 33];
+        let mut array = [0u8; 32];
         array.copy_from_slice(&bytes);
         Ok(array)
     }
@@ -412,12 +412,12 @@ mod tests {
     
     #[test]
     fn test_compressed_commitment_hex() {
-        let commitment_bytes = [0x34; 33];
+        let commitment_bytes = [0u8; 32];
         let commitment = CompressedCommitment::new(commitment_bytes);
         
         // Test to_hex
         let hex = commitment.to_hex();
-        assert_eq!(hex.len(), 66); // 33 bytes * 2 hex chars per byte
+        assert_eq!(hex.len(), 64); // 32 bytes * 2 hex chars per byte
         
         // Test from_hex
         let parsed = CompressedCommitment::from_hex(&hex).unwrap();
@@ -548,7 +548,7 @@ mod tests {
     fn test_hex_encodable_traits() {
         // Test that all types implement HexEncodable and HexValidatable
         let private_key = PrivateKey::new([0x12; 32]);
-        let commitment = CompressedCommitment::new([0x34; 33]);
+        let commitment = CompressedCommitment::new([0u8; 32]);
         let public_key = CompressedPublicKey::new([0x56; 32]);
         let safe_array = SafeArray::new([0x78; 16]);
         let encrypted_data = EncryptedData::from_bytes(&vec![0x9a; 80]).unwrap();

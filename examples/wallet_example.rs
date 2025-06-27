@@ -1,4 +1,4 @@
-use lightweight_wallet_libs::crypto::{RistrettoPublicKey, PublicKey,SecretKey};
+use lightweight_wallet_libs::crypto::{RistrettoPublicKey, PublicKey};
 use lightweight_wallet_libs::data_structures::{
     address::TariAddressFeatures, types::CompressedPublicKey, Network, TariAddress,
 };

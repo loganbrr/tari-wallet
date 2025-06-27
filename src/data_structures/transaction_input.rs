@@ -11,7 +11,7 @@ pub struct TransactionInput {
     /// Input features
     pub features: u8,
     /// Commitment to the output being spent
-    pub commitment: [u8; 33],
+    pub commitment: [u8; 32],
     /// Script signature
     pub script_signature: [u8; 64],
     /// Sender offset public key
@@ -87,7 +87,7 @@ impl TransactionInput {
     pub fn new(
         version: u8,
         features: u8,
-        commitment: [u8; 33],
+        commitment: [u8; 32],
         script_signature: [u8; 64],
         sender_offset_public_key: CompressedPublicKey,
         covenant: Vec<u8>,
@@ -181,7 +181,7 @@ mod tests {
 
     #[test]
     fn test_transaction_input_creation() {
-        let commitment = [0x01; 33];
+        let commitment = [0x01; 32];
         let script_signature = [0x02; 64];
         let sender_offset_public_key = CompressedPublicKey::new([0x03; 32]);
         let covenant = vec![0x03, 0x04, 0x05];
@@ -222,7 +222,7 @@ mod tests {
         let input = TransactionInput::new(
             1,
             2,
-            [0x01; 33],
+            [0x01; 32],
             [0x02; 64],
             CompressedPublicKey::new([0x03; 32]),
             vec![0x03],

@@ -2,4 +2,4 @@ target
 .idea
 .code
 .vscode
-REFERENCE_*
+/REFERENCE_*

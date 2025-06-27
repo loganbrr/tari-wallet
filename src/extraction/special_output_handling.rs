@@ -496,7 +496,7 @@ mod tests {
         LightweightTransactionOutput::new(
             1,
             features,
-            CompressedCommitment::new([1u8; 33]),
+            CompressedCommitment::new([1u8; 32]),
             Some(LightweightRangeProof::default()),
             LightweightScript::default(),
             crate::data_structures::types::CompressedPublicKey::new([3u8; 32]),

@@ -323,7 +323,7 @@ impl CorruptionDetector {
         }
 
         // Check if commitment has wrong length
-        if commitment.as_bytes().len() != 33 {
+        if commitment.as_bytes().len() != 32 {
             return CorruptionDetectionResult::corrupted(
                 CorruptionType::CommitmentCorruption,
                 "Commitment has wrong length".to_string(),
@@ -426,9 +426,9 @@ impl CorruptionDetector {
                 }
                 CorruptionDetectionResult::clean()
             }
-            PaymentId::Open { data } => {
+            PaymentId::Open { user_data, tx_type: _ } => {
                 // Check if open data is empty
-                if data.is_empty() {
+                if user_data.is_empty() {
                     return CorruptionDetectionResult::corrupted(
                         CorruptionType::PaymentIdCorruption,
                         "Open payment ID data is empty".to_string(),
@@ -641,7 +641,7 @@ mod tests {
     use super::*;
     use crate::data_structures::{
         encrypted_data::EncryptedData,
-        payment_id::PaymentId,
+        payment_id::{PaymentId, TxType},
         types::{CompressedCommitment, MicroMinotari, PrivateKey},
     };
 
@@ -696,7 +696,7 @@ mod tests {
     #[test]
     fn test_detect_payment_id_corruption_empty_open() {
         let detector = CorruptionDetector::new();
-        let payment_id = PaymentId::Open { data: vec![] };
+        let payment_id = PaymentId::Open { user_data: vec![], tx_type: TxType::PaymentToOther };
         let result = detector.detect_payment_id_corruption(&payment_id);
         
         assert!(result.is_corrupted());
@@ -708,7 +708,7 @@ mod tests {
     #[test]
     fn test_detect_payment_id_corruption_clean() {
         let detector = CorruptionDetector::new();
-        let payment_id = PaymentId::Open { data: b"test_data".to_vec() };
+        let payment_id = PaymentId::Open { user_data: b"test_data".to_vec(), tx_type: TxType::PaymentToOther };
         let result = detector.detect_payment_id_corruption(&payment_id);
         
         assert!(!result.is_corrupted());
@@ -720,7 +720,7 @@ mod tests {
     #[test]
     fn test_detect_commitment_corruption_all_zeros() {
         let detector = CorruptionDetector::new();
-        let commitment = CompressedCommitment::new([0u8; 33]);
+        let commitment = CompressedCommitment::new([0u8; 32]);
         let result = detector.detect_commitment_corruption(&commitment);
         
         assert!(result.is_corrupted());

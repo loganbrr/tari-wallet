@@ -8,7 +8,7 @@
 
 use crate::{
     data_structures::{
-        encrypted_data::EncryptedData,
+        encrypted_data::{EncryptedData, EncryptedDataError},
         payment_id::PaymentId,
         types::{CompressedCommitment, MicroMinotari, PrivateKey},
         transaction_output::LightweightTransactionOutput,
@@ -184,12 +184,7 @@ impl EncryptedDataDecryptor {
                 ))
             }
             Err(e) => {
-                let error_msg = match e {
-                    LightweightWalletError::EncryptionError(EncryptionError::DecryptionFailed(msg)) => {
-                        format!("Decryption failed: {}", msg)
-                    }
-                    _ => format!("Decryption error: {}", e),
-                };
+                let error_msg = format!("Decryption error: {}", e);
                 Ok(DecryptionResult::failure(error_msg, 1))
             }
         }
@@ -459,7 +454,7 @@ mod tests {
 
     fn create_test_encrypted_data() -> (EncryptedData, CompressedCommitment, PrivateKey) {
         let encryption_key = PrivateKey::random();
-        let commitment = CompressedCommitment::new([0x08; 33]);
+        let commitment = CompressedCommitment::new([0x08; 32]);
         let value = MicroMinotari::new(1000);
         let mask = PrivateKey::random();
         let payment_id = PaymentId::Empty;

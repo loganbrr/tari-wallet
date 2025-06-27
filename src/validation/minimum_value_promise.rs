@@ -227,9 +227,9 @@ impl LightweightMinimumValuePromiseValidator {
         }
 
         // Validate commitment structure
-        if commitment.as_bytes().len() != 33 {
+        if commitment.as_bytes().len() != 32 {
             return Err(ValidationError::minimum_value_promise_validation_failed(
-                "Commitment must be 33 bytes",
+                "Commitment must be 32 bytes",
             ));
         }
 
@@ -544,7 +544,7 @@ mod tests {
     fn test_bulletproof_minimum_promise_validation() {
         let validator = LightweightMinimumValuePromiseValidator::default();
         let minimum_value = MicroMinotari::new(1000);
-        let commitment = CompressedCommitment::new([0x08; 33]);
+        let commitment = CompressedCommitment::new([0x08; 32]);
         let range_proof = LightweightRangeProof { bytes: vec![1, 2, 3, 4, 5] };
 
         let result = validator.validate_bulletproof_minimum_promise(

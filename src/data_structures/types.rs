@@ -197,7 +197,6 @@ impl PrivateKey {
 impl Zeroize for PrivateKey {
     fn zeroize(&mut self) {
         // Overwrite the scalar's memory directly
-        use zeroize::Zeroize;
         let mut bytes = self.0.to_bytes();
         bytes.zeroize();
         // Overwrite the scalar with zero scalar
@@ -352,22 +351,22 @@ impl From<MicroMinotari> for u64 {
     }
 }
 
-/// Compressed commitment (33 bytes)
+/// Compressed commitment (32 bytes)
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct CompressedCommitment {
     /// The commitment bytes
-    #[serde(serialize_with = "crate::hex_utils::serde_helpers::serialize_array_33", deserialize_with = "crate::hex_utils::serde_helpers::deserialize_array_33")]
-    pub bytes: [u8; 33],
+    #[serde(serialize_with = "crate::hex_utils::serde_helpers::serialize_array_32", deserialize_with = "crate::hex_utils::serde_helpers::deserialize_array_32")]
+    pub bytes: [u8; 32],
 }
 
 impl CompressedCommitment {
     /// Create a new compressed commitment from bytes
-    pub fn new(bytes: [u8; 33]) -> Self {
+    pub fn new(bytes: [u8; 32]) -> Self {
         Self { bytes }
     }
 
     /// Get the commitment bytes
-    pub fn as_bytes(&self) -> &[u8; 33] {
+    pub fn as_bytes(&self) -> &[u8; 32] {
         &self.bytes
     }
 
@@ -379,13 +378,13 @@ impl CompressedCommitment {
     /// Create from hex string
     pub fn from_hex(hex: &str) -> Result<Self, HexError> {
         let bytes = hex::decode(hex).map_err(|e| HexError::InvalidHex(e.to_string()))?;
-        if bytes.len() != 33 {
+        if bytes.len() != 32 {
             return Err(HexError::InvalidLength {
-                expected: 33,
+                expected: 32,
                 actual: bytes.len(),
             });
         }
-        let mut commitment_bytes = [0u8; 33];
+        let mut commitment_bytes = [0u8; 32];
         commitment_bytes.copy_from_slice(&bytes);
         Ok(Self::new(commitment_bytes))
     }
@@ -398,13 +397,13 @@ impl HexEncodable for CompressedCommitment {
     
     fn from_hex(hex: &str) -> Result<Self, HexError> {
         let bytes = hex::decode(hex).map_err(|e| HexError::InvalidHex(e.to_string()))?;
-        if bytes.len() != 33 {
+        if bytes.len() != 32 {
             return Err(HexError::InvalidLength {
-                expected: 33,
+                expected: 32,
                 actual: bytes.len(),
             });
         }
-        let mut commitment_bytes = [0u8; 33];
+        let mut commitment_bytes = [0u8; 32];
         commitment_bytes.copy_from_slice(&bytes);
         Ok(Self::new(commitment_bytes))
     }
@@ -589,6 +588,11 @@ impl EncryptedDataKey {
         self.0.as_bytes()
     }
 
+    /// Reveal the key mutably (use with caution) - matches REFERENCE_tari
+    pub fn reveal_mut(&mut self) -> &mut [u8; 32] {
+        &mut self.0.data
+    }
+
     /// Get the key as a mutable byte slice
     pub fn as_mut(&mut self) -> &mut [u8; 32] {
         &mut self.0.data
@@ -626,7 +630,7 @@ mod test {
 
     #[test]
     fn test_compressed_commitment() {
-        let commitment_bytes = [1u8; 33];
+        let commitment_bytes = [1u8; 32];
         let commitment = CompressedCommitment::new(commitment_bytes);
         assert_eq!(commitment.as_bytes(), &commitment_bytes);
 

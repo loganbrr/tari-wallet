@@ -246,9 +246,9 @@ pub fn validate_output_batch_parallel(
 fn validate_commitment_integrity(output: &LightweightTransactionOutput) -> Result<(), ValidationError> {
     // Basic commitment validation
     let commitment_bytes = output.commitment().as_bytes();
-    if commitment_bytes.len() != 33 {
+    if commitment_bytes.len() != 32 {
         return Err(ValidationError::commitment_validation_failed(
-            "Commitment must be 33 bytes",
+            "Commitment must be 32 bytes",
         ));
     }
     
@@ -318,9 +318,9 @@ mod tests {
 
     fn create_test_output(value: u64, is_valid: bool) -> LightweightTransactionOutput {
         let commitment = if is_valid {
-            CompressedCommitment::new([0x08; 33]) // Valid commitment prefix
+            CompressedCommitment::new([0x08; 32]) // Valid commitment prefix
         } else {
-            CompressedCommitment::new([0x00; 33]) // Invalid commitment prefix
+            CompressedCommitment::new([0x00; 32]) // Invalid commitment prefix
         };
 
         let encrypted_data = EncryptedData::from_hex("0102030405060708090a0b0c0d0e0f10").unwrap();

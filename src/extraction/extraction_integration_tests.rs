@@ -29,7 +29,7 @@ mod tests {
         features.output_type = output_type;
         let encrypted_data = EncryptedData::encrypt_data(
             key,
-            &CompressedCommitment::new([1u8; 33]),
+            &CompressedCommitment::new([1u8; 32]),
             MicroMinotari::new(value),
             &PrivateKey::random(),
             payment_id,
@@ -37,7 +37,7 @@ mod tests {
         LightweightTransactionOutput::new(
             1,
             features,
-            CompressedCommitment::new([1u8; 33]),
+            CompressedCommitment::new([1u8; 32]),
             Some(LightweightRangeProof::default()),
             LightweightScript::default(),
             crate::data_structures::types::CompressedPublicKey::new([2u8; 32]),
@@ -113,7 +113,7 @@ mod tests {
         let tx_output = LightweightTransactionOutput::new(
             1,
             features,
-            CompressedCommitment::new([1u8; 33]),
+            CompressedCommitment::new([1u8; 32]),
             Some(LightweightRangeProof::default()),
             LightweightScript::default(),
             crate::data_structures::types::CompressedPublicKey::new([2u8; 32]),
@@ -139,7 +139,7 @@ mod tests {
         let tx_output = LightweightTransactionOutput::new(
             1,
             features,
-            CompressedCommitment::new([1u8; 33]),
+            CompressedCommitment::new([1u8; 32]),
             Some(LightweightRangeProof::default()),
             LightweightScript::default(),
             crate::data_structures::types::CompressedPublicKey::new([2u8; 32]),

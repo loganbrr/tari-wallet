@@ -101,7 +101,7 @@ impl Default for LightweightTransactionOutput {
         Self {
             version: 1,
             features: LightweightOutputFeatures::default(),
-            commitment: CompressedCommitment::new([0u8; 33]),
+            commitment: CompressedCommitment::new([0u8; 32]),
             proof: None,
             script: LightweightScript::default(),
             sender_offset_public_key: CompressedPublicKey::new([0u8; 32]),
@@ -135,7 +135,7 @@ mod test {
     #[test]
     fn test_transaction_output_creation() {
         let features = LightweightOutputFeatures::default();
-        let commitment = CompressedCommitment::new([1u8; 33]);
+        let commitment = CompressedCommitment::new([1u8; 32]);
         let proof = Some(LightweightRangeProof::default());
         let script = LightweightScript::default();
         let sender_offset_public_key = CompressedPublicKey::new([2u8; 32]);

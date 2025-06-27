@@ -478,7 +478,7 @@ mod tests {
         let script = LightweightScript::default();
         let input_data = LightweightExecutionStack::default();
         let script_public_key = CompressedPublicKey::new([1u8; 32]);
-        let commitment = CompressedCommitment::new([2u8; 33]);
+        let commitment = CompressedCommitment::new([0u8; 32]);
         
         let result = validator.verify_script_signature(
             &script_signature,
@@ -501,7 +501,7 @@ mod tests {
         let script = LightweightScript::default();
         let input_data = LightweightExecutionStack::default();
         let script_public_key = CompressedPublicKey::new([1u8; 32]);
-        let commitment = CompressedCommitment::new([2u8; 33]);
+        let commitment = CompressedCommitment::new([0u8; 32]);
         
         let result = validator.verify_script_signature(
             &script_signature,
@@ -529,7 +529,7 @@ mod tests {
         let script = LightweightScript::default();
         let input_data = LightweightExecutionStack::default();
         let script_public_key = CompressedPublicKey::new([1u8; 32]);
-        let commitment = CompressedCommitment::new([2u8; 33]);
+        let commitment = CompressedCommitment::new([0u8; 32]);
         
         let result = validator.verify_script_signature(
             &script_signature,
@@ -552,7 +552,7 @@ mod tests {
         let script = LightweightScript::default();
         let input_data = LightweightExecutionStack::default();
         let script_public_key = CompressedPublicKey::new([1u8; 32]);
-        let commitment = CompressedCommitment::new([2u8; 33]);
+        let commitment = CompressedCommitment::new([0u8; 32]);
         
         let result = validator.verify_script_signature(
             &script_signature,
@@ -587,7 +587,7 @@ mod tests {
             scripts.push(LightweightScript::default());
             input_data_sets.push(LightweightExecutionStack::default());
             script_public_keys.push(CompressedPublicKey::new([i as u8; 32]));
-            commitments.push(CompressedCommitment::new([i as u8; 33]));
+            commitments.push(CompressedCommitment::new([i as u8; 32]));
         }
         
         let result = validator.verify_batch(
@@ -623,7 +623,7 @@ mod tests {
         scripts.push(LightweightScript::default());
         input_data_sets.push(LightweightExecutionStack::default());
         script_public_keys.push(CompressedPublicKey::new([1u8; 32]));
-        commitments.push(CompressedCommitment::new([2u8; 33]));
+        commitments.push(CompressedCommitment::new([0u8; 32]));
         
         // Invalid signature (all zeros)
         let signature_bytes = vec![0u8; 161];
@@ -631,7 +631,7 @@ mod tests {
         scripts.push(LightweightScript::default());
         input_data_sets.push(LightweightExecutionStack::default());
         script_public_keys.push(CompressedPublicKey::new([3u8; 32]));
-        commitments.push(CompressedCommitment::new([4u8; 33]));
+        commitments.push(CompressedCommitment::new([4u8; 32]));
         
         let result = validator.verify_batch(
             &signatures,
@@ -656,7 +656,7 @@ mod tests {
             &scripts,
             &[LightweightExecutionStack::default()],
             &[CompressedPublicKey::new([1u8; 32])],
-            &[CompressedCommitment::new([2u8; 33])],
+            &[CompressedCommitment::new([0u8; 32])],
             1,
         );
         assert!(result.is_err());
@@ -705,7 +705,7 @@ mod tests {
         let script = LightweightScript::default();
         let input_data = LightweightExecutionStack::default();
         let script_public_key = CompressedPublicKey::new([1u8; 32]);
-        let commitment = CompressedCommitment::new([2u8; 33]);
+        let commitment = CompressedCommitment::new([0u8; 32]);
         
         let result = validator.build_script_signature_challenge(
             1,
@@ -761,7 +761,7 @@ mod tests {
         let script_signature = LightweightSignature { bytes: signature_bytes };
         let script = LightweightScript::default();
         let input_data = LightweightExecutionStack::default();
-        let commitment = CompressedCommitment::new([2u8; 33]);
+        let commitment = CompressedCommitment::new([0u8; 32]);
         
         let result = validator.run_and_verify_script(
             &script_signature,

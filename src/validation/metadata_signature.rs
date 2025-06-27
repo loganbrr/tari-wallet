@@ -400,7 +400,7 @@ mod tests {
         let output = LightweightTransactionOutput::new(
             1,
             LightweightOutputFeatures::default(),
-            CompressedCommitment::new([1u8; 33]),
+            CompressedCommitment::new([1u8; 32]),
             None,
             LightweightScript::default(),
             CompressedPublicKey::new([2u8; 32]),
@@ -425,7 +425,7 @@ mod tests {
         let output = LightweightTransactionOutput::new(
             1,
             LightweightOutputFeatures::default(),
-            CompressedCommitment::new([1u8; 33]),
+            CompressedCommitment::new([1u8; 32]),
             None,
             LightweightScript::default(),
             CompressedPublicKey::new([2u8; 32]),
@@ -455,7 +455,7 @@ mod tests {
         let output = LightweightTransactionOutput::new(
             1,
             LightweightOutputFeatures::default(),
-            CompressedCommitment::new([1u8; 33]),
+            CompressedCommitment::new([1u8; 32]),
             None,
             LightweightScript::default(),
             CompressedPublicKey::new([2u8; 32]),
@@ -480,7 +480,7 @@ mod tests {
         let output = LightweightTransactionOutput::new(
             1,
             LightweightOutputFeatures::default(),
-            CompressedCommitment::new([1u8; 33]),
+            CompressedCommitment::new([1u8; 32]),
             None,
             LightweightScript::default(),
             CompressedPublicKey::new([2u8; 32]),
@@ -512,7 +512,7 @@ mod tests {
             let output = LightweightTransactionOutput::new(
                 1,
                 LightweightOutputFeatures::default(),
-                CompressedCommitment::new([i as u8; 33]),
+                CompressedCommitment::new([i as u8; 32]),
                 None,
                 LightweightScript::default(),
                 CompressedPublicKey::new([i as u8; 32]),
@@ -548,7 +548,7 @@ mod tests {
         let output = LightweightTransactionOutput::new(
             1,
             LightweightOutputFeatures::default(),
-            CompressedCommitment::new([1u8; 33]),
+            CompressedCommitment::new([1u8; 32]),
             None,
             LightweightScript::default(),
             CompressedPublicKey::new([2u8; 32]),
@@ -567,7 +567,7 @@ mod tests {
         let output = LightweightTransactionOutput::new(
             1,
             LightweightOutputFeatures::default(),
-            CompressedCommitment::new([2u8; 33]),
+            CompressedCommitment::new([0u8; 32]),
             None,
             LightweightScript::default(),
             CompressedPublicKey::new([3u8; 32]),
@@ -605,7 +605,7 @@ mod tests {
         let output = LightweightTransactionOutput::new(
             1,
             LightweightOutputFeatures::default(),
-            CompressedCommitment::new([1u8; 33]),
+            CompressedCommitment::new([1u8; 32]),
             None,
             LightweightScript::default(),
             CompressedPublicKey::new([2u8; 32]),
@@ -638,7 +638,7 @@ mod tests {
         let output = LightweightTransactionOutput::new(
             1,
             LightweightOutputFeatures::default(),
-            CompressedCommitment::new([1u8; 33]),
+            CompressedCommitment::new([1u8; 32]),
             None,
             LightweightScript::default(),
             CompressedPublicKey::new([2u8; 32]),

@@ -301,7 +301,7 @@ impl RangeProofExtractor {
 
         // For wallet outputs, we need to reconstruct the commitment
         // This is a simplified implementation - in practice, you'd need the actual commitment
-        let commitment = CompressedCommitment::new([0u8; 33]); // Placeholder
+        let commitment = CompressedCommitment::new([0u8; 32]); // Placeholder
 
         // Validate the range proof
         match self.bullet_proof_validator.verify_single(
@@ -343,7 +343,7 @@ impl RangeProofExtractor {
         }
 
         // For wallet outputs, we need to reconstruct the commitment
-        let commitment = CompressedCommitment::new([0u8; 33]); // Placeholder
+        let commitment = CompressedCommitment::new([0u8; 32]); // Placeholder
 
         match self.revealed_value_validator.verify_revealed_value_proof(
             &commitment,
@@ -466,7 +466,7 @@ mod tests {
         LightweightTransactionOutput::new(
             1,
             LightweightOutputFeatures::default(),
-            CompressedCommitment::new([1u8; 33]),
+            CompressedCommitment::new([1u8; 32]),
             proof,
             LightweightScript::default(),
             crate::data_structures::types::CompressedPublicKey::new([3u8; 32]),

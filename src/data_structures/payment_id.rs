@@ -23,13 +23,13 @@
 use primitive_types::U256;
 use serde::{Deserialize, Serialize};
 use crate::data_structures::types::MicroMinotari;
-use crate::errors::{LightweightWalletError, DataStructureError};
+
 use crate::hex_utils::{HexEncodable, HexValidatable, HexError};
 use borsh::{BorshSerialize, BorshDeserialize};
 use hex::ToHex;
 
 /// Transaction type enumeration
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum TxType {
     PaymentToOther = 0b0000,
     PaymentToSelf = 0b0001,
@@ -82,7 +82,12 @@ pub enum PaymentId {
     /// U256 payment ID
     U256 { value: U256 },
     /// Open payment ID (public)
-    Open { data: Vec<u8> },
+    Open { 
+        /// User data
+        user_data: Vec<u8>,
+        /// Transaction type
+        tx_type: TxType,
+    },
     /// Address and data payment ID
     AddressAndData {
         /// Address bytes
@@ -140,7 +145,7 @@ impl<'de> Deserialize<'de> for PaymentId {
         enum PaymentIdHelper {
             Empty,
             U256 { value: U256 },
-            Open { data: Vec<u8> },
+            Open { user_data: Vec<u8>, tx_type: TxType },
             AddressAndData { address: Vec<u8>, data: Vec<u8> },
             TransactionInfo { tx_id: Vec<u8>, output_index: u64 },
             Raw { data: Vec<u8> },
@@ -150,7 +155,7 @@ impl<'de> Deserialize<'de> for PaymentId {
         match helper {
             PaymentIdHelper::Empty => Ok(PaymentId::Empty),
             PaymentIdHelper::U256 { value } => Ok(PaymentId::U256 { value }),
-            PaymentIdHelper::Open { data } => Ok(PaymentId::Open { data }),
+            PaymentIdHelper::Open { user_data, tx_type } => Ok(PaymentId::Open { user_data, tx_type }),
             PaymentIdHelper::AddressAndData { address, data } => {
                 Ok(PaymentId::AddressAndData { address, data })
             }
@@ -201,9 +206,10 @@ impl BorshSerialize for PaymentId {
                 value.to_big_endian(&mut bytes);
                 borsh::BorshSerialize::serialize(&bytes, writer)?;
             }
-            PaymentId::Open { data } => {
+            PaymentId::Open { user_data, tx_type } => {
                 borsh::BorshSerialize::serialize(&2u8, writer)?;
-                borsh::BorshSerialize::serialize(data, writer)?;
+                borsh::BorshSerialize::serialize(&tx_type.as_u8(), writer)?;
+                borsh::BorshSerialize::serialize(user_data, writer)?;
             }
             PaymentId::AddressAndData { address, data } => {
                 borsh::BorshSerialize::serialize(&3u8, writer)?;
@@ -235,8 +241,10 @@ impl BorshDeserialize for PaymentId {
                 Ok(PaymentId::U256 { value })
             }
             2 => {
-                let data: Vec<u8> = borsh::BorshDeserialize::deserialize_reader(reader)?;
-                Ok(PaymentId::Open { data })
+                let tx_type_byte: u8 = borsh::BorshDeserialize::deserialize_reader(reader)?;
+                let tx_type = TxType::from_u8(tx_type_byte);
+                let user_data: Vec<u8> = borsh::BorshDeserialize::deserialize_reader(reader)?;
+                Ok(PaymentId::Open { user_data, tx_type })
             }
             3 => {
                 let address: Vec<u8> = borsh::BorshDeserialize::deserialize_reader(reader)?;
@@ -271,7 +279,7 @@ impl PaymentId {
         match self {
             PaymentId::Empty => 0,
             PaymentId::U256 { .. } => 1 + 32, // 1 byte tag + 32 bytes for U256
-            PaymentId::Open { data } => 1 + data.len() + 1,
+            PaymentId::Open { user_data, tx_type: _ } => 1 + 1 + user_data.len(), // tag + tx_type + data (no length byte)
             PaymentId::AddressAndData {
                 address,
                 data,
@@ -324,10 +332,10 @@ impl PaymentId {
                 value.to_big_endian(&mut bytes_array);
                 bytes.extend_from_slice(&bytes_array);
             },
-            PaymentId::Open { data } => {
+            PaymentId::Open { user_data, tx_type } => {
                 bytes.push(2); // Tag for Open
-                bytes.push(data.len() as u8);
-                bytes.extend_from_slice(data);
+                bytes.push(tx_type.as_u8()); // Transaction type
+                bytes.extend_from_slice(user_data); // No length byte (matches REFERENCE_tari)
             },
             PaymentId::AddressAndData {
                 address,
@@ -357,67 +365,73 @@ impl PaymentId {
     }
 
     /// Create payment ID from bytes
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, LightweightWalletError> {
+    pub fn from_bytes(bytes: &[u8]) -> Self {
         if bytes.is_empty() {
-            return Ok(PaymentId::Empty);
+            return PaymentId::Empty;
+        }
+
+        // Special case: If we have exactly 8 bytes, treat as raw ID data (REFERENCE_tari compatibility)
+        // This handles the case where raw id.to_le_bytes() is put directly in encrypted payload
+        if bytes.len() == 8 {
+            return PaymentId::Open {
+                user_data: bytes.to_vec(),
+                tx_type: TxType::PaymentToOther,
+            };
         }
 
         let tag = bytes[0];
         let data = &bytes[1..];
 
         match tag {
-            0 => Ok(PaymentId::Empty),
+            0 => PaymentId::Empty,
             1 => {
                 if data.len() != 32 {
-                    return Err(DataStructureError::InvalidPaymentId("U256 payment ID must be 32 bytes".to_string()).into());
+                    return PaymentId::Raw { data: bytes.to_vec() };
                 }
                 let mut value_bytes = [0u8; 32];
                 value_bytes.copy_from_slice(data);
-                Ok(PaymentId::U256 { value: U256::from_big_endian(&value_bytes) })
+                PaymentId::U256 { value: U256::from_big_endian(&value_bytes) }
             },
             2 => {
-                if data.len() < 2 {
-                    return Err(DataStructureError::InvalidPaymentId("Open payment ID data too short".to_string()).into());
+                if data.len() < 1 {
+                    return PaymentId::Raw { data: bytes.to_vec() };
                 }
-                let user_data_len = data[0] as usize;
-                if data.len() < 1 + user_data_len {
-                    return Err(DataStructureError::InvalidPaymentId("Open payment ID data too short".to_string()).into());
-                }
-                let user_data = data[1..1 + user_data_len].to_vec();
-                Ok(PaymentId::Open { data: user_data })
+                let tx_type = if data.len() >= 1 { TxType::from_u8(data[0]) } else { TxType::PaymentToOther };
+                let user_data = if data.len() > 1 { data[1..].to_vec() } else { vec![] };
+                PaymentId::Open { user_data, tx_type }
             },
             5 => {
                 if data.len() < 2 {
-                    return Err(DataStructureError::InvalidPaymentId("AddressAndData payment ID data too short".to_string()).into());
+                    return PaymentId::Raw { data: bytes.to_vec() };
                 }
                 let addr_len = data[0] as usize;
                 if data.len() < 1 + addr_len + 1 {
-                    return Err(DataStructureError::InvalidPaymentId("AddressAndData payment ID data too short".to_string()).into());
+                    return PaymentId::Raw { data: bytes.to_vec() };
                 }
                 let address = data[1..1 + addr_len].to_vec();
                 let data_len = data[1 + addr_len] as usize;
                 if data.len() < 1 + addr_len + 1 + data_len {
-                    return Err(DataStructureError::InvalidPaymentId("AddressAndData payment ID data too short".to_string()).into());
+                    return PaymentId::Raw { data: bytes.to_vec() };
                 }
-                let data = data[1 + addr_len + 1..1 + addr_len + 1 + data_len].to_vec();
-                Ok(PaymentId::AddressAndData {
+                let parsed_data = data[1 + addr_len + 1..1 + addr_len + 1 + data_len].to_vec();
+                PaymentId::AddressAndData {
                     address,
-                    data,
-                })
+                    data: parsed_data,
+                }
             },
             6 => {
                 if data.len() < 40 {
-                    return Err(DataStructureError::InvalidPaymentId("TransactionInfo payment ID data too short".to_string()).into());
+                    return PaymentId::Raw { data: bytes.to_vec() };
                 }
                 let tx_id = data[0..32].to_vec();
-                let output_index = u64::from_le_bytes(data[32..40].try_into().unwrap());
-                Ok(PaymentId::TransactionInfo {
+                let output_index = u64::from_le_bytes(data[32..40].try_into().unwrap_or([0; 8]));
+                PaymentId::TransactionInfo {
                     tx_id,
                     output_index,
-                })
+                }
             },
-            7 => Ok(PaymentId::Raw { data: data.to_vec() }),
-            _ => Ok(PaymentId::Raw { data: bytes.to_vec() }),
+            7 => PaymentId::Raw { data: data.to_vec() },
+            _ => PaymentId::Raw { data: bytes.to_vec() },
         }
     }
 }
@@ -431,7 +445,7 @@ impl HexEncodable for PaymentId {
                 value.to_big_endian(&mut bytes);
                 format!("{:064x}", U256::from_big_endian(&bytes))
             },
-            PaymentId::Open { data } => data.encode_hex::<String>(),
+            PaymentId::Open { user_data, tx_type: _ } => user_data.encode_hex::<String>(),
             PaymentId::AddressAndData { address, data } => {
                 format!("{}{}", hex::encode(address), data.encode_hex::<String>())
             }

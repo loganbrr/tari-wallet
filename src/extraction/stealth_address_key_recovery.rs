@@ -395,7 +395,7 @@ mod tests {
 
         let encrypted_data = EncryptedData::encrypt_data(
             &stealth_private_key,
-            &CompressedCommitment::new([1u8; 33]),
+            &CompressedCommitment::new([1u8; 32]),
             MicroMinotari::new(1000),
             &PrivateKey::random(),
             PaymentId::Empty,
@@ -404,7 +404,7 @@ mod tests {
         let transaction_output = LightweightTransactionOutput::new(
             1,
             crate::data_structures::wallet_output::LightweightOutputFeatures::default(),
-            CompressedCommitment::new([1u8; 33]),
+            CompressedCommitment::new([1u8; 32]),
             Some(crate::data_structures::wallet_output::LightweightRangeProof::default()),
             crate::data_structures::wallet_output::LightweightScript::default(),
             CompressedPublicKey::new([2u8; 32]),

@@ -14,7 +14,7 @@ use crate::data_structures::SafeArray;
 use crate::data_structures::address::{TariAddress, DualAddress, SingleAddress, TariAddressFeatures, Network};
 use crate::data_structures::types::{CompressedPublicKey, PrivateKey};
 use crate::errors::KeyManagementError;
-use crate::key_management::{mnemonic_to_master_key, validate_seed_phrase, bytes_to_mnemonic, CipherSeed};
+use crate::key_management::{mnemonic_to_master_key, bytes_to_mnemonic, CipherSeed};
 
 // Constants from Tari CipherSeed specification for birthday calculation
 const BIRTHDAY_GENESIS_FROM_UNIX_EPOCH: u64 = 1640995200; // seconds to 2022-01-01 00:00:00 UTC
