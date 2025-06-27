@@ -8,17 +8,11 @@
 
 use crate::{
     data_structures::{
-        transaction_output::LightweightTransactionOutput,
-        types::{CompressedPublicKey, PrivateKey, MicroMinotari},
+        types::{ PrivateKey},
     },
     errors::LightweightWalletError,
     key_management::{
-        StealthAddress, StealthAddressManager,
-        KeyStore,
-    },
-    extraction::{
-        encrypted_data_decryption::EncryptedDataDecryptor,
-        payment_id_extraction::PaymentIdExtractor,
+        StealthAddress,
     },
 };
 

@@ -13,7 +13,6 @@ use rand_core::{OsRng, RngCore};
 use blake2::{Blake2b, Digest};
 use chacha20::{ChaCha20, cipher::{KeyIvInit, StreamCipher}, Key, Nonce};
 use digest::consts::{U32, U64};
-use std::time;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 use argon2::{Argon2, Algorithm, Version, Params};
 use std::mem::size_of;

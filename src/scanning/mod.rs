@@ -15,8 +15,7 @@ use crate::{
     data_structures::{
         transaction_output::LightweightTransactionOutput,
         wallet_output::LightweightWalletOutput,
-        payment_id::PaymentId,
-        types::{CompressedCommitment, MicroMinotari, PrivateKey, CompressedPublicKey},
+        types::{ PrivateKey, CompressedPublicKey},
         encrypted_data::EncryptedData,
         transaction_input::TransactionInput,
         transaction_kernel::TransactionKernel,
@@ -25,21 +24,14 @@ use crate::{
     extraction::{
         extract_wallet_output,
         ExtractionConfig,
-        encrypted_data_decryption::EncryptedDataDecryptor,
-        payment_id_extraction::PaymentIdExtractor,
-        stealth_address_key_recovery::StealthKeyRecoveryManager,
-        wallet_output_reconstruction::WalletOutputReconstructor,
     },
     key_management::{self, KeyManager, KeyStore},
-    hex_utils::HexEncodable,
 };
 use tari_utilities::ByteArray;
-use tracing::{debug, error, warn, info};
+use tracing::{debug,info};
 use blake2::{Blake2b, Digest};
-use digest::generic_array::GenericArray;
 use tari_crypto::{
     ristretto::{RistrettoSecretKey, RistrettoPublicKey},
-    keys::{PublicKey as PubKey, SecretKey},
 };
 
 // Include GRPC scanner when the feature is enabled
@@ -517,9 +509,10 @@ impl DefaultScanningLogic {
                 if !found_output {
                     if let Some(wallet_output) = Self::scan_for_coinbase_output(output)? {
                         wallet_outputs.push(wallet_output);
-                        found_output = true; // Leaving this here in case we add additional strategies in the future
+                        // found_output = true; // Leaving this here in case we add additional strategies in the future
                     }
                 }
+
             }
             
             results.push(BlockScanResult {

@@ -9,7 +9,7 @@
 use blake2::{Blake2b, Blake2b512, Digest};
 use curve25519_dalek::{
     constants::RISTRETTO_BASEPOINT_POINT,
-    ristretto::{CompressedRistretto, RistrettoPoint},
+    ristretto::{RistrettoPoint},
     scalar::Scalar,
     traits::Identity,
 };

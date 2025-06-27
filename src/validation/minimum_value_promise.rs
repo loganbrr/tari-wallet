@@ -283,7 +283,7 @@ impl LightweightMinimumValuePromiseValidator {
     /// Validate RevealedValue consistency (internal helper)
     fn validate_revealed_value_consistency(
         &self,
-        minimum_value_promise: MicroMinotari,
+        _minimum_value_promise: MicroMinotari,
         range_proof: Option<&LightweightRangeProof>,
     ) -> Result<(), ValidationError> {
         // For RevealedValue, the range proof should be None
@@ -299,7 +299,7 @@ impl LightweightMinimumValuePromiseValidator {
     /// Validate BulletProofPlus consistency (internal helper)
     fn validate_bulletproof_consistency(
         &self,
-        minimum_value_promise: MicroMinotari,
+        _minimum_value_promise: MicroMinotari,
         range_proof: Option<&LightweightRangeProof>,
     ) -> Result<(), ValidationError> {
         // For BulletProofPlus, the range proof should be Some

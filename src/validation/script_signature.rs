@@ -102,7 +102,7 @@ impl LightweightScriptSignatureValidator {
         }
 
         // Build the script signature challenge
-        let challenge = self.build_script_signature_challenge(
+        let _challenge = self.build_script_signature_challenge(
             version,
             ephemeral_commitment_bytes,
             ephemeral_pubkey_bytes,
@@ -211,7 +211,7 @@ impl LightweightScriptSignatureValidator {
     /// * `Err(ValidationError)` if the challenge cannot be built
     pub fn finalize_script_signature_challenge(
         &self,
-        version: u8,
+        _version: u8,
         ephemeral_commitment_bytes: &[u8],
         ephemeral_pubkey_bytes: &[u8],
         script_public_key: &CompressedPublicKey,
@@ -324,7 +324,7 @@ impl LightweightScriptSignatureValidator {
     pub fn run_script(
         &self,
         script: &LightweightScript,
-        input_data: &LightweightExecutionStack,
+        _input_data: &LightweightExecutionStack,
     ) -> Result<CompressedPublicKey, ValidationError> {
         // For lightweight validation, we'll implement a basic script execution
         // In full implementation, this would use the actual Tari script engine

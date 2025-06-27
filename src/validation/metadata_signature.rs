@@ -94,7 +94,7 @@ impl LightweightMetadataSignatureValidator {
         }
 
         // Build the metadata signature challenge
-        let challenge = self.build_metadata_signature_challenge(output)?;
+        let _challenge = self.build_metadata_signature_challenge(output)?;
 
         // For lightweight validation, we just check the structure
         // For full verification, we would verify the cryptographic signature

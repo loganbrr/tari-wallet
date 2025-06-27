@@ -2,26 +2,13 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 use crate::data_structures::{
-    transaction_output::LightweightTransactionOutput,
     wallet_output::{
-        LightweightWalletOutput, LightweightKeyId, LightweightOutputFeatures, 
-         LightweightExecutionStack,
-         LightweightOutputType,
-        LightweightRangeProofType
+        LightweightWalletOutput, LightweightKeyId, 
     },
     payment_id::PaymentId,
     types::{MicroMinotari, },
-    LightweightRangeProof, LightweightScript, CompressedPublicKey, LightweightSignature, LightweightCovenant,
-};
-use crate::extraction::{
-    encrypted_data_decryption::EncryptedDataDecryptor,
-    payment_id_extraction::PaymentIdExtractor,
-};
-use crate::key_management::{
-    KeyStore,
 };
 use crate::errors::LightweightWalletError;
-use crate::ImportedPrivateKey;
 
 /// Result of wallet output reconstruction
 #[derive(Debug, Clone)]

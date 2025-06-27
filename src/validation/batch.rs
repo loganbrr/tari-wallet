@@ -264,8 +264,8 @@ fn validate_commitment_integrity(output: &LightweightTransactionOutput) -> Resul
 
 fn validate_range_proof(
     proof: &crate::data_structures::wallet_output::LightweightRangeProof,
-    commitment: &crate::data_structures::types::CompressedCommitment,
-    minimum_value_promise: crate::data_structures::types::MicroMinotari,
+    _commitment: &crate::data_structures::types::CompressedCommitment,
+    _minimum_value_promise: crate::data_structures::types::MicroMinotari,
 ) -> Result<(), ValidationError> {
     // Basic range proof validation
     if proof.bytes.is_empty() {

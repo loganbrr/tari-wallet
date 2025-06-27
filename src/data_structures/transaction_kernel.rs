@@ -114,7 +114,7 @@ impl TransactionKernel {
 impl Zeroize for TransactionKernel {
     fn zeroize(&mut self) {
         self.excess_sig.zeroize();
-        if let Some(burn_commitment) = &mut self.burn_commitment {
+        if let Some(_burn_commitment) = &mut self.burn_commitment {
             // Zeroize the burn commitment if present
             // Note: CompressedCommitment would need to implement Zeroize for this to work fully
         }

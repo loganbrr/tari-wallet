@@ -45,8 +45,8 @@ impl LightweightCommitmentValidator {
     /// * `Err(ValidationError)` if the commitment is invalid
     pub fn validate_correctness(
         commitment: &CompressedCommitment,
-        value: Option<MicroMinotari>,
-        blinding: Option<&PrivateKey>,
+        _value: Option<MicroMinotari>,
+        _blinding: Option<&PrivateKey>,
     ) -> Result<(), ValidationError> {
         Self::validate_structure(commitment)?;
         // In lightweight mode, we cannot reconstruct the commitment without the full crypto stack

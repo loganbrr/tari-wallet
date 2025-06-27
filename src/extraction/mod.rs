@@ -61,7 +61,7 @@ pub use corruption_detection::{
 };
 
 use crate::{
-    data_structures::{transaction_output::LightweightTransactionOutput, wallet_output::LightweightWalletOutput, encrypted_data::EncryptedData},
+    data_structures::{transaction_output::LightweightTransactionOutput, wallet_output::LightweightWalletOutput},
     errors::LightweightWalletResult,
     data_structures::types::{PrivateKey, CompressedPublicKey},
     validation::{LightweightBulletProofPlusValidator, LightweightRevealedValueValidator},

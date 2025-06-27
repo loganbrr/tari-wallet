@@ -29,7 +29,7 @@ use curve25519_dalek::{
     ristretto::{CompressedRistretto, RistrettoPoint},
     scalar::Scalar,
 };
-use hex::{FromHex, ToHex};
+use hex::{ToHex};
 use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use zeroize::Zeroize;
