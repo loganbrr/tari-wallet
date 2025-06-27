@@ -866,6 +866,11 @@ impl TariAddress {
         }
     }
 
+    /// Get the size of this address in bytes
+    pub fn get_size(&self) -> usize {
+        self.to_vec().len()
+    }
+
     /// Convert Tari Address to an emoji string
     pub fn to_emoji_string(&self) -> String {
         match self {

@@ -438,14 +438,6 @@ async fn scan_wallet_across_blocks(
             }
         };
         
-        // Check inputs to see if they spend our outputs
-        if !block_info.inputs.is_empty() && block_height >= from_block && block_height <= to_block {
-            // Debug: show inputs found in blocks within our requested range
-            if block_info.inputs.len() > 0 && (block_height - from_block) % 50 == 0 {
-                println!("\n🔍 Block {} has {} inputs (checking for wallet spending)", block_height, block_info.inputs.len());
-            }
-        }
-        
         for (input_index, input) in block_info.inputs.iter().enumerate() {
             // Input commitment is already [u8; 32], convert directly to CompressedCommitment
             let input_commitment = CompressedCommitment::new(input.commitment);
@@ -599,6 +591,7 @@ async fn main() -> LightweightWalletResult<()> {
     // Configuration
     let default_seed = "gate sound fault steak act victory vacuum night injury lion section share pass food damage venue smart vicious cinnamon eternal invest shoulder green file";
     let seed_phrase = std::env::var("TEST_SEED_PHRASE").unwrap_or_else(|_| default_seed.to_string());
+    let base_url = std::env::var("BASE_URL").unwrap_or_else(|_| "http://127.0.0.1:18142".to_string());
 
     println!("🔨 Creating wallet from seed phrase... {}", seed_phrase);
     let wallet = Wallet::new_from_seed_phrase(&seed_phrase, None)?;
@@ -606,7 +599,7 @@ async fn main() -> LightweightWalletResult<()> {
 
     println!("🌐 Connecting to Tari base node...");
     let mut scanner = match GrpcScannerBuilder::new()
-        .with_base_url("http://127.0.0.1:18142".to_string())
+            .with_base_url(base_url)
         .with_timeout(std::time::Duration::from_secs(30))
         .build().await 
     {

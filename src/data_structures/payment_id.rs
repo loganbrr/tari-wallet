@@ -20,17 +20,29 @@
 // WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
 // USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE
 
+use std::{
+    fmt,
+    fmt::{Display, Formatter},
+};
+
 use primitive_types::U256;
 use serde::{Deserialize, Serialize};
-use crate::data_structures::types::MicroMinotari;
-
+use crate::data_structures::{
+    address::TariAddress,
+    types::{FixedHash, MicroMinotari},
+    encrypted_data::{SIZE_U256, SIZE_VALUE},
+};
 use crate::hex_utils::{HexEncodable, HexValidatable, HexError};
 use borsh::{BorshSerialize, BorshDeserialize};
 use hex::ToHex;
 
-/// Transaction type enumeration
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Serialize, Deserialize)]
+// We pad the bytes to min this size, so that we can use the same size for AddressAndData and TransactionInfo
+const PADDING_SIZE: usize = 130;
+const PADDING_SIZE_NO_TAG: usize = 129;
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default, Hash)]
 pub enum TxType {
+    #[default]
     PaymentToOther = 0b0000,
     PaymentToSelf = 0b0001,
     Burn = 0b0010,
@@ -46,7 +58,11 @@ pub enum TxType {
 
 impl TxType {
     fn from_u8(value: u8) -> Self {
-        match value {
+        TxType::from_u16(u16::from(value))
+    }
+
+    fn from_u16(value: u16) -> Self {
+        match value & 0b1111 {
             0b0000 => TxType::PaymentToOther,
             0b0001 => TxType::PaymentToSelf,
             0b0010 => TxType::Burn,
@@ -58,427 +74,695 @@ impl TxType {
             0b1000 => TxType::CodeTemplateRegistration,
             0b1001 => TxType::ImportedUtxoNoneRewindable,
             0b1011 => TxType::Coinbase,
-            _ => TxType::PaymentToOther,
+            _ => TxType::default(),
         }
     }
 
     pub fn as_u8(&self) -> u8 {
-        *self as u8
-    }
-}
-
-impl Default for TxType {
-    fn default() -> Self {
-        TxType::PaymentToOther
-    }
-}
-
-/// Payment ID for identifying payments in encrypted data
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum PaymentId {
-    /// Empty payment ID
-    Empty,
-    /// U256 payment ID
-    U256 { value: U256 },
-    /// Open payment ID (public)
-    Open { 
-        /// User data
-        user_data: Vec<u8>,
-        /// Transaction type
-        tx_type: TxType,
-    },
-    /// Address and data payment ID
-    AddressAndData {
-        /// Address bytes
-        address: Vec<u8>,
-        /// Data bytes
-        data: Vec<u8>,
-    },
-    /// Transaction info payment ID
-    TransactionInfo {
-        /// Transaction ID
-        tx_id: Vec<u8>,
-        /// Output index
-        output_index: u64,
-    },
-    /// Raw payment ID
-    Raw { data: Vec<u8> },
-}
-
-// Helper module for U256 serialization
-mod u256_serde {
-    use super::*;
-    use serde::{Deserializer, Serializer};
-
-    #[allow(dead_code)]
-    pub fn serialize<S>(value: &U256, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut bytes = [0u8; 32];
-        value.to_big_endian(&mut bytes);
-        serde::Serialize::serialize(&hex::encode(&bytes), serializer)
-    }
-
-    #[allow(dead_code)]
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<U256, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let hex_string = <String as serde::Deserialize>::deserialize(deserializer)?;
-        let bytes = hex::decode(&hex_string).map_err(serde::de::Error::custom)?;
-        if bytes.len() != 32 {
-            return Err(serde::de::Error::custom("Expected 32 bytes for U256"));
-        }
-        let mut arr = [0u8; 32];
-        arr.copy_from_slice(&bytes);
-        Ok(U256::from_big_endian(&arr))
-    }
-}
-
-impl<'de> Deserialize<'de> for PaymentId {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        #[serde(tag = "type", rename_all = "snake_case")]
-        enum PaymentIdHelper {
-            Empty,
-            U256 { value: U256 },
-            Open { user_data: Vec<u8>, tx_type: TxType },
-            AddressAndData { address: Vec<u8>, data: Vec<u8> },
-            TransactionInfo { tx_id: Vec<u8>, output_index: u64 },
-            Raw { data: Vec<u8> },
-        }
-
-        let helper = PaymentIdHelper::deserialize(deserializer)?;
-        match helper {
-            PaymentIdHelper::Empty => Ok(PaymentId::Empty),
-            PaymentIdHelper::U256 { value } => Ok(PaymentId::U256 { value }),
-            PaymentIdHelper::Open { user_data, tx_type } => Ok(PaymentId::Open { user_data, tx_type }),
-            PaymentIdHelper::AddressAndData { address, data } => {
-                Ok(PaymentId::AddressAndData { address, data })
-            }
-            PaymentIdHelper::TransactionInfo { tx_id, output_index } => {
-                Ok(PaymentId::TransactionInfo { tx_id, output_index })
-            }
-            PaymentIdHelper::Raw { data } => Ok(PaymentId::Raw { data }),
-        }
-    }
-}
-
-// Helper module for hex serialization of [u8; 32]
-mod hex_serde_array_32 {
-    use serde::{Deserialize, Deserializer, Serializer};
-
-    #[allow(dead_code)]
-    pub fn serialize<S>(value: &[u8; 32], serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let hex_string = hex::encode(value);
-        serializer.serialize_str(&hex_string)
-    }
-
-    #[allow(dead_code)]
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let hex_string = String::deserialize(deserializer)?;
-        let bytes = hex::decode(&hex_string).map_err(serde::de::Error::custom)?;
-        if bytes.len() != 32 {
-            return Err(serde::de::Error::custom("Expected 32 bytes"));
-        }
-        let mut arr = [0u8; 32];
-        arr.copy_from_slice(&bytes);
-        Ok(arr)
-    }
-}
-
-impl BorshSerialize for PaymentId {
-    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         match self {
-            PaymentId::Empty => {
-                borsh::BorshSerialize::serialize(&0u8, writer)?;
-            }
-            PaymentId::U256 { value } => {
-                borsh::BorshSerialize::serialize(&1u8, writer)?;
-                let mut bytes = [0u8; 32];
-                value.to_big_endian(&mut bytes);
-                borsh::BorshSerialize::serialize(&bytes, writer)?;
-            }
-            PaymentId::Open { user_data, tx_type } => {
-                borsh::BorshSerialize::serialize(&2u8, writer)?;
-                borsh::BorshSerialize::serialize(&tx_type.as_u8(), writer)?;
-                borsh::BorshSerialize::serialize(user_data, writer)?;
-            }
-            PaymentId::AddressAndData { address, data } => {
-                borsh::BorshSerialize::serialize(&3u8, writer)?;
-                borsh::BorshSerialize::serialize(address, writer)?;
-                borsh::BorshSerialize::serialize(data, writer)?;
-            }
-            PaymentId::TransactionInfo { tx_id, output_index } => {
-                borsh::BorshSerialize::serialize(&4u8, writer)?;
-                borsh::BorshSerialize::serialize(tx_id, writer)?;
-                borsh::BorshSerialize::serialize(output_index, writer)?;
-            }
-            PaymentId::Raw { data } => {
-                borsh::BorshSerialize::serialize(&5u8, writer)?;
-                borsh::BorshSerialize::serialize(data, writer)?;
-            }
+            TxType::PaymentToOther => 0b0000,
+            TxType::PaymentToSelf => 0b0001,
+            TxType::Burn => 0b0010,
+            TxType::CoinSplit => 0b0011,
+            TxType::CoinJoin => 0b0100,
+            TxType::ValidatorNodeRegistration => 0b0101,
+            TxType::ClaimAtomicSwap => 0b0110,
+            TxType::HtlcAtomicSwapRefund => 0b0111,
+            TxType::CodeTemplateRegistration => 0b1000,
+            TxType::ImportedUtxoNoneRewindable => 0b1001,
+            TxType::Coinbase => 0b1011,
         }
-        Ok(())
+    }
+
+    fn as_bytes(self) -> Vec<u8> {
+        vec![self.as_u8()]
     }
 }
 
-impl BorshDeserialize for PaymentId {
-    fn deserialize_reader<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
-        let tag: u8 = borsh::BorshDeserialize::deserialize_reader(reader)?;
-        match tag {
-            0 => Ok(PaymentId::Empty),
-            1 => {
-                let bytes: [u8; 32] = borsh::BorshDeserialize::deserialize_reader(reader)?;
-                let value = U256::from_big_endian(&bytes);
-                Ok(PaymentId::U256 { value })
-            }
-            2 => {
-                let tx_type_byte: u8 = borsh::BorshDeserialize::deserialize_reader(reader)?;
-                let tx_type = TxType::from_u8(tx_type_byte);
-                let user_data: Vec<u8> = borsh::BorshDeserialize::deserialize_reader(reader)?;
-                Ok(PaymentId::Open { user_data, tx_type })
-            }
-            3 => {
-                let address: Vec<u8> = borsh::BorshDeserialize::deserialize_reader(reader)?;
-                let data: Vec<u8> = borsh::BorshDeserialize::deserialize_reader(reader)?;
-                Ok(PaymentId::AddressAndData { address, data })
-            }
-            4 => {
-                let tx_id: Vec<u8> = borsh::BorshDeserialize::deserialize_reader(reader)?;
-                let output_index: u64 = borsh::BorshDeserialize::deserialize_reader(reader)?;
-                Ok(PaymentId::TransactionInfo { tx_id, output_index })
-            }
-            5 => {
-                let data: Vec<u8> = borsh::BorshDeserialize::deserialize_reader(reader)?;
-                Ok(PaymentId::Raw { data })
-            }
-            _ => Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "Invalid PaymentId tag",
-            )),
+impl Display for TxType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            TxType::PaymentToOther => write!(f, "PaymentToOther"),
+            TxType::PaymentToSelf => write!(f, "PaymentToSelf"),
+            TxType::Burn => write!(f, "Burn"),
+            TxType::CoinSplit => write!(f, "CoinSplit"),
+            TxType::CoinJoin => write!(f, "CoinJoin"),
+            TxType::ValidatorNodeRegistration => write!(f, "ValidatorNodeRegistration"),
+            TxType::ClaimAtomicSwap => write!(f, "ClaimAtomicSwap"),
+            TxType::HtlcAtomicSwapRefund => write!(f, "HtlcAtomicSwapRefund"),
+            TxType::CodeTemplateRegistration => write!(f, "CodeTemplateRegistration"),
+            TxType::ImportedUtxoNoneRewindable => write!(f, "ImportedUtxoNoneRewindable"),
+            TxType::Coinbase => write!(f, "Coinbase"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub enum PaymentId {
+    /// No payment ID.
+    #[default]
+    Empty,
+    /// A u256 number.
+    U256(U256),
+    /// Open - the user optionally specifies 'user_data' ('tx_type' is added by the system).
+    Open { user_data: Vec<u8>, tx_type: TxType },
+    /// This payment ID is automatically generated by the system for output UTXOs. The optional user specified
+    /// `PaymentId::Open` payment ID will be assigned to `tx_type` and `user_data`; the system adds in the sender
+    /// address.
+    AddressAndData {
+        sender_address: TariAddress,
+        sender_one_sided: bool,
+        fee: MicroMinotari,
+        tx_type: TxType,
+        user_data: Vec<u8>,
+    },
+    /// This payment ID is automatically generated by the system for change outputs. The optional user specified
+    /// `PaymentId::Open` payment ID will be assigned to `tx_type` and `user_data`; the system adds in the other data
+    /// address.
+    TransactionInfo {
+        recipient_address: TariAddress,
+        sender_one_sided: bool,
+        amount: MicroMinotari,
+        fee: MicroMinotari,
+        tx_type: TxType,
+        sent_output_hashes: Vec<FixedHash>,
+        user_data: Vec<u8>,
+    },
+    /// This is a fallback if nothing else fits, so we want to preserve the raw bytes.
+    Raw(Vec<u8>),
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum PTag {
+    Empty = 0,
+    U256 = 1,
+    Open = 2,
+    AddressAndDataV1 = 3,
+    TransactionInfoV1 = 4,
+    AddressAndData = 5,
+    TransactionInfo = 6,
+    Raw = 7,
+}
+
+impl PTag {
+    fn from_u8(value: u8) -> Self {
+        match value {
+            0 => PTag::Empty,
+            1 => PTag::U256,
+            2 => PTag::Open,
+            3 => PTag::AddressAndDataV1,
+            4 => PTag::TransactionInfoV1,
+            5 => PTag::AddressAndData,
+            6 => PTag::TransactionInfo,
+            _ => PTag::Raw,
         }
     }
 }
 
 impl PaymentId {
     const SIZE_META_DATA: usize = 5;
-    const SIZE_VALUE: usize = crate::data_structures::encrypted_data::SIZE_VALUE;
-    const SIZE_VALUE_AND_META_DATA: usize = Self::SIZE_VALUE + Self::SIZE_META_DATA;
-    const PADDING_SIZE: usize = 32;
+    const SIZE_VALUE_AND_META_DATA: usize = SIZE_VALUE + PaymentId::SIZE_META_DATA;
 
-    /// Get the size of this payment ID in bytes
+    fn to_tag(&self) -> Vec<u8> {
+        match self {
+            PaymentId::Empty => vec![],
+            PaymentId::U256(_) => vec![PTag::U256 as u8],
+            PaymentId::Open { .. } => vec![PTag::Open as u8],
+            PaymentId::AddressAndData { .. } => vec![PTag::AddressAndData as u8],
+            PaymentId::TransactionInfo { .. } => vec![PTag::TransactionInfo as u8],
+            PaymentId::Raw(_) => vec![PTag::Raw as u8],
+        }
+    }
+
     pub fn get_size(&self) -> usize {
         match self {
             PaymentId::Empty => 0,
-            PaymentId::U256 { .. } => 1 + 32, // 1 byte tag + 32 bytes for U256
-            PaymentId::Open { user_data, tx_type: _ } => 1 + 1 + user_data.len(), // tag + tx_type + data (no length byte)
+            PaymentId::U256(_) => 1 + SIZE_U256,
+            PaymentId::Open { user_data, .. } => 1 + user_data.len() + 1,
             PaymentId::AddressAndData {
-                address,
-                data,
+                sender_address,
+                user_data,
                 ..
             } => {
-                1 + 1 + address.len() + 1 + data.len()
+                let len = 1 + 1 + sender_address.get_size() + PaymentId::SIZE_META_DATA + 1 + user_data.len();
+                if len < PADDING_SIZE {
+                    PADDING_SIZE
+                } else {
+                    len
+                }
             },
             PaymentId::TransactionInfo {
-                tx_id: _,
-                output_index: _,
+                recipient_address,
+                user_data,
+                sent_output_hashes,
+                ..
             } => {
-                1 + 32 + 8 // tag + 32-byte tx_id + 8-byte output_index
+                let len = 1 +
+                    1 +
+                    recipient_address.get_size() +
+                    PaymentId::SIZE_VALUE_AND_META_DATA +
+                    1 +
+                    (sent_output_hashes.len() * FixedHash::byte_size()) +
+                    1 +
+                    user_data.len();
+                if len < PADDING_SIZE {
+                    PADDING_SIZE
+                } else {
+                    len
+                }
             },
-            PaymentId::Raw { data } => {
+            PaymentId::Raw(bytes) => {
                 // We add 1 for the tag byte
-                1 + data.len()
+                1 + bytes.len()
             },
         }
     }
 
-    /// Get the fee from this payment ID if available
     pub fn get_fee(&self) -> Option<MicroMinotari> {
         match self {
-            PaymentId::AddressAndData { .. } | PaymentId::TransactionInfo { .. } => None,
+            PaymentId::AddressAndData { fee, .. } | PaymentId::TransactionInfo { fee, .. } => Some(*fee),
             _ => None,
         }
     }
 
-    /// Get the transaction type from this payment ID
+    pub fn get_sent_hashes(&self) -> Option<Vec<FixedHash>> {
+        match self {
+            PaymentId::TransactionInfo { sent_output_hashes, .. } => Some(sent_output_hashes.clone()),
+            _ => None,
+        }
+    }
+
+    /// Helper function to set the 'amount' of a 'PaymentId::TransactionInfo'
+    pub fn transaction_info_set_amount(&mut self, amount: MicroMinotari) {
+        if let PaymentId::TransactionInfo { amount: a, .. } = self {
+            *a = amount;
+        }
+    }
+
     pub fn get_type(&self) -> TxType {
         match self {
-            PaymentId::Open { .. } |
-            PaymentId::AddressAndData { .. } |
-            PaymentId::TransactionInfo { .. } => TxType::default(),
+            PaymentId::Open { tx_type, .. } |
+            PaymentId::AddressAndData { tx_type, .. } |
+            PaymentId::TransactionInfo { tx_type, .. } => *tx_type,
             _ => TxType::default(),
         }
     }
 
-    /// Convert payment ID to bytes for serialization
-    pub fn to_bytes(&self) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        
-        match self {
-            PaymentId::Empty => {
-                // No tag needed for empty
-            },
-            PaymentId::U256 { value } => {
-                bytes.push(1); // Tag for U256
-                let mut bytes_array = [0u8; 32];
-                value.to_big_endian(&mut bytes_array);
-                bytes.extend_from_slice(&bytes_array);
-            },
-            PaymentId::Open { user_data, tx_type } => {
-                bytes.push(2); // Tag for Open
-                bytes.push(tx_type.as_u8()); // Transaction type
-                bytes.extend_from_slice(user_data); // No length byte (matches REFERENCE_tari)
-            },
-            PaymentId::AddressAndData {
-                address,
-                data,
-            } => {
-                bytes.push(5); // Tag for AddressAndData
-                bytes.push(address.len() as u8);
-                bytes.extend_from_slice(address);
-                bytes.push(data.len() as u8); // Add data length
-                bytes.extend_from_slice(data);
-            },
-            PaymentId::TransactionInfo {
-                tx_id,
-                output_index,
-            } => {
-                bytes.push(6); // Tag for TransactionInfo
-                bytes.extend_from_slice(tx_id);
-                bytes.extend_from_slice(&output_index.to_le_bytes());
-            },
-            PaymentId::Raw { data } => {
-                bytes.push(7); // Tag for Raw
-                bytes.extend_from_slice(data);
-            },
+    /// Helper function to set the 'recipient_address' of a 'PaymentId::TransactionInfo'
+    pub fn transaction_info_set_address(&mut self, address: TariAddress) {
+        if let PaymentId::TransactionInfo { recipient_address, .. } = self {
+            *recipient_address = address
         }
-        
-        bytes
     }
 
-    /// Create payment ID from bytes
+    pub fn transaction_info_set_sent_output_hashes(&mut self, sent_output_hashes: Vec<FixedHash>) {
+        if let PaymentId::TransactionInfo {
+            sent_output_hashes: hashes,
+            ..
+        } = self
+        {
+            *hashes = sent_output_hashes;
+        }
+    }
+
+    /// Helper function to convert a 'PaymentId::Open' or 'PaymentId::Empty' to a 'PaymentId::AddressAndData', with the
+    /// optional 'tx_type' only applicable to 'PaymentId::Open', otherwise 'payment_id' is kept as is.
+    pub fn add_sender_address(
+        self,
+        sender_address: TariAddress,
+        sender_one_sided: bool,
+        fee: MicroMinotari,
+        tx_type: Option<TxType>,
+    ) -> PaymentId {
+        match self {
+            PaymentId::Open { user_data, tx_type } => PaymentId::AddressAndData {
+                sender_address,
+                sender_one_sided,
+                fee,
+                tx_type,
+                user_data,
+            },
+            PaymentId::Empty => PaymentId::AddressAndData {
+                sender_address,
+                sender_one_sided,
+                fee,
+                tx_type: tx_type.unwrap_or_default(),
+                user_data: vec![],
+            },
+            _ => self,
+        }
+    }
+
+    // This method is infallible; any out-of-bound values will be zeroed.
+    fn pack_meta_data(&self) -> Vec<u8> {
+        match self {
+            PaymentId::TransactionInfo {
+                fee,
+                sender_one_sided,
+                tx_type,
+                ..
+            } |
+            PaymentId::AddressAndData {
+                fee,
+                sender_one_sided,
+                tx_type,
+                ..
+            } => {
+                let mut bytes = Vec::with_capacity(5);
+                // Zero out-of-bound values
+                // - Use 4 bytes for 'fee', max value: 4,294,967,295
+                let fee = if fee.as_u64() > 2u64.pow(32) - 1 {
+                    0
+                } else {
+                    fee.as_u64()
+                };
+                // Pack
+                bytes.extend_from_slice(&fee.to_be_bytes()[4..]);
+                let tx_type = tx_type.as_u8() & 0b00001111 | (u8::from(*sender_one_sided) << 7);
+
+                bytes.push(tx_type);
+                bytes
+            },
+            _ => vec![],
+        }
+    }
+
+    fn unpack_meta_data(bytes: [u8; 5]) -> (MicroMinotari, bool, TxType) {
+        // Extract fee from the first 4 bytes
+        let fee = u64::from(u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]));
+        let tx_type_packed = bytes[4];
+        let tx_type = TxType::from_u8(tx_type_packed & 0b00001111);
+        let sender_one_sided = (tx_type_packed & 0b10000000) != 0;
+        (MicroMinotari::from(fee), sender_one_sided, tx_type)
+    }
+
+    pub fn user_data_as_bytes(&self) -> Vec<u8> {
+        match &self {
+            PaymentId::Empty => vec![],
+            PaymentId::U256(v) => {
+                let bytes: &mut [u8] = &mut [0; SIZE_U256];
+                v.to_little_endian(bytes);
+                bytes.to_vec()
+            },
+            PaymentId::Open { user_data, .. } => user_data.clone(),
+            PaymentId::AddressAndData { user_data, .. } => user_data.clone(),
+            PaymentId::TransactionInfo { user_data, .. } => user_data.clone(),
+            PaymentId::Raw(bytes) => bytes.clone(),
+        }
+    }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        match self {
+            PaymentId::Empty => Vec::new(),
+            PaymentId::U256(v) => {
+                let mut bytes = self.to_tag();
+                let mut value = vec![0; 32];
+                v.to_little_endian(&mut value);
+                bytes.extend_from_slice(&value);
+                bytes
+            },
+            PaymentId::Open { user_data, tx_type } => {
+                let mut bytes = self.to_tag();
+                bytes.extend_from_slice(&tx_type.as_bytes());
+                bytes.extend_from_slice(user_data);
+                bytes
+            },
+            PaymentId::AddressAndData {
+                sender_address,
+                user_data,
+                ..
+            } => {
+                let mut bytes = self.to_tag();
+                bytes.extend_from_slice(&self.pack_meta_data());
+                let address_bytes = sender_address.to_vec();
+                bytes.push(u8::try_from(address_bytes.len()).expect("User data length should fit in a u8"));
+                bytes.extend_from_slice(&address_bytes);
+                bytes.push(u8::try_from(user_data.len()).expect("User data length should fit in a u8"));
+                bytes.extend_from_slice(user_data);
+                // Ensure we have enough padding to match the min size
+                while bytes.len() < PADDING_SIZE {
+                    bytes.push(0);
+                }
+                bytes
+            },
+            PaymentId::TransactionInfo {
+                recipient_address,
+                amount,
+                user_data,
+                sent_output_hashes,
+                ..
+            } => {
+                let mut bytes = self.to_tag();
+                bytes.extend_from_slice(&amount.as_u64().to_le_bytes());
+                bytes.extend_from_slice(&self.pack_meta_data());
+                let address_bytes = recipient_address.to_vec();
+                bytes.push(u8::try_from(address_bytes.len()).expect("User data length should fit in a u8"));
+                bytes.extend_from_slice(&address_bytes.to_vec());
+                bytes.push(u8::try_from(user_data.len()).expect("User data length should fit in a u8"));
+                bytes.extend_from_slice(user_data);
+                bytes.push(
+                    u8::try_from(sent_output_hashes.len()).expect("Sent output hashes length should fit in a u8"),
+                );
+                for hash in sent_output_hashes {
+                    bytes.extend_from_slice(hash.as_slice());
+                }
+                // Ensure we have enough padding to match the min size
+                while bytes.len() < PADDING_SIZE {
+                    bytes.push(0);
+                }
+                bytes
+            },
+            PaymentId::Raw(bytes) => {
+                let mut result = self.to_tag();
+                result.extend_from_slice(bytes);
+                result
+            },
+        }
+    }
+
+    #[allow(clippy::too_many_lines)]
     pub fn from_bytes(bytes: &[u8]) -> Self {
-        if bytes.is_empty() {
-            return PaymentId::Empty;
+        let raw_bytes = bytes.to_vec();
+        // edge case for premine:
+        if bytes.len() == SIZE_VALUE {
+            let bytes_array: [u8; SIZE_VALUE] = bytes.try_into().expect("We already test the length");
+            let v = u64::from_le_bytes(bytes_array);
+            if v < 1000 {
+                return PaymentId::Open {
+                    tx_type: TxType::PaymentToOther,
+                    user_data: bytes.to_vec(),
+                };
+            }
         }
 
-        // Special case: If we have exactly 8 bytes, treat as raw ID data (REFERENCE_tari compatibility)
-        // This handles the case where raw id.to_le_bytes() is put directly in encrypted payload
-        if bytes.len() == 8 {
-            return PaymentId::Open {
-                user_data: bytes.to_vec(),
-                tx_type: TxType::PaymentToOther,
-            };
+        let p_tag = if bytes.is_empty() {
+            PTag::Empty
+        } else {
+            PTag::from_u8(bytes[0])
+        };
+        let bytes = if bytes.len() > 1 { &bytes[1..] } else { &[] };
+        match p_tag {
+            PTag::Empty => return PaymentId::Empty,
+            PTag::U256 => {
+                if bytes.len() != SIZE_U256 {
+                    return PaymentId::Open {
+                        tx_type: TxType::from_u8(*bytes.first().unwrap_or(&0)),
+                        user_data: bytes.get(1..).unwrap_or_default().to_vec(),
+                    };
+                }
+                let v = U256::from_little_endian(bytes);
+                return PaymentId::U256(v);
+            },
+            PTag::Open => {
+                return PaymentId::Open {
+                    tx_type: TxType::from_u8(*bytes.first().unwrap_or(&0)),
+                    user_data: bytes.get(1..).unwrap_or_default().to_vec(),
+                }
+            },
+            PTag::Raw => return PaymentId::Raw(raw_bytes),
+            _ => {},
         }
 
-        let tag = bytes[0];
-        let data = &bytes[1..];
+        match PaymentId::try_deserialize_address_or_transaction_data(bytes, p_tag) {
+            Ok(payment_id) => payment_id,
+            Err(_e) => {
+                // Failed to parse PaymentId from bytes, returning Raw
+                PaymentId::Raw(raw_bytes)
+            },
+        }
+    }
 
-        match tag {
-            0 => PaymentId::Empty,
-            1 => {
-                if data.len() != 32 {
-                    return PaymentId::Raw { data: bytes.to_vec() };
-                }
-                let mut value_bytes = [0u8; 32];
-                value_bytes.copy_from_slice(data);
-                PaymentId::U256 { value: U256::from_big_endian(&value_bytes) }
+    #[allow(clippy::too_many_lines)]
+    fn try_deserialize_address_or_transaction_data(bytes: &[u8], p_tag: PTag) -> Result<PaymentId, String> {
+        if bytes.len() < PaymentId::SIZE_VALUE_AND_META_DATA {
+            // if the bytes are too short, we cannot parse it as AddressAndData or TransactionInfo
+            return Err("Not enough bytes to parse AddressAndData or TransactionInfo".to_string());
+        }
+
+        if p_tag == PTag::TransactionInfoV1 || p_tag == PTag::AddressAndDataV1 {
+            let mut amount_bytes = [0u8; SIZE_VALUE];
+            amount_bytes.copy_from_slice(&bytes[0..SIZE_VALUE]);
+            let amount = MicroMinotari::from(u64::from_le_bytes(amount_bytes));
+            let mut meta_data_bytes = [0u8; PaymentId::SIZE_META_DATA];
+            meta_data_bytes.copy_from_slice(&bytes[SIZE_VALUE..PaymentId::SIZE_VALUE_AND_META_DATA]);
+            let (fee, sender_one_sided, tx_meta_data) = PaymentId::unpack_meta_data(meta_data_bytes);
+            let (address, size) =
+                if let Ok((address, size)) = Self::find_tari_address(&bytes[PaymentId::SIZE_VALUE_AND_META_DATA..]) {
+                    (address, size)
+                } else {
+                    // if we cannot find a valid TariAddress, we return the raw bytes
+                    return Err("No valid TariAddress found in bytes".to_string());
+                };
+
+            // legacy support for AddressAndDataV1
+            if p_tag == PTag::AddressAndDataV1 {
+                let user_data = bytes[PaymentId::SIZE_VALUE_AND_META_DATA + size..].to_vec();
+                return Ok(PaymentId::AddressAndData {
+                    sender_address: address,
+                    sender_one_sided,
+                    fee,
+                    tx_type: tx_meta_data,
+                    user_data,
+                });
+            }
+
+            // legacy support for TransactionInfoV1
+            if p_tag == PTag::TransactionInfoV1 {
+                let user_data = bytes[PaymentId::SIZE_VALUE_AND_META_DATA + size..].to_vec();
+                return Ok(PaymentId::TransactionInfo {
+                    recipient_address: address,
+                    sender_one_sided,
+                    amount,
+                    fee,
+                    tx_type: tx_meta_data,
+                    user_data,
+                    sent_output_hashes: vec![],
+                });
+            }
+        }
+        // now we assume this has to be off type AddressAndData or TransactionInfo
+        let data_start_index = if p_tag == PTag::AddressAndData { 0 } else { SIZE_VALUE };
+        let metadata_end_index = if p_tag == PTag::AddressAndData {
+            PaymentId::SIZE_META_DATA
+        } else {
+            PaymentId::SIZE_VALUE_AND_META_DATA
+        };
+
+        let mut meta_data_bytes = [0u8; PaymentId::SIZE_META_DATA];
+        meta_data_bytes.copy_from_slice(
+            bytes
+                .get(data_start_index..metadata_end_index)
+                .ok_or("Not enough bytes for meta data")?,
+        );
+        let (fee, sender_one_sided, tx_meta_data) = PaymentId::unpack_meta_data(meta_data_bytes);
+
+        let address_size = *bytes
+            .get(metadata_end_index)
+            .ok_or("Address bytes does not have size encoded")? as usize;
+        let address = TariAddress::from_bytes(
+            bytes
+                .get(metadata_end_index + 1..metadata_end_index + 1 + address_size)
+                .ok_or("Not enough bytes for TariAddress")?,
+        )
+        .map_err(|_| "Invalid TariAddress in bytes".to_string())?;
+        let user_data_length = *bytes
+            .get(metadata_end_index + 1 + address_size)
+            .ok_or("User data bytes does not have length encoded")? as usize;
+        let user_data_start = metadata_end_index + 1 + address_size + 1;
+        let user_data = bytes
+            .get(user_data_start..user_data_start + user_data_length)
+            .ok_or("Not enough bytes for user data")?;
+
+        if p_tag == PTag::AddressAndData {
+            if !Self::check_padding(bytes, user_data_start + user_data_length) {
+                return Err("Invalid padding for AddressAndData".to_string());
+            }
+            return Ok(PaymentId::AddressAndData {
+                sender_address: address,
+                sender_one_sided,
+                fee,
+                tx_type: tx_meta_data,
+                user_data: user_data.to_vec(),
+            });
+        }
+        // so this must be a TransactionInfo
+        let mut amount_bytes = [0u8; SIZE_VALUE];
+        amount_bytes.copy_from_slice(bytes.get(0..SIZE_VALUE).ok_or("Not enough bytes for amount")?);
+        let amount = MicroMinotari::from(u64::from_le_bytes(amount_bytes));
+        let mut sent_output_hashes = Vec::new();
+        let sent_output_hashes_length = *bytes
+            .get(user_data_start + user_data_length)
+            .ok_or("Sent output hashes bytes does not have length encoded")?
+            as usize;
+        let sent_output_hashes_start = user_data_start + user_data_length + 1;
+        for hash_num in 0..sent_output_hashes_length {
+            let hash_start = sent_output_hashes_start + (hash_num * FixedHash::byte_size());
+            let hash_end = hash_start + FixedHash::byte_size();
+            let hash = bytes
+                .get(hash_start..hash_end)
+                .ok_or("Not enough bytes for sent output hash")?;
+            let sent_output_hash = FixedHash::try_from(hash).map_err(|_| "Invalid sent output hash".to_string())?;
+            sent_output_hashes.push(sent_output_hash);
+        }
+        if !Self::check_padding(
+            bytes,
+            sent_output_hashes_start + (sent_output_hashes_length * FixedHash::byte_size()),
+        ) {
+            return Err("Invalid padding for TransactionInfo".to_string());
+        }
+        Ok(PaymentId::TransactionInfo {
+            recipient_address: address,
+            sender_one_sided,
+            amount,
+            fee,
+            tx_type: tx_meta_data,
+            user_data: user_data.to_vec(),
+            sent_output_hashes,
+        })
+    }
+
+    /// helper function to check padding
+    fn check_padding(bytes: &[u8], start_index: usize) -> bool {
+        if bytes.len() > PADDING_SIZE_NO_TAG {
+            // larger than the minimum size, so no padding here
+            return true;
+        }
+
+        // Check if the last bytes are zeroed out
+        for &byte in &bytes[start_index..] {
+            if byte != 0 {
+                return false;
+            }
+        }
+        true
+    }
+
+    // we dont know where the tari address ends and the user data starts, so we need to find it using the checksum
+    fn find_tari_address(bytes: &[u8]) -> Result<(TariAddress, usize), String> {
+        const TARI_ADDRESS_INTERNAL_SINGLE_SIZE: usize = 35;
+        const TARI_ADDRESS_INTERNAL_DUAL_SIZE: usize = 67;
+        
+        if bytes.len() < TARI_ADDRESS_INTERNAL_SINGLE_SIZE {
+            return Err("Not enough bytes for single TariAddress".to_string());
+        }
+        // Now we have to try and brute force a match here
+        let mut offset = 0;
+        while (TARI_ADDRESS_INTERNAL_DUAL_SIZE + offset) <= bytes.len() {
+            if let Ok(address) = TariAddress::from_bytes(&bytes[..(TARI_ADDRESS_INTERNAL_DUAL_SIZE + offset)]) {
+                return Ok((address, TARI_ADDRESS_INTERNAL_DUAL_SIZE + offset));
+            }
+            offset += 1;
+        }
+        if let Ok(address) = TariAddress::from_bytes(&bytes[..TARI_ADDRESS_INTERNAL_SINGLE_SIZE]) {
+            return Ok((address, TARI_ADDRESS_INTERNAL_SINGLE_SIZE));
+        }
+        Err("No valid TariAddress found".to_string())
+    }
+
+    /// Helper function to convert a byte slice to a string for the open and data variants
+    pub fn stringify_bytes(bytes: &[u8]) -> String {
+        String::from_utf8_lossy(bytes).to_string()
+    }
+
+    /// Helper function to display the payment id's user data
+    pub fn user_data_as_string(&self) -> String {
+        match self {
+            PaymentId::Empty => self.to_string(),
+            PaymentId::U256(v) => format!("{}", v),
+            PaymentId::Open { user_data, .. } => PaymentId::stringify_bytes(user_data),
+            PaymentId::AddressAndData { user_data, .. } => PaymentId::stringify_bytes(user_data),
+            PaymentId::TransactionInfo { user_data, .. } => PaymentId::stringify_bytes(user_data),
+            PaymentId::Raw(bytes) => hex::encode(bytes),
+        }
+    }
+
+    /// Helper function to create a `PaymentId::Open` from a string and the transaction type
+    pub fn open_from_string(s: &str, tx_type: TxType) -> Self {
+        PaymentId::Open {
+            user_data: s.as_bytes().to_vec(),
+            tx_type,
+        }
+    }
+
+    /// Helper function to create a `PaymentId::Open` from a bytes and the transaction type
+    pub fn open(bytes: Vec<u8>, tx_type: TxType) -> Self {
+        PaymentId::Open {
+            user_data: bytes,
+            tx_type,
+        }
+    }
+}
+
+impl Display for PaymentId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            PaymentId::Empty => write!(f, "None"),
+            PaymentId::U256(v) => write!(f, "u256({v})"),
+            PaymentId::Open { user_data, tx_type } => {
+                write!(f, "type({}), data({})", tx_type, PaymentId::stringify_bytes(user_data))
             },
-            2 => {
-                if data.len() < 1 {
-                    return PaymentId::Raw { data: bytes.to_vec() };
-                }
-                let tx_type = if data.len() >= 1 { TxType::from_u8(data[0]) } else { TxType::PaymentToOther };
-                let user_data = if data.len() > 1 { data[1..].to_vec() } else { vec![] };
-                PaymentId::Open { user_data, tx_type }
-            },
-            5 => {
-                if data.len() < 2 {
-                    return PaymentId::Raw { data: bytes.to_vec() };
-                }
-                let addr_len = data[0] as usize;
-                if data.len() < 1 + addr_len + 1 {
-                    return PaymentId::Raw { data: bytes.to_vec() };
-                }
-                let address = data[1..1 + addr_len].to_vec();
-                let data_len = data[1 + addr_len] as usize;
-                if data.len() < 1 + addr_len + 1 + data_len {
-                    return PaymentId::Raw { data: bytes.to_vec() };
-                }
-                let parsed_data = data[1 + addr_len + 1..1 + addr_len + 1 + data_len].to_vec();
-                PaymentId::AddressAndData {
-                    address,
-                    data: parsed_data,
-                }
-            },
-            6 => {
-                if data.len() < 40 {
-                    return PaymentId::Raw { data: bytes.to_vec() };
-                }
-                let tx_id = data[0..32].to_vec();
-                let output_index = u64::from_le_bytes(data[32..40].try_into().unwrap_or([0; 8]));
-                PaymentId::TransactionInfo {
-                    tx_id,
-                    output_index,
-                }
-            },
-            7 => PaymentId::Raw { data: data.to_vec() },
-            _ => PaymentId::Raw { data: bytes.to_vec() },
+            PaymentId::AddressAndData {
+                sender_address,
+                sender_one_sided,
+                fee,
+                tx_type,
+                user_data,
+            } => write!(
+                f,
+                "sender_address({}), sender_one_sided({}), fee({}), type({}), data({})",
+                sender_address.to_base58(),
+                sender_one_sided,
+                fee,
+                tx_type,
+                PaymentId::stringify_bytes(user_data)
+            ),
+            PaymentId::TransactionInfo {
+                recipient_address,
+                sender_one_sided,
+                amount,
+                fee,
+                user_data,
+                tx_type: tx_meta_data,
+                sent_output_hashes: _,
+            } => write!(
+                f,
+                "recipient_address({}), sender_one_sided({}), amount({}), fee({}), type({}), data({})",
+                recipient_address.to_base58(),
+                sender_one_sided,
+                amount,
+                fee,
+                tx_meta_data,
+                PaymentId::stringify_bytes(user_data),
+            ),
+            PaymentId::Raw(bytes) => write!(f, "Raw({})", hex::encode(bytes)),
         }
     }
 }
 
 impl HexEncodable for PaymentId {
     fn to_hex(&self) -> String {
-        match self {
-            PaymentId::Empty => String::new(),
-            PaymentId::U256 { value } => {
-                let mut bytes = [0u8; 32];
-                value.to_big_endian(&mut bytes);
-                format!("{:064x}", U256::from_big_endian(&bytes))
-            },
-            PaymentId::Open { user_data, tx_type: _ } => user_data.encode_hex::<String>(),
-            PaymentId::AddressAndData { address, data } => {
-                format!("{}{}", hex::encode(address), data.encode_hex::<String>())
-            }
-            PaymentId::TransactionInfo { tx_id, output_index } => {
-                format!("{}{:08x}", hex::encode(tx_id), output_index)
-            }
-            PaymentId::Raw { data } => data.encode_hex(),
-        }
+        hex::encode(self.to_bytes())
     }
     
     fn from_hex(hex: &str) -> Result<Self, HexError> {
-        if hex.is_empty() {
-            return Ok(PaymentId::Empty);
-        }
-        
-        // Try to parse as U256 first (64 hex chars)
-        if hex.len() == 64 {
-            if let Ok(value) = U256::from_str_radix(hex, 16) {
-                return Ok(PaymentId::U256 { value });
-            }
-        }
-        
-        // Try to parse as raw data
-        if let Ok(data) = hex::decode(hex) {
-            return Ok(PaymentId::Raw { data });
-        }
-        
-        Err(HexError::InvalidHex("Could not parse payment ID from hex".to_string()))
+        let bytes = hex::decode(hex).map_err(|e| HexError::InvalidHex(e.to_string()))?;
+        Ok(Self::from_bytes(&bytes))
     }
 }
 
-impl HexValidatable for PaymentId {} 
+impl HexValidatable for PaymentId {}
+
+// Manual Borsh implementations since some inner types don't support Borsh
+impl BorshSerialize for PaymentId {
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        let bytes = self.to_bytes();
+        BorshSerialize::serialize(&bytes, writer)
+    }
+}
+
+impl BorshDeserialize for PaymentId {
+    fn deserialize_reader<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        let bytes: Vec<u8> = BorshDeserialize::deserialize_reader(reader)?;
+        Ok(Self::from_bytes(&bytes))
+    }
+} 

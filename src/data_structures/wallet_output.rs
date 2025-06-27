@@ -193,7 +193,7 @@ impl Default for LightweightRangeProof {
 
 /// A lightweight wallet output where the value and spending key are known
 /// This is a simplified version of the full WalletOutput for use in lightweight wallets
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct LightweightWalletOutput {
     /// Output version
     pub version: u8,
@@ -470,7 +470,7 @@ impl Default for LightweightWalletOutput {
             encrypted_data: EncryptedData::default(),
             minimum_value_promise: MicroMinotari::new(0),
             range_proof: None,
-            payment_id: PaymentId::U256 { value: U256::from(12345) },
+            payment_id: PaymentId::U256(U256::from(12345)),
         }
     }
 }
@@ -570,7 +570,7 @@ mod test {
         let script_key_id = LightweightKeyId::String("script_key_1".to_string());
         let sender_offset_public_key = CompressedPublicKey::new([0u8; 32]);
         let encrypted_data = EncryptedData::default();
-        let payment_id = PaymentId::U256 { value: U256::from(12345) };
+        let payment_id = PaymentId::U256(U256::from(12345));
 
         let output = LightweightWalletOutput::new_default(
             value,

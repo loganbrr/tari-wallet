@@ -414,7 +414,7 @@ impl CorruptionDetector {
                 // Empty payment ID is always valid
                 CorruptionDetectionResult::clean()
             }
-            PaymentId::U256 { value } => {
+            PaymentId::U256(value) => {
                 // Check if U256 value is zero
                 if value.is_zero() {
                     return CorruptionDetectionResult::corrupted(
@@ -438,18 +438,9 @@ impl CorruptionDetector {
                 }
                 CorruptionDetectionResult::clean()
             }
-            PaymentId::AddressAndData { address, data } => {
-                // Check if address is empty
-                if address.is_empty() {
-                    return CorruptionDetectionResult::corrupted(
-                        CorruptionType::PaymentIdCorruption,
-                        "AddressAndData payment ID address is empty".to_string(),
-                        0.8,
-                        true,
-                    );
-                }
+            PaymentId::AddressAndData { user_data, .. } => {
                 // Check if data is empty
-                if data.is_empty() {
+                if user_data.is_empty() {
                     return CorruptionDetectionResult::corrupted(
                         CorruptionType::PaymentIdCorruption,
                         "AddressAndData payment ID data is empty".to_string(),
@@ -459,19 +450,11 @@ impl CorruptionDetector {
                 }
                 CorruptionDetectionResult::clean()
             }
-            PaymentId::TransactionInfo { tx_id, output_index: _ } => {
-                // Check if transaction ID is empty
-                if tx_id.is_empty() {
-                    return CorruptionDetectionResult::corrupted(
-                        CorruptionType::PaymentIdCorruption,
-                        "TransactionInfo payment ID transaction ID is empty".to_string(),
-                        0.8,
-                        true,
-                    );
-                }
+            PaymentId::TransactionInfo { .. } => {
+                // Transaction info is always valid for corruption detection
                 CorruptionDetectionResult::clean()
             }
-            PaymentId::Raw { data } => {
+            PaymentId::Raw(data) => {
                 // Check if raw data is empty
                 if data.is_empty() {
                     return CorruptionDetectionResult::corrupted(

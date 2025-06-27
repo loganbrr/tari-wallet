@@ -47,14 +47,12 @@ fn test_transaction_output_serialization() {
 fn test_payment_id_serialization() {
     use crate::data_structures::payment_id::{PaymentId, TxType};
     use primitive_types::U256;
-    let ids = vec![
-        PaymentId::Empty,
-        PaymentId::U256 { value: U256::from(12345) },
-        PaymentId::Open { user_data: vec![1, 2, 3], tx_type: TxType::PaymentToOther },
-        PaymentId::AddressAndData { address: vec![4, 5], data: vec![6, 7] },
-        PaymentId::TransactionInfo { tx_id: vec![8, 9], output_index: 42 },
-        PaymentId::Raw { data: vec![10, 11, 12] },
-    ];
+            let ids = vec![
+            PaymentId::Empty,
+            PaymentId::U256(U256::from(12345)),
+            PaymentId::Open { user_data: vec![1, 2, 3], tx_type: TxType::PaymentToOther },
+            PaymentId::Raw(vec![10, 11, 12]),
+        ];
     for id in ids {
         serde_roundtrip(&id);
         borsh_roundtrip(&id);

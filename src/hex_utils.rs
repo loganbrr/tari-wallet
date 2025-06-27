@@ -493,14 +493,14 @@ mod tests {
         // Test U256 payment ID (64 hex chars)
         let u256_value = U256::from(0x123456789abcdef0u64);
         let u256_hex = format!("{:064x}", u256_value); // pad to 64 chars
-        let u256_payment_id = PaymentId::U256 { value: U256::from_str_radix(&u256_hex, 16).unwrap() };
+        let u256_payment_id = PaymentId::U256(U256::from_str_radix(&u256_hex, 16).unwrap());
         let parsed = PaymentId::from_hex(&u256_hex).unwrap();
         assert_eq!(parsed, u256_payment_id);
         
         // Test Raw payment ID (less than 64 chars)
         let raw_data = vec![0xaa, 0xbb, 0xcc, 0xdd];
         let hex = hex::encode(&raw_data);
-        let raw_payment_id = PaymentId::Raw { data: raw_data.clone() };
+        let raw_payment_id = PaymentId::Raw(raw_data.clone());
         let parsed = PaymentId::from_hex(&hex).unwrap();
         assert_eq!(parsed, raw_payment_id);
         
@@ -552,7 +552,7 @@ mod tests {
         let public_key = CompressedPublicKey::new([0x56; 32]);
         let safe_array = SafeArray::new([0x78; 16]);
         let encrypted_data = EncryptedData::from_bytes(&vec![0x9a; 80]).unwrap();
-        let payment_id = PaymentId::U256 { value: U256::from(0x123456789abcdef0u64) };
+        let payment_id = PaymentId::U256(U256::from(0x123456789abcdef0u64));
         
         // Test that they all have hex methods
         assert!(!private_key.to_hex().is_empty());

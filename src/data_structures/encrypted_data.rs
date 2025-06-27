@@ -429,7 +429,7 @@ mod test {
         let commitment = CompressedCommitment::new([2u8; 32]);
         let value = MicroMinotari::new(5000000);
         let mask = PrivateKey::new([3u8; 32]);
-        let payment_id = PaymentId::U256 { value: U256::from(12345) };
+        let payment_id = PaymentId::U256(U256::from(12345));
 
         let encrypted = EncryptedData::encrypt_data(
             &encryption_key,

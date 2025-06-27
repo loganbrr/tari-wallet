@@ -591,8 +591,100 @@ impl EncryptedDataKey {
 impl From<SafeArray<32>> for EncryptedDataKey {
     fn from(safe_array: SafeArray<32>) -> Self {
         Self(safe_array)
+          }
+  }
+
+/// Fixed hash type (32 bytes) used for transaction hashes and outputs
+#[derive(Debug, Clone, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
+pub struct FixedHash {
+    /// The hash bytes
+    #[serde(serialize_with = "crate::hex_utils::serde_helpers::serialize_array_32", deserialize_with = "crate::hex_utils::serde_helpers::deserialize_array_32")]
+    pub bytes: [u8; 32],
+}
+
+impl FixedHash {
+    /// Create a new fixed hash from bytes
+    pub fn new(bytes: [u8; 32]) -> Self {
+        Self { bytes }
+    }
+
+    /// Get the hash bytes
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        &self.bytes
+    }
+
+    /// Get the hash as a slice
+    pub fn as_slice(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    /// Get the byte size of the hash
+    pub fn byte_size() -> usize {
+        32
+    }
+
+    /// Convert to hex string
+    pub fn to_hex(&self) -> String {
+        self.bytes.encode_hex()
+    }
+
+    /// Create from hex string
+    pub fn from_hex(hex: &str) -> Result<Self, HexError> {
+        let bytes = hex::decode(hex).map_err(|e| HexError::InvalidHex(e.to_string()))?;
+        if bytes.len() != 32 {
+            return Err(HexError::InvalidLength {
+                expected: 32,
+                actual: bytes.len(),
+            });
+        }
+        let mut hash_bytes = [0u8; 32];
+        hash_bytes.copy_from_slice(&bytes);
+        Ok(Self::new(hash_bytes))
     }
 }
+
+impl TryFrom<&[u8]> for FixedHash {
+    type Error = HexError;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        if bytes.len() != 32 {
+            return Err(HexError::InvalidLength {
+                expected: 32,
+                actual: bytes.len(),
+            });
+        }
+        let mut hash_bytes = [0u8; 32];
+        hash_bytes.copy_from_slice(bytes);
+        Ok(Self::new(hash_bytes))
+    }
+}
+
+impl From<[u8; 32]> for FixedHash {
+    fn from(bytes: [u8; 32]) -> Self {
+        Self::new(bytes)
+    }
+}
+
+impl HexEncodable for FixedHash {
+    fn to_hex(&self) -> String {
+        self.bytes.encode_hex()
+    }
+    
+    fn from_hex(hex: &str) -> Result<Self, HexError> {
+        let bytes = hex::decode(hex).map_err(|e| HexError::InvalidHex(e.to_string()))?;
+        if bytes.len() != 32 {
+            return Err(HexError::InvalidLength {
+                expected: 32,
+                actual: bytes.len(),
+            });
+        }
+        let mut hash_bytes = [0u8; 32];
+        hash_bytes.copy_from_slice(&bytes);
+        Ok(Self::new(hash_bytes))
+    }
+}
+
+impl HexValidatable for FixedHash {}
 
 #[cfg(test)]
 mod test {

@@ -351,15 +351,9 @@ impl EncryptedDataDecryptor {
             PaymentId::Open { .. } => {
                 // Open payment ID is always valid
             }
-            PaymentId::AddressAndData { address, data } => {
-                // Validate address is not all zeros
-                if address.iter().all(|&b| b == 0) {
-                    return Err(EncryptionError::decryption_failed(
-                        "Payment ID address is all zeros"
-                    ).into());
-                }
+            PaymentId::AddressAndData { user_data, .. } => {
                 // Validate data is not empty
-                if data.is_empty() {
+                if user_data.is_empty() {
                     return Err(EncryptionError::decryption_failed(
                         "Payment ID data is empty"
                     ).into());
@@ -368,7 +362,7 @@ impl EncryptedDataDecryptor {
             PaymentId::TransactionInfo { .. } => {
                 // Transaction info payment ID is always valid
             }
-            PaymentId::Raw { data } => {
+            PaymentId::Raw(data) => {
                 // Validate raw data is not empty
                 if data.is_empty() {
                     return Err(EncryptionError::decryption_failed(
