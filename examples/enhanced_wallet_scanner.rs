@@ -371,7 +371,7 @@ async fn scan_wallet_across_blocks(
     
     // Get current tip to scan beyond our initial range for spending
     let current_tip = scanner.get_tip_info().await?.best_block_height;
-    let extended_to_block = std::cmp::min(to_block + 1000, current_tip); // Look ahead up to 1000 blocks
+    let extended_to_block = std::cmp::min(to_block , current_tip); 
     
     println!("🔍 Spending detection range: blocks {} to {} (requested range + future)", from_block, extended_to_block);
     println!("📊 Tracking {} wallet outputs for spending", wallet_state.transactions.len());
@@ -513,19 +513,29 @@ fn display_wallet_activity(wallet_state: &WalletState, from_block: u64, to_block
             match &tx.payment_id {
                 PaymentId::Empty => {},
                 PaymentId::Open { user_data, .. } if !user_data.is_empty() => {
+
                     // Try to decode as UTF-8 string
                     if let Ok(text) = std::str::from_utf8(user_data) {
+
                         if text.chars().all(|c| c.is_ascii_graphic() || c.is_ascii_whitespace()) {
                             println!("   Payment ID: \"{}\"", text);
                         } else {
-                            println!("   Payment ID: {} bytes", user_data.len());
+                            println!("   Payment ID (hex): {}", hex::encode(user_data));
                         }
                     } else {
-                        println!("   Payment ID: {} bytes", user_data.len());
+                        println!("   Payment ID (hex): {}", hex::encode(user_data));
+                    }
+                },
+                PaymentId::TransactionInfo { user_data, .. } if !user_data.is_empty() => {
+                    // Convert the binary data to utf8 string if possible otherwise print as hex    
+                    if let Ok(text) = std::str::from_utf8(user_data) {
+                        println!("   Payment ID: \"{}\"", text);
+                    } else {
+                        println!("   Payment ID (hex): {}", hex::encode(user_data));
                     }
                 },
                 _ => {
-                    println!("   Payment ID: {:?}", tx.payment_id);
+                    println!("   Payment ID: {:#?}", tx.payment_id);
                 }
             }
         }
