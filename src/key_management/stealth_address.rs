@@ -205,7 +205,6 @@ mod tests {
     use super::*;
     use crate::data_structures::types::{PrivateKey, CompressedPublicKey};
     use curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT;
-    use curve25519_dalek::scalar::Scalar;
 
     #[test]
     fn test_stealth_address_generation_and_recovery() {

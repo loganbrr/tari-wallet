@@ -421,7 +421,7 @@ mod tests {
     use crate::data_structures::{
         encrypted_data::EncryptedData,
         payment_id::PaymentId,
-        types::{CompressedCommitment, MicroMinotari, PrivateKey},
+        types::{CompressedCommitment, MicroMinotari},
         wallet_output::{
             LightweightOutputFeatures, LightweightRangeProof, LightweightRangeProofType,
             LightweightScript, LightweightSignature, LightweightCovenant, LightweightExecutionStack,

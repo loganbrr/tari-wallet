@@ -48,9 +48,6 @@ use lightweight_wallet_libs::{
 };
 #[cfg(feature = "grpc")]
 use tari_utilities::ByteArray;
-use std::collections::HashMap;
-use std::io::{self, Write};
-use tracing_subscriber;
 
 #[cfg(feature = "grpc")]
 #[derive(Debug, Clone)]

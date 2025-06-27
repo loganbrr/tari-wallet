@@ -88,7 +88,7 @@ pub fn derive_stealth_address(
 mod tests {
     use super::*;
     use tari_utilities::ByteArray;
-    use crate::crypto::{SecretKey, PublicKey};
+    use crate::crypto::{PublicKey};
 
     #[test]
     fn test_tari_test_vector_validation() {

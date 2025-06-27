@@ -976,6 +976,7 @@ pub struct CipherSeedInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time;
 
     #[test]
     fn test_mnemonic_to_master_key() {
@@ -1547,9 +1548,6 @@ mod tests {
 
     #[test]
     fn test_enhanced_error_handling_master_key_derivation() {
-        // Test master key derivation with invalid passphrase
-        let mnemonic = generate_seed_phrase().unwrap();
-        
         // Create encrypted seed with passphrase
         let cipher_seed = CipherSeed::new();
         let encrypted_bytes = cipher_seed.encipher(Some("correct_passphrase")).unwrap();

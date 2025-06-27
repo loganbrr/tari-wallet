@@ -316,7 +316,7 @@ mod tests {
         wallet_output::{LightweightCovenant, LightweightOutputFeatures, LightweightRangeProof, LightweightScript, LightweightSignature},
     };
 
-    fn create_test_output(value: u64, is_valid: bool) -> LightweightTransactionOutput {
+    fn create_test_output(_value: u64, is_valid: bool) -> LightweightTransactionOutput {
         let commitment = if is_valid {
             CompressedCommitment::new([0x08; 32]) // Valid commitment prefix
         } else {

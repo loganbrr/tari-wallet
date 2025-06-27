@@ -625,7 +625,7 @@ mod tests {
     use crate::data_structures::{
         encrypted_data::EncryptedData,
         payment_id::{PaymentId, TxType},
-        types::{CompressedCommitment, MicroMinotari, PrivateKey},
+        types::{CompressedCommitment, MicroMinotari},
     };
 
     #[test]

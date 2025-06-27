@@ -392,12 +392,7 @@ mod test {
     use super::*;
     use primitive_types::U256;
     use crate::key_management::{key_derivation, seed_phrase::{mnemonic_to_bytes, CipherSeed}};
-    use crate::data_structures::payment_id::TxType;
-    use tari_utilities::{hex::from_hex, ByteArray};
-    use chacha20poly1305::{
-        aead::{AeadInPlace},
-        XNonce,
-    };
+    use tari_utilities::{ ByteArray};
 
     #[test]
     fn test_encrypt_decrypt_basic() {
@@ -587,7 +582,7 @@ mod test {
                     println!("  Testing encrypted sample {}", j + 1);
                     
                     // Try regular decryption
-                    if let Ok((value, mask, payment_id)) = EncryptedData::decrypt_data(&view_key, &commitment, &encrypted_data) {
+                    if let Ok((value, _mask, payment_id)) = EncryptedData::decrypt_data(&view_key, &commitment, &encrypted_data) {
                         println!("    ✅ DECRYPTION SUCCESS!");
                         println!("    Value: {} μT", value.as_u64());
                         println!("    Payment ID: {:?}", payment_id);
@@ -601,7 +596,7 @@ mod test {
                     // Try one-sided payment decryption  
                     if let Ok(sender_offset_bytes) = hex::decode(sender_offset_public_key_hex) {
                         let sender_offset_pk = CompressedPublicKey::new(sender_offset_bytes.try_into().expect("Should convert"));
-                            if let Ok((value, mask, payment_id)) = EncryptedData::decrypt_one_sided_data(&view_key, &commitment, &sender_offset_pk, &encrypted_data) {
+                            if let Ok((value, _mask, payment_id)) = EncryptedData::decrypt_one_sided_data(&view_key, &commitment, &sender_offset_pk, &encrypted_data) {
                                 println!("    ✅ ONE-SIDED DECRYPTION SUCCESS!");
                                 println!("    Value: {} μT", value.as_u64());
                                 println!("    Payment ID: {:?}", payment_id);
@@ -781,7 +776,6 @@ mod test {
     #[test]
     fn test_encrypted_data_test_vectors_simple_open_payment_id() {
         use crate::data_structures::payment_id::{PaymentId, TxType};
-        use primitive_types::U256;
         
         // Test Case: Simple values with Open PaymentId
         let value = MicroMinotari::new(123456);

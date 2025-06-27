@@ -871,7 +871,6 @@ impl Default for BlockchainScannerBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data_structures::types::MicroMinotari;
 
     #[tokio::test]
     async fn test_scan_config_default() {
