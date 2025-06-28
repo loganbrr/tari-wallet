@@ -14,6 +14,7 @@ pub mod payment_id_extraction;
 pub mod wallet_output_reconstruction;
 pub mod stealth_address_key_recovery;
 pub mod range_proof_extraction;
+pub mod range_proof_rewinding;
 pub mod special_output_handling;
 pub mod corruption_detection;
 
@@ -805,4 +806,14 @@ mod tests {
         }
         data
     }
-} 
+}
+
+// Re-export commonly used types and functions
+pub use corruption_detection::*;
+pub use encrypted_data_decryption::*;
+pub use payment_id_extraction::*;
+pub use range_proof_extraction::*;
+pub use range_proof_rewinding::{RangeProofRewindService, RewindResult};
+pub use special_output_handling::*;
+pub use stealth_address_key_recovery::*;
+pub use wallet_output_reconstruction::*; 
