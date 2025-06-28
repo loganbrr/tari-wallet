@@ -70,6 +70,9 @@ prost = { version = "0.12", optional = true }
 # Added tracing-subscriber dependency
 tracing-subscriber = "0.3"
 
+# Async dependencies
+futures = "0.3"
+
 [dev-dependencies]
 # Test dependencies
 serde_json = "1.0"
