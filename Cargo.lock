@@ -167,6 +167,15 @@ dependencies = [
 
 [[package]]
 name = "base58-monero"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "935c90240f9b7749c80746bf88ad9cb346f34b01ee30ad4d566dfdecd6e3cc6a"
+dependencies = [
+ "thiserror",
+]
+
+[[package]]
+name = "base58-monero"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "978e81a45367d2409ecd33369a45dda2e9a3ca516153ec194de1fbda4b9fb79d"
@@ -869,6 +878,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "integer-encoding"
+version = "3.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8bb03732005da905c88227371639bf1ad885cc712789c011c31c5fb3ab3ccf02"
+
+[[package]]
 name = "itertools"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -943,8 +958,9 @@ dependencies = [
  "serde_json",
  "sha2",
  "subtle",
- "tari_crypto",
- "tari_utilities",
+ "tari_crypto 0.22.0",
+ "tari_script",
+ "tari_utilities 0.8.0",
  "thiserror",
  "tokio",
  "tonic",
@@ -1801,6 +1817,30 @@ dependencies = [
 
 [[package]]
 name = "tari_crypto"
+version = "0.20.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22b761f7cf1754eb2223286c9d437c81737526f393f09f69b2456bf49ba25a5b"
+dependencies = [
+ "blake2",
+ "borsh",
+ "curve25519-dalek",
+ "digest",
+ "log",
+ "merlin",
+ "once_cell",
+ "rand_chacha",
+ "rand_core",
+ "serde",
+ "sha3",
+ "snafu",
+ "subtle",
+ "tari_bulletproofs_plus",
+ "tari_utilities 0.7.0",
+ "zeroize",
+]
+
+[[package]]
+name = "tari_crypto"
 version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "86ee9850e74d1b331d9513c79d1cd6e64ac2fe4698140cc30218e5972731f165"
@@ -1818,7 +1858,43 @@ dependencies = [
  "snafu",
  "subtle",
  "tari_bulletproofs_plus",
- "tari_utilities",
+ "tari_utilities 0.8.0",
+ "zeroize",
+]
+
+[[package]]
+name = "tari_script"
+version = "1.0.0-rc.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b0ebe98235ebfb77fb63dad1b7d7a0665fe2b72dadf2392e2ff49dbab66da1d"
+dependencies = [
+ "blake2",
+ "borsh",
+ "digest",
+ "integer-encoding",
+ "serde",
+ "sha2",
+ "sha3",
+ "tari_crypto 0.20.3",
+ "tari_utilities 0.7.0",
+ "thiserror",
+]
+
+[[package]]
+name = "tari_utilities"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8c1bb0e5d1d812f2be2d6ad861caad68f75adb5b2e8376264850300deb16ddc7"
+dependencies = [
+ "base58-monero 0.3.2",
+ "base64 0.13.1",
+ "bincode",
+ "generic-array",
+ "newtype-ops",
+ "serde",
+ "serde_json",
+ "snafu",
+ "subtle",
  "zeroize",
 ]
 
@@ -1828,7 +1904,7 @@ version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "539470532a8ca1a8a1aa26f6240586f7d0f7d90ab94ae67f092bcd75a1bb4060"
 dependencies = [
- "base58-monero",
+ "base58-monero 2.0.0",
  "base64 0.13.1",
  "bincode",
  "generic-array",

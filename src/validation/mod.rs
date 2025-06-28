@@ -12,6 +12,7 @@ pub mod encrypted_data;
 pub mod metadata_signature;
 pub mod minimum_value_promise;
 pub mod range_proofs;
+pub mod script_pattern;
 pub mod script_signature;
 
 pub use batch::{
@@ -54,4 +55,7 @@ pub use minimum_value_promise::{
     LightweightMinimumValuePromiseValidator,
     MinimumValuePromiseValidationOptions,
     MinimumValuePromiseValidationResult,
-}; 
+};
+
+// Re-export commonly used types and functions
+pub use script_pattern::{ScriptPattern, analyze_script_pattern, is_wallet_output}; 
