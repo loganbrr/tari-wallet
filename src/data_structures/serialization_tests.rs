@@ -57,4 +57,88 @@ fn test_payment_id_serialization() {
         serde_roundtrip(&id);
         borsh_roundtrip(&id);
     }
+}
+
+#[test]
+fn test_transaction_status_serialization() {
+    use crate::data_structures::transaction::{TransactionStatus, TransactionDirection, ImportStatus};
+    
+    let statuses = vec![
+        TransactionStatus::Completed,
+        TransactionStatus::Broadcast,
+        TransactionStatus::MinedUnconfirmed,
+        TransactionStatus::Imported,
+        TransactionStatus::Pending,
+        TransactionStatus::Coinbase,
+        TransactionStatus::MinedConfirmed,
+        TransactionStatus::Rejected,
+        TransactionStatus::OneSidedUnconfirmed,
+        TransactionStatus::OneSidedConfirmed,
+        TransactionStatus::Queued,
+        TransactionStatus::CoinbaseUnconfirmed,
+        TransactionStatus::CoinbaseConfirmed,
+        TransactionStatus::CoinbaseNotInBlockChain,
+    ];
+    
+    for status in statuses {
+        serde_roundtrip(&status);
+        borsh_roundtrip(&status);
+    }
+    
+    let directions = vec![
+        TransactionDirection::Inbound,
+        TransactionDirection::Outbound,
+        TransactionDirection::Unknown,
+    ];
+    
+    for direction in directions {
+        serde_roundtrip(&direction);
+        borsh_roundtrip(&direction);
+    }
+    
+    let import_statuses = vec![
+        ImportStatus::Broadcast,
+        ImportStatus::Imported,
+        ImportStatus::OneSidedUnconfirmed,
+        ImportStatus::OneSidedConfirmed,
+        ImportStatus::CoinbaseUnconfirmed,
+        ImportStatus::CoinbaseConfirmed,
+    ];
+    
+    for import_status in import_statuses {
+        serde_roundtrip(&import_status);
+        borsh_roundtrip(&import_status);
+    }
+}
+
+#[test]
+fn test_wallet_transaction_serialization() {
+    use crate::data_structures::{
+        wallet_transaction::{WalletTransaction, WalletState},
+        types::CompressedCommitment,
+        payment_id::PaymentId,
+        transaction::{TransactionStatus, TransactionDirection},
+    };
+
+    // Test WalletTransaction serialization
+    let commitment = CompressedCommitment::new([1u8; 32]);
+    let wallet_tx = WalletTransaction::new(
+        12345,
+        Some(0),
+        None,
+        commitment,
+        1000000,
+        PaymentId::Empty,
+        TransactionStatus::MinedConfirmed,
+        TransactionDirection::Inbound,
+        true,
+    );
+    
+    serde_roundtrip(&wallet_tx);
+    borsh_roundtrip(&wallet_tx);
+
+    // Test WalletState serialization
+    let wallet_state = WalletState::new();
+    serde_roundtrip(&wallet_state);
+    borsh_roundtrip(&wallet_state);
 } 

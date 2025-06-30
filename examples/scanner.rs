@@ -45,6 +45,8 @@ use lightweight_wallet_libs::{
         types::{PrivateKey, CompressedCommitment},
         encrypted_data::EncryptedData,
         payment_id::PaymentId,
+        wallet_transaction::WalletState,
+        transaction::{TransactionStatus, TransactionDirection},
     },
 };
 #[cfg(feature = "grpc")]
@@ -56,153 +58,9 @@ use std::sync::{Arc, Mutex};
 #[cfg(feature = "grpc")]
 use tokio::time::Instant;
 
-#[cfg(feature = "grpc")]
-#[derive(Debug, Clone)]
-struct WalletTransaction {
-    block_height: u64,
-    output_index: Option<usize>,
-    input_index: Option<usize>,
-    commitment: CompressedCommitment,
-    value: u64,
-    payment_id: PaymentId,
-    is_spent: bool,
-    spent_in_block: Option<u64>,
-    spent_in_input: Option<usize>,
-    transaction_type: String, // "Coinbase", "Payment", etc.
-    is_mature: bool,
-}
+// WalletTransaction and WalletState are now imported from the library
 
-#[cfg(feature = "grpc")]
-use std::collections::HashMap;
-
-#[cfg(feature = "grpc")]
-#[derive(Debug)]
-struct WalletState {
-    transactions: Vec<WalletTransaction>,
-    outputs_by_commitment: HashMap<Vec<u8>, usize>, // commitment bytes -> transaction index
-    running_balance: i64,
-    total_received: u64,
-    total_spent: u64,
-    unspent_count: usize,
-    spent_count: usize,
-}
-
-#[cfg(feature = "grpc")]
-impl WalletState {
-    fn new() -> Self {
-        Self {
-            transactions: Vec::new(),
-            outputs_by_commitment: HashMap::new(),
-            running_balance: 0,
-            total_received: 0,
-            total_spent: 0,
-            unspent_count: 0,
-            spent_count: 0,
-        }
-    }
-
-    fn add_received_output(
-        &mut self,
-        block_height: u64,
-        output_index: usize,
-        commitment: CompressedCommitment,
-        value: u64,
-        payment_id: PaymentId,
-        transaction_type: String,
-        is_mature: bool,
-    ) {
-        let transaction = WalletTransaction {
-            block_height,
-            output_index: Some(output_index),
-            input_index: None,
-            commitment: commitment.clone(),
-            value,
-            payment_id,
-            is_spent: false,
-            spent_in_block: None,
-            spent_in_input: None,
-            transaction_type,
-            is_mature,
-        };
-
-        let tx_index = self.transactions.len();
-        self.outputs_by_commitment.insert(commitment.as_bytes().to_vec(), tx_index);
-        self.transactions.push(transaction);
-        
-        self.total_received += value;
-        self.running_balance += value as i64;
-        self.unspent_count += 1;
-    }
-
-    fn mark_output_spent(
-        &mut self,
-        commitment: &CompressedCommitment,
-        block_height: u64,
-        input_index: usize,
-    ) -> bool {
-        let commitment_bytes = commitment.as_bytes().to_vec();
-        if let Some(&tx_index) = self.outputs_by_commitment.get(&commitment_bytes) {
-            if let Some(transaction) = self.transactions.get_mut(tx_index) {
-                if !transaction.is_spent {
-                    transaction.is_spent = true;
-                    transaction.spent_in_block = Some(block_height);
-                    transaction.spent_in_input = Some(input_index);
-                    
-                    // Use the value from our stored transaction, not the input
-                    let spent_value = transaction.value;
-                    self.total_spent += spent_value;
-                    self.running_balance -= spent_value as i64;
-                    self.unspent_count -= 1;
-                    self.spent_count += 1;
-                    
-                    println!("\n🔍 Found spent output: {} μT in block {} (originally received in block {})", 
-                        spent_value, block_height, transaction.block_height);
-                    return true;
-                }
-            }
-        }
-        false
-    }
-
-    fn get_summary(&self) -> (u64, u64, i64, usize, usize) {
-        (self.total_received, self.total_spent, self.running_balance, self.unspent_count, self.spent_count)
-    }
-
-    fn get_unspent_value(&self) -> u64 {
-        self.transactions.iter()
-            .filter(|tx| !tx.is_spent)
-            .map(|tx| tx.value)
-            .sum()
-    }
-
-    /// Create an enhanced progress bar with balance information
-    fn format_progress_bar(&self, current: u64, total: u64, block_height: u64, phase: &str) -> String {
-        let progress_percent = (current as f64 / total as f64) * 100.0;
-        let bar_width = 40; // Shorter bar to make room for balance info
-        let filled_width = ((progress_percent / 100.0) * bar_width as f64) as usize;
-        let bar = format!("{}{}",
-            "█".repeat(filled_width),
-            "░".repeat(bar_width - filled_width)
-        );
-        
-        let unspent_value = self.get_unspent_value();
-        let balance_t = self.running_balance as f64 / 1_000_000.0;
-        let unspent_t = unspent_value as f64 / 1_000_000.0;
-        let spent_t = self.total_spent as f64 / 1_000_000.0;
-        
-        format!(
-            "[{}] {:.1}% {} Block {} | 💰 {:.6}T | ✅ {:.6}T | ❌ {:.6}T | {} TX",
-            bar, 
-            progress_percent, 
-            phase,
-            block_height,
-            balance_t,
-            unspent_t, 
-            spent_t,
-            self.transactions.len()
-        )
-    }
-}
+// WalletState implementation is now in the library
 
 #[cfg(feature = "grpc")]
 async fn scan_wallet_across_blocks(
@@ -378,7 +236,8 @@ async fn scan_wallet_across_blocks(
                                         output.commitment.clone(),
                                         rewind_result.value,
                                         PaymentId::Empty, // Range proof doesn't contain payment ID
-                                        "Range Proof Rewind".to_string(),
+                                        TransactionStatus::OneSidedConfirmed,
+                                        TransactionDirection::Inbound,
                                         true,
                                     );
                                 }
@@ -433,7 +292,12 @@ async fn scan_wallet_across_blocks(
                                 output.commitment.clone(),
                                 coinbase_value,
                                 PaymentId::Empty, // Coinbase outputs typically have no payment ID
-                                "Coinbase".to_string(),
+                                if is_mature { 
+                                    TransactionStatus::CoinbaseConfirmed 
+                                } else { 
+                                    TransactionStatus::CoinbaseUnconfirmed 
+                                },
+                                TransactionDirection::Inbound,
                                 is_mature,
                             );
                         }
@@ -463,7 +327,8 @@ async fn scan_wallet_across_blocks(
                         output.commitment.clone(),
                         value_u64,
                         payment_id,
-                        "Payment".to_string(),
+                        TransactionStatus::MinedConfirmed,
+                        TransactionDirection::Inbound,
                         true, // Regular payments are always mature
                     );
                 }
@@ -482,7 +347,8 @@ async fn scan_wallet_across_blocks(
                             output.commitment.clone(),
                             value_u64,
                             payment_id,
-                            "One-sided".to_string(),
+                            TransactionStatus::OneSidedConfirmed,
+                            TransactionDirection::Inbound,
                             true, // One-sided payments are always mature
                         );
                     }
@@ -585,10 +451,11 @@ async fn scan_wallet_across_blocks(
 }
 
 // Helper function to scan inputs in a block for spending detection
+#[cfg(feature = "grpc")]
 async fn scan_block_inputs(
     block_info: &lightweight_wallet_libs::scanning::BlockInfo,
     block_height: u64,
-    wallet_state: &Arc<Mutex<WalletState>>,
+    wallet_state: &std::sync::Arc<std::sync::Mutex<WalletState>>,
 ) {
     for (input_index, input) in block_info.inputs.iter().enumerate() {
         // Input commitment is already [u8; 32], convert directly to CompressedCommitment
@@ -598,9 +465,10 @@ async fn scan_block_inputs(
         {
             let mut state = wallet_state.lock().unwrap();
             if state.mark_output_spent(&input_commitment, block_height, input_index) {
-                // Successfully marked an output as spent
-                println!("\n✅ SPENT! Input {} in block {} spending our commitment: {}", 
+                // Successfully marked an output as spent and created outbound transaction
+                println!("\n📤 OUTBOUND! Input {} in block {} spending our commitment: {}", 
                     input_index, block_height, hex::encode(input.commitment));
+                println!("   💸 Created outbound transaction record for spending");
             }
         }
     }
@@ -623,66 +491,110 @@ fn display_wallet_activity(wallet_state: &WalletState, from_block: u64, to_block
     println!("🏦 WALLET ACTIVITY SUMMARY");
     println!("========================");
     println!("Scan range: Block {} to {} ({} blocks)", from_block, to_block, to_block - from_block + 1);
-    println!("Total received: {} μT ({:.6} T) in {} transaction(s)", total_received, total_received as f64 / 1_000_000.0, total_count);
-    println!("Total spent: {} μT ({:.6} T) in {} transaction(s)", total_spent, total_spent as f64 / 1_000_000.0, spent_count);
-    println!("Current balance: {} μT ({:.6} T)", balance, balance as f64 / 1_000_000.0);
+    
+    let (inbound_count, outbound_count, _) = wallet_state.get_direction_counts();
+    println!("📥 Inbound:  {} transactions, {} μT ({:.6} T)", inbound_count, total_received, total_received as f64 / 1_000_000.0);
+    println!("📤 Outbound: {} transactions, {} μT ({:.6} T)", outbound_count, total_spent, total_spent as f64 / 1_000_000.0);
+    println!("💰 Current balance: {} μT ({:.6} T)", balance, balance as f64 / 1_000_000.0);
+    println!("📊 Total activity: {} transactions", total_count);
     println!();
     
     if !wallet_state.transactions.is_empty() {
-        println!("📋 TRANSACTION HISTORY");
-        println!("=====================");
+        println!("📋 TRANSACTION HISTORY (Chronological)");
+        println!("=====================================");
         
-        for (i, tx) in wallet_state.transactions.iter().enumerate() {
-            let status = if tx.is_spent {
-                format!("SPENT in block {}", tx.spent_in_block.unwrap_or(0))
-            } else {
-                "UNSPENT".to_string()
+        // Sort transactions by block height for chronological order
+        let mut sorted_transactions: Vec<_> = wallet_state.transactions.iter().enumerate().collect();
+        sorted_transactions.sort_by_key(|(_, tx)| tx.block_height);
+        
+        for (original_index, tx) in sorted_transactions {
+            let direction_symbol = match tx.transaction_direction {
+                TransactionDirection::Inbound => "📥",
+                TransactionDirection::Outbound => "📤",
+                TransactionDirection::Unknown => "❓",
             };
             
-            let maturity_indicator = if tx.transaction_type == "Coinbase" && !tx.is_mature {
+            let amount_display = match tx.transaction_direction {
+                TransactionDirection::Inbound => format!("+{} μT", tx.value),
+                TransactionDirection::Outbound => format!("-{} μT", tx.value),
+                TransactionDirection::Unknown => format!("±{} μT", tx.value),
+            };
+            
+            let maturity_indicator = if tx.transaction_status.is_coinbase() && !tx.is_mature {
                 " (IMMATURE)"
             } else {
                 ""
             };
             
-            println!("{}. Block {}, Output #{}: +{} μT ({:.6} T) - {} [{}{}]", 
-                i + 1,
-                tx.block_height,
-                tx.output_index.unwrap_or(0),
-                tx.value,
-                tx.value as f64 / 1_000_000.0,
-                status,
-                tx.transaction_type,
-                maturity_indicator
-            );
+            // Different display format for inbound vs outbound
+            match tx.transaction_direction {
+                TransactionDirection::Inbound => {
+                    let status = if tx.is_spent {
+                        format!("LATER SPENT in block {}", tx.spent_in_block.unwrap_or(0))
+                    } else {
+                        "UNSPENT".to_string()
+                    };
+                    
+                    println!("{}. {} Block {}, Output #{}: {} ({:.6} T) - {} [{}{}]", 
+                        original_index + 1,
+                        direction_symbol,
+                        tx.block_height,
+                        tx.output_index.unwrap_or(0),
+                        amount_display,
+                        tx.value as f64 / 1_000_000.0,
+                        status,
+                        tx.transaction_status,
+                        maturity_indicator
+                    );
+                },
+                TransactionDirection::Outbound => {
+                    println!("{}. {} Block {}, Input #{}: {} ({:.6} T) - SPENT [{}]", 
+                        original_index + 1,
+                        direction_symbol,
+                        tx.block_height,
+                        tx.input_index.unwrap_or(0),
+                        amount_display,
+                        tx.value as f64 / 1_000_000.0,
+                        tx.transaction_status
+                    );
+                },
+                TransactionDirection::Unknown => {
+                    println!("{}. {} Block {}: {} ({:.6} T) - UNKNOWN [{}]", 
+                        original_index + 1,
+                        direction_symbol,
+                        tx.block_height,
+                        amount_display,
+                        tx.value as f64 / 1_000_000.0,
+                        tx.transaction_status
+                    );
+                }
+            }
             
             // Show payment ID if not empty
             match &tx.payment_id {
                 PaymentId::Empty => {},
                 PaymentId::Open { user_data, .. } if !user_data.is_empty() => {
-
                     // Try to decode as UTF-8 string
                     if let Ok(text) = std::str::from_utf8(user_data) {
-
                         if text.chars().all(|c| c.is_ascii_graphic() || c.is_ascii_whitespace()) {
-                            println!("   Payment ID: \"{}\"", text);
+                            println!("   💬 Payment ID: \"{}\"", text);
                         } else {
-                            println!("   Payment ID (hex): {}", hex::encode(user_data));
+                            println!("   💬 Payment ID (hex): {}", hex::encode(user_data));
                         }
                     } else {
-                        println!("   Payment ID (hex): {}", hex::encode(user_data));
+                        println!("   💬 Payment ID (hex): {}", hex::encode(user_data));
                     }
                 },
                 PaymentId::TransactionInfo { user_data, .. } if !user_data.is_empty() => {
                     // Convert the binary data to utf8 string if possible otherwise print as hex    
                     if let Ok(text) = std::str::from_utf8(user_data) {
-                        println!("   Payment ID: \"{}\"", text);
+                        println!("   💬 Payment ID: \"{}\"", text);
                     } else {
-                        println!("   Payment ID (hex): {}", hex::encode(user_data));
+                        println!("   💬 Payment ID (hex): {}", hex::encode(user_data));
                     }
                 },
                 _ => {
-                    println!("   Payment ID: {:#?}", tx.payment_id);
+                    println!("   💬 Payment ID: {:#?}", tx.payment_id.user_data_as_string());
                 }
             }
         }
@@ -706,27 +618,54 @@ fn display_wallet_activity(wallet_state: &WalletState, from_block: u64, to_block
         println!("For complete wallet history, scan from genesis: FROM_BLOCK=1");
     }
     
-    // Show transaction type breakdown
-    let mut type_counts = std::collections::HashMap::new();
-    let mut coinbase_immature = 0;
-    for tx in &wallet_state.transactions {
-        *type_counts.entry(&tx.transaction_type).or_insert(0) += 1;
-        if tx.transaction_type == "Coinbase" && !tx.is_mature {
-            coinbase_immature += 1;
-        }
-    }
+    // Show detailed transaction analysis
+    let (inbound_count, outbound_count, unknown_count) = wallet_state.get_direction_counts();
+    let inbound_transactions = wallet_state.get_inbound_transactions();
+    let outbound_transactions = wallet_state.get_outbound_transactions();
     
-    if !type_counts.is_empty() {
+    // Calculate values for inbound and outbound
+    let total_inbound_value: u64 = inbound_transactions.iter().map(|tx| tx.value).sum();
+    let total_outbound_value: u64 = outbound_transactions.iter().map(|tx| tx.value).sum();
+    
+    if !wallet_state.transactions.is_empty() {
         println!();
-        println!("📊 TRANSACTION TYPES");
-        println!("===================");
-        for (tx_type, count) in type_counts {
-            if tx_type == "Coinbase" && coinbase_immature > 0 {
-                println!("{}: {} ({} immature)", tx_type, count, coinbase_immature);
-            } else {
-                println!("{}: {}", tx_type, count);
+        println!("📊 TRANSACTION FLOW ANALYSIS");
+        println!("============================");
+        println!("📥 Inbound:  {} transactions, {:.6} T total", inbound_count, total_inbound_value as f64 / 1_000_000.0);
+        println!("📤 Outbound: {} transactions, {:.6} T total", outbound_count, total_outbound_value as f64 / 1_000_000.0);
+        if unknown_count > 0 {
+            println!("❓ Unknown:  {} transactions", unknown_count);
+        }
+        
+        // Show transaction status breakdown
+        let mut status_counts = std::collections::HashMap::new();
+        let mut coinbase_immature = 0;
+        for tx in &wallet_state.transactions {
+            *status_counts.entry(tx.transaction_status).or_insert(0) += 1;
+            if tx.transaction_status.is_coinbase() && !tx.is_mature {
+                coinbase_immature += 1;
             }
         }
+        
+        println!();
+        println!("📊 TRANSACTION STATUS BREAKDOWN");
+        println!("==============================");
+        for (status, count) in status_counts {
+            if status.is_coinbase() && coinbase_immature > 0 {
+                println!("{}: {} ({} immature)", status, count, coinbase_immature);
+            } else {
+                println!("{}: {}", status, count);
+            }
+        }
+        
+        // Show net flow
+        let net_flow = total_inbound_value as i64 - total_outbound_value as i64;
+        println!();
+        println!("📊 NET FLOW SUMMARY");
+        println!("==================");
+        println!("Net flow: {:.6} T ({})", net_flow as f64 / 1_000_000.0, 
+            if net_flow > 0 { "📈 Positive" } else if net_flow < 0 { "📉 Negative" } else { "⚖️  Neutral" });
+        println!("Current balance: {:.6} T", wallet_state.get_balance() as f64 / 1_000_000.0);
     }
 }
 
@@ -761,7 +700,7 @@ async fn main() -> LightweightWalletResult<()> {
 
     // Configuration
     let default_seed = "gate sound fault steak act victory vacuum night injury lion section share pass food damage venue smart vicious cinnamon eternal invest shoulder green file";
-    let seed_phrase = std::env::var("TEST_SEED_PHRASE").unwrap_or_else(|_| default_seed.to_string());
+    let seed_phrase = std::env::var("SEED_PHRASE").unwrap_or_else(|_| default_seed.to_string());
     let base_url = std::env::var("BASE_URL").unwrap_or_else(|_| "http://127.0.0.1:18142".to_string());
 
     println!("🔨 Creating wallet from seed phrase... {}", seed_phrase);
