@@ -16,21 +16,24 @@
 //! - Display the exact block height and error details
 //! - Offer interactive options: Continue (y), Skip block (s), or Abort (n)
 //! - Provide resume commands for easy restart from the failed point
-//! - Example: `FROM_BLOCK=25000 TO_BLOCK=30000 cargo run --example enhanced_wallet_scanner --features grpc`
+//! - Example: `cargo run --example scanner --features grpc -- --seed-phrase "your seed phrase" --from-block 25000 --to-block 30000`
 //!
 //! ## Usage
 //! ```bash
-//! # Scan with default wallet from birthday to tip
-//! cargo run --example enhanced_wallet_scanner --features grpc
-//!
-//! # Use specific wallet
-//! TEST_SEED_PHRASE="your seed phrase" cargo run --example enhanced_wallet_scanner --features grpc
+//! # Scan with wallet from birthday to tip
+//! cargo run --example scanner --features grpc -- --seed-phrase "your seed phrase here"
 //!
 //! # Scan specific range
-//! FROM_BLOCK=34920 TO_BLOCK=34930 cargo run --example enhanced_wallet_scanner --features grpc
+//! cargo run --example scanner --features grpc -- --seed-phrase "your seed phrase" --from-block 34920 --to-block 34930
 //!
-//! # Resume from a specific block after error
-//! FROM_BLOCK=25000 TO_BLOCK=30000 cargo run --example enhanced_wallet_scanner --features grpc
+//! # Use custom base node URL
+//! cargo run --example scanner --features grpc -- --seed-phrase "your seed phrase" --base-url "http://192.168.1.100:18142"
+//!
+//! # Resume from a specific block after error with custom batch size
+//! cargo run --example scanner --features grpc -- --seed-phrase "your seed phrase" --from-block 25000 --to-block 30000 --batch-size 5
+//!
+//! # Show help
+//! cargo run --example scanner --features grpc -- --help
 //! ```
 
 #[cfg(feature = "grpc")]
@@ -57,6 +60,38 @@ use tari_crypto::ristretto::RistrettoPublicKey;
 use std::sync::{Arc, Mutex};
 #[cfg(feature = "grpc")]
 use tokio::time::Instant;
+#[cfg(feature = "grpc")]
+use clap::Parser;
+
+/// Enhanced Tari Wallet Scanner CLI
+#[cfg(feature = "grpc")]
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+struct CliArgs {
+    /// Seed phrase for the wallet (required)
+    #[arg(short, long, help = "Seed phrase for the wallet")]
+    seed_phrase: String,
+
+    /// Base URL for the Tari base node GRPC endpoint
+    #[arg(short, long, default_value = "http://127.0.0.1:18142", help = "Base URL for Tari base node GRPC")]
+    base_url: String,
+
+    /// Starting block height for scanning
+    #[arg(long, help = "Starting block height (defaults to last 1000 blocks from tip)")]
+    from_block: Option<u64>,
+
+    /// Ending block height for scanning
+    #[arg(long, help = "Ending block height (defaults to current tip)")]
+    to_block: Option<u64>,
+
+    /// Batch size for processing blocks
+    #[arg(long, default_value = "10", help = "Number of blocks to process in each batch")]
+    batch_size: u64,
+
+    /// Concurrency level for parallel processing
+    #[arg(long, default_value = "4", help = "Number of blocks to process concurrently")]
+    concurrency_level: usize,
+}
 
 // WalletTransaction and WalletState are now imported from the library
 
@@ -68,6 +103,8 @@ async fn scan_wallet_across_blocks(
     wallet: &Wallet,
     from_block: u64,
     to_block: u64,
+    batch_size: u64,
+    concurrency_level: usize,
 ) -> LightweightWalletResult<WalletState> {
     // Setup wallet keys
     let seed_phrase = wallet.export_seed_phrase()?;
@@ -105,15 +142,11 @@ async fn scan_wallet_across_blocks(
         // derived_keys.push(derived_public_key);
     }
     
-    println!("🔧 Enhanced scanning with range proof rewinding and script pattern detection");
-    
     // Use Arc<Mutex<WalletState>> for thread safety
     let wallet_state = Arc::new(Mutex::new(WalletState::new()));
     let block_range = to_block - from_block + 1;
     
     println!("🔍 Scanning blocks {} to {} ({} blocks total)...", from_block, to_block, block_range);
-    println!("🔑 Wallet entropy: {}", hex::encode(entropy));
-    println!("🔧 Enhanced scanning with range proof rewinding and script pattern detection");
     println!();
     
     // Phase 1: Scan all blocks for received outputs with optimizations
@@ -123,7 +156,7 @@ async fn scan_wallet_across_blocks(
     if from_block > 1 {
         println!("⚠️  WARNING: Starting scan from block {} (not genesis)", from_block);
         println!("   📍 This will MISS any wallet outputs received before block {}", from_block);
-        println!("   💡 For complete transaction history, consider scanning from genesis (FROM_BLOCK=1)");
+        println!("   💡 For complete transaction history, consider scanning from genesis (--from-block 1)");
         println!("   🔄 Spent transactions may not be detected if their outputs were received earlier");
         println!();
     }
@@ -134,17 +167,7 @@ async fn scan_wallet_across_blocks(
     
     println!("🔍 Output discovery range: blocks {} to {} ({} blocks)", discovery_from_block, discovery_to_block, discovery_range);
     
-    // Batch size for processing (balance between memory usage and API calls)
-    let batch_size = std::env::var("BATCH_SIZE")
-        .ok()
-        .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(10); // Process 10 blocks at a time by default
-    
-    // Concurrency level for parallel block processing
-    let concurrency_level = std::env::var("CONCURRENCY_LEVEL")
-        .ok()
-        .and_then(|s| s.parse::<usize>().ok())
-        .unwrap_or(4); // Process 4 blocks concurrently by default
+    // Batch size and concurrency level are now passed as parameters from CLI args
     
     println!("⚡ Using optimized parallel processing:");
     println!("  • Batch size: {} blocks", batch_size);
@@ -179,7 +202,7 @@ async fn scan_wallet_across_blocks(
                 println!("   Error details: {:?}", e);
                 
                 // Ask user if they want to continue
-                print!("   Continue scanning remaining blocks? (y/n/s=skip this block): ");
+                print!("   Continue scanning remaining blocks? (y/n): ");
                 std::io::Write::flush(&mut std::io::stdout()).unwrap();
                 
                 let mut input = String::new();
@@ -188,17 +211,13 @@ async fn scan_wallet_across_blocks(
                 
                 match choice.as_str() {
                     "y" | "yes" => {
-                        println!("   ✅ Continuing scan from block {}...", block_height + 1);
-                        continue;
-                    },
-                    "s" | "skip" => {
-                        println!("   ⏭️  Skipping block {} and continuing...", block_height);
+                        println!("   ✅ Continuing scan from block {}...", block_height);
                         continue;
                     },
                     _ => {
                         println!("   🛑 Scan aborted by user at block {}", block_height);
                         println!("\n💡 To resume from this point, run:");
-                        println!("   FROM_BLOCK={} TO_BLOCK={} cargo run --example enhanced_wallet_scanner --features grpc", block_height, to_block);
+                        println!("   cargo run --example scanner --features grpc -- --seed-phrase \"your seed phrase\" --from-block {} --to-block {}", block_height, to_block);
                         return Err(e);
                     }
                 }
@@ -368,7 +387,7 @@ async fn scan_wallet_across_blocks(
         
         if state.transactions.is_empty() {
             println!("⚠️  No wallet outputs found in scan range - no spending to track");
-            println!("   💡 Try scanning from an earlier block or from genesis (FROM_BLOCK=1)");
+            println!("   💡 Try scanning from an earlier block or from genesis (--from-block 1)");
         } else {
             println!("🔑 Wallet output commitments to track:");
             for (i, tx) in state.transactions.iter().enumerate() {
@@ -430,7 +449,7 @@ async fn scan_wallet_across_blocks(
                         _ => {
                             println!("   🛑 Scan aborted by user at block {}", block_height);
                             println!("\n💡 To resume from this point, run:");
-                            println!("   FROM_BLOCK={} TO_BLOCK={} cargo run --example enhanced_wallet_scanner --features grpc", block_height, to_block);
+                            println!("   cargo run --example scanner --features grpc -- --seed-phrase \"your seed phrase\" --from-block {} --to-block {}", block_height, to_block);
                             return Err(e);
                         }
                     }
@@ -483,7 +502,7 @@ fn display_wallet_activity(wallet_state: &WalletState, from_block: u64, to_block
         println!("💡 No wallet activity found in blocks {} to {}", from_block, to_block);
         if from_block > 1 {
             println!("   ⚠️  Note: Scanning from block {} - wallet history before this block was not checked", from_block);
-            println!("   💡 For complete history, try: FROM_BLOCK=1 cargo run --example enhanced_wallet_scanner --features grpc");
+            println!("   💡 For complete history, try: cargo run --example scanner --features grpc -- --seed-phrase \"your seed phrase\" --from-block 1");
         }
         return;
     }
@@ -615,7 +634,7 @@ fn display_wallet_activity(wallet_state: &WalletState, from_block: u64, to_block
         println!("⚠️  SCAN LIMITATION NOTE");
         println!("=======================");
         println!("Scanned from block {} (not genesis) - transactions before this may be missing", from_block);
-        println!("For complete wallet history, scan from genesis: FROM_BLOCK=1");
+        println!("For complete wallet history, scan from genesis: --from-block 1");
     }
     
     // Show detailed transaction analysis
@@ -677,39 +696,17 @@ async fn main() -> LightweightWalletResult<()> {
 
     println!("🚀 Enhanced Tari Wallet Scanner");
     println!("===============================");
-    println!("Complete cross-block transaction tracking with:");
-    println!("  • Encrypted data decryption");
-    println!("  • Running balance calculation");
-    println!("  • Range proof rewinding (ACTIVE)");
-    println!("  • Script pattern detection (basic structure analysis)");
-    println!();
 
-    // Note about current limitations and performance optimizations
-    println!("📋 Current Implementation Status:");
-    println!("  ✅ Range proof rewinding: Fully functional");
-    println!("  ⚠️  Script pattern matching: Structure detection only (key comparison disabled)");
-    println!();
-    
-    println!("⚡ Performance Optimizations:");
-    println!("  • Batch processing for improved API efficiency");
-    println!("  • Enhanced progress bars with real-time balance updates");
-    println!("  • Thread-safe wallet state management");
-    println!("  • Configurable batch size (BATCH_SIZE env var, default: 10 blocks)");
-    println!("  • Optimized memory usage and reduced API calls");
-    println!();
+    // Parse CLI arguments
+    let args = CliArgs::parse();
 
-    // Configuration
-    let default_seed = "gate sound fault steak act victory vacuum night injury lion section share pass food damage venue smart vicious cinnamon eternal invest shoulder green file";
-    let seed_phrase = std::env::var("SEED_PHRASE").unwrap_or_else(|_| default_seed.to_string());
-    let base_url = std::env::var("BASE_URL").unwrap_or_else(|_| "http://127.0.0.1:18142".to_string());
-
-    println!("🔨 Creating wallet from seed phrase... {}", seed_phrase);
-    let wallet = Wallet::new_from_seed_phrase(&seed_phrase, None)?;
+    println!("🔨 Creating wallet from seed phrase...");
+    let wallet = Wallet::new_from_seed_phrase(&args.seed_phrase, None)?;
     println!("✅ Wallet created successfully");
 
     println!("🌐 Connecting to Tari base node...");
     let mut scanner = match GrpcScannerBuilder::new()
-            .with_base_url(base_url)
+            .with_base_url(args.base_url.clone())
         .with_timeout(std::time::Duration::from_secs(30))
         .build().await 
     {
@@ -728,25 +725,10 @@ async fn main() -> LightweightWalletResult<()> {
     let tip_info = scanner.get_tip_info().await?;
     println!("📊 Current blockchain tip: block {}", tip_info.best_block_height);
 
-    // Determine scan range
-    let to_block = std::env::var("TO_BLOCK")
-        .ok()
-        .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(tip_info.best_block_height);
+    // Determine scan range from CLI arguments
+    let to_block = args.to_block.unwrap_or(tip_info.best_block_height);
 
-    // Default to scanning from a reasonable starting point
-    // In a real implementation, you'd calculate the actual wallet birthday
-    let wallet_birthday = std::env::var("FROM_BLOCK")
-        .ok()
-        .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or_else(|| {
-            // Default to last 1000 blocks or from genesis if close to start
-            if tip_info.best_block_height > 1000 {
-                tip_info.best_block_height.saturating_sub(1000)
-            } else {
-                0
-            }
-        });
+    let wallet_birthday = args.from_block.unwrap_or(wallet.birthday());
 
     let from_block = std::cmp::max(wallet_birthday, 0);
     
@@ -755,7 +737,7 @@ async fn main() -> LightweightWalletResult<()> {
     println!();
 
     // Perform the comprehensive scan
-    let wallet_state = scan_wallet_across_blocks(&mut scanner, &wallet, from_block, to_block).await?;
+    let wallet_state = scan_wallet_across_blocks(&mut scanner, &wallet, from_block, to_block, args.batch_size, args.concurrency_level).await?;
     
     // Display results
     display_wallet_activity(&wallet_state, from_block, to_block);
@@ -768,6 +750,6 @@ async fn main() -> LightweightWalletResult<()> {
 #[cfg(not(feature = "grpc"))]
 fn main() {
     eprintln!("This example requires the 'grpc' feature to be enabled.");
-    eprintln!("Run with: cargo run --example enhanced_wallet_scanner --features grpc");
+    eprintln!("Run with: cargo run --example scanner --features grpc");
     std::process::exit(1);
 } 

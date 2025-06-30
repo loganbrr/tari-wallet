@@ -67,6 +67,9 @@ tracing = "0.1"
 tonic = { version = "0.10", features = ["tls", "tls-roots", "prost"], optional = true }
 prost = { version = "0.12", optional = true }
 
+# CLI argument parsing for examples
+clap = { version = "4.4", features = ["derive"], optional = true }
+
 # Added tracing-subscriber dependency
 tracing-subscriber = "0.3"
 
@@ -85,7 +88,7 @@ tonic-build = "0.10"
 default = []
 wasm = ["getrandom/js"]
 parallel = ["rayon"]
-grpc = ["tonic", "prost"]
+grpc = ["tonic", "prost", "clap"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.2", features = ["js"] } 
