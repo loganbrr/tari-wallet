@@ -87,18 +87,6 @@ struct CliArgs {
     #[arg(long, help = "Ending block height (defaults to current tip)")]
     to_block: Option<u64>,
 
-    /// Batch size for processing blocks
-    #[arg(long, default_value = "10", help = "Number of blocks to process in each batch")]
-    batch_size: u64,
-
-    /// Concurrency level for parallel processing
-    #[arg(long, default_value = "4", help = "Number of blocks to process concurrently")]
-    concurrency_level: usize,
-
-    /// Enable parallel processing optimizations
-    #[arg(long, default_value = "true", help = "Enable parallel block processing for better performance")]
-    enable_parallel: bool,
-
     /// Enable caching for better performance on repeated scans
     #[arg(long, default_value = "true", help = "Enable result caching to speed up repeated operations")]
     enable_cache: bool,
@@ -106,14 +94,6 @@ struct CliArgs {
     /// GRPC batch size for fetching multiple blocks at once
     #[arg(long, default_value = "100", help = "Number of blocks to fetch in a single GRPC call")]
     grpc_batch_size: usize,
-
-    /// Number of concurrent output analyses per block
-    #[arg(long, default_value = "6", help = "Number of outputs to analyze concurrently within each block")]
-    concurrent_outputs: usize,
-
-    /// Show performance metrics
-    #[arg(long, default_value = "true", help = "Display performance metrics and timing information")]
-    show_metrics: bool,
 
     /// Specific blocks to scan (comma-separated list, e.g., "1234,3455,5643,4535")
     #[arg(long, help = "Scan only specific blocks instead of a range", value_delimiter = ',')]
@@ -124,24 +104,16 @@ struct CliArgs {
 #[cfg(feature = "grpc")]
 #[derive(Clone, Debug)]
 struct PerformanceConfig {
-    pub concurrent_blocks: usize,
     pub grpc_batch_size: usize,
-    pub concurrent_outputs: usize,
     pub enable_caching: bool,
-    pub enable_parallel: bool,
-    pub show_metrics: bool,
 }
 
 #[cfg(feature = "grpc")]
 impl PerformanceConfig {
     fn from_cli_args(args: &CliArgs) -> Self {
         Self {
-            concurrent_blocks: args.concurrency_level,
             grpc_batch_size: args.grpc_batch_size,
-            concurrent_outputs: args.concurrent_outputs,
             enable_caching: args.enable_cache,
-            enable_parallel: args.enable_parallel,
-            show_metrics: args.show_metrics,
         }
     }
 }
@@ -226,14 +198,11 @@ async fn scan_wallet_across_blocks(
     wallet: &Wallet,
     from_block: u64,
     to_block: u64,
-    batch_size: u64,
-    _concurrency_level: usize,
     perf_config: &PerformanceConfig,
     specific_blocks: Option<Vec<u64>>,
 ) -> LightweightWalletResult<WalletState> {
     // Initialize performance metrics
     let mut metrics = PerformanceMetrics::new();
-    let start_time = Instant::now();
     
     // Initialize caches if enabled
     let range_proof_cache: ResultCache = Arc::new(RwLock::new(HashMap::new()));
@@ -286,23 +255,6 @@ async fn scan_wallet_across_blocks(
     let total_blocks = blocks_to_scan.len();
     println!();
     
-    // UNIFIED SCAN: Process both output discovery AND spending detection in one pass
-    println!("🔄 UNIFIED SCAN: Discovering outputs and tracking spending in one pass...");
-    
-    if perf_config.enable_parallel {
-        println!("⚡ Using optimized parallel processing:");
-        println!("  • Batch size: {} blocks", batch_size);
-        println!("  • Concurrency level: {} parallel blocks", perf_config.concurrent_blocks);
-        println!("  • GRPC batch size: {} blocks per call", perf_config.grpc_batch_size);
-        println!("  • Concurrent outputs: {} per block", perf_config.concurrent_outputs);
-        println!("  • Caching: {}", if perf_config.enable_caching { "enabled" } else { "disabled" });
-        println!("  • Single-pass scanning for maximum efficiency");
-    } else {
-        println!("🔄 Using sequential processing:");
-        println!("  • Batch size: {} blocks", batch_size);
-        println!("  • Processing one block at a time");
-        println!("  • Single-pass scanning for maximum efficiency");
-    }
     
     let scan_start_time = Instant::now();
     
@@ -338,7 +290,7 @@ async fn scan_wallet_across_blocks(
     for batch_start in (0..blocks_to_scan.len()).step_by(perf_config.grpc_batch_size) {
         let batch_end = std::cmp::min(batch_start + perf_config.grpc_batch_size, blocks_to_scan.len());
         let batch_heights: Vec<u64> = blocks_to_scan[batch_start..batch_end].to_vec();
-        
+
         // Batch GRPC call - much more efficient!
         let blocks_info = match scanner.get_blocks_by_heights(batch_heights.clone()).await {
             Ok(blocks) => blocks,
@@ -444,7 +396,7 @@ async fn scan_wallet_across_blocks(
                         }
                         
                         // Try rewinding with optimized nonce selection
-                        let nonce_count = if perf_config.enable_parallel { 2 } else { 5 };
+                        let nonce_count = 5;
                         for nonce_index in 0..nonce_count {
                             // Generate a rewind nonce from wallet entropy
                             if let Ok(seed_nonce) = range_proof_service.generate_rewind_nonce(&entropy, nonce_index) {
@@ -673,12 +625,8 @@ async fn scan_wallet_across_blocks(
     metrics.processing_time = scan_elapsed;
     metrics.blocks_processed = total_blocks as u64;
     
-    if perf_config.show_metrics && perf_config.enable_parallel {
-        println!("\n✅ Unified scan complete in {:.2}s!", scan_elapsed.as_secs_f64());
-        metrics.print_summary();
-    } else {
-        println!("\n✅ Unified scan complete in {:.2}s!", scan_elapsed.as_secs_f64());
-    }
+    println!("\n✅ Unified scan complete in {:.2}s!", scan_elapsed.as_secs_f64());
+    metrics.print_summary();
     
     // Show summary of what was found
     {
@@ -1025,7 +973,7 @@ async fn main() -> LightweightWalletResult<()> {
     println!();
 
     // Perform the comprehensive scan
-    let wallet_state = scan_wallet_across_blocks(&mut scanner, &wallet, from_block, to_block, args.batch_size, args.concurrency_level, &perf_config, specific_blocks).await?;
+    let wallet_state = scan_wallet_across_blocks(&mut scanner, &wallet, from_block, to_block, &perf_config, specific_blocks).await?;
     
     // Display results
     display_wallet_activity(&wallet_state, from_block, to_block);
