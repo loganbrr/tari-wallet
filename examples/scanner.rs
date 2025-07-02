@@ -258,28 +258,6 @@ async fn scan_wallet_across_blocks(
     
     let scan_start_time = Instant::now();
     
-    // Cache helper functions
-    let check_cache = |cache: &ResultCache, key: &[u8]| -> Option<CachedResult> {
-        if !perf_config.enable_caching {
-            return None;
-        }
-        let cache_read = cache.read().unwrap();
-        cache_read.get(key).cloned()
-    };
-    
-    let cache_result = |cache: &ResultCache, key: Vec<u8>, success: bool, value: Option<u64>, payment_id: Option<PaymentId>| {
-        if !perf_config.enable_caching {
-            return;
-        }
-        let mut cache_write = cache.write().unwrap();
-        cache_write.insert(key, CachedResult {
-            success,
-            value,
-            payment_id,
-            timestamp: Instant::now(),
-        });
-    };
-    
     // Process blocks using efficient batched GRPC calls
     println!("🚀 Using batched GRPC calls for optimal performance");
     println!("  • Batch size: {} blocks per GRPC call", perf_config.grpc_batch_size);
@@ -335,16 +313,130 @@ async fn scan_wallet_across_blocks(
                 std::io::Write::flush(&mut std::io::stdout()).unwrap();
             }
             
-            // PHASE 1: Process outputs for wallet discovery (same as before)
+            // PHASE 1: Process outputs for wallet discovery (optimized order)
             for (output_index, output) in block_info.outputs.iter().enumerate() {
                 let mut found_output = false;
 
+                // STEP 1: Try one-sided detection first (most common output type)
+                if let Some((value, payment_id)) = try_detect_one_sided_output(output, &view_key) {
+                    {
+                        let mut state = wallet_state.lock().unwrap();
+                        state.add_received_output(
+                            block_height,
+                            output_index,
+                            output.commitment().clone(),
+                            value,
+                            payment_id,
+                            TransactionStatus::OneSidedConfirmed,
+                            TransactionDirection::Inbound,
+                            true, // One-sided payments are always mature
+                        );
+                    }
+                    found_output = true;
+                }
                 
-                // STEP 1: Try imported key derivation first (for imported outputs)
-                if let Some((value, payment_id, _imported_key)) = try_detect_imported_output(output, block_height, output_index, &entropy_array) {
+                if found_output {
+                    continue;
+                }
+                
+                // STEP 2: Try regular encrypted data decryption (standard wallet outputs)
+                if let Some((value, payment_id)) = try_detect_regular_output(output, &view_key) {
+                    {
+                        let mut state = wallet_state.lock().unwrap();
+                        state.add_received_output(
+                            block_height,
+                            output_index,
+                            output.commitment().clone(),
+                            value,
+                            payment_id,
+                            TransactionStatus::MinedConfirmed,
+                            TransactionDirection::Inbound,
+                            true, // Regular payments are always mature
+                        );
+                    }
+                    found_output = true;
+                }
+                
+                if found_output {
+                    continue;
+                }
+                
+                // STEP 3: Try stealth address detection (one-sided payments)
+                if let Some((value, payment_id)) = try_detect_stealth_output(output, &view_key, &stealth_service) {
+                    println!("\n🎭 Found STEALTH ADDRESS output in block {}, output {}: {} μT", 
+                        block_height, output_index, value);
+                    {
+                        let mut state = wallet_state.lock().unwrap();
+                        state.add_received_output(
+                            block_height,
+                            output_index,
+                            output.commitment().clone(),
+                            value,
+                            payment_id,
+                            TransactionStatus::OneSidedConfirmed, // Stealth addresses are one-sided
+                            TransactionDirection::Inbound,
+                            true, // One-sided payments are always mature
+                        );
+                    }
+                    found_output = true;
+                }
+                
+                if found_output {
+                    continue;
+                }
+                
+                // STEP 4: Range Proof Rewinding with caching optimization
+                if let Some(value) = try_detect_range_proof_output(output, &entropy, &range_proof_service, &range_proof_cache, &perf_config, &mut metrics) {
+                    {
+                        let mut state = wallet_state.lock().unwrap();
+                        state.add_received_output(
+                            block_height,
+                            output_index,
+                            output.commitment().clone(),
+                            value,
+                            PaymentId::Empty,
+                            TransactionStatus::OneSidedConfirmed,
+                            TransactionDirection::Inbound,
+                            true,
+                        );
+                    }
+                    found_output = true;
+                }
+                
+                if found_output {
+                    continue;
+                }
+                
+                // STEP 5: Check for coinbase outputs
+                if let Some((coinbase_value, is_mature)) = try_detect_coinbase_output(output, &view_key, block_height) {
+                    {
+                        let mut state = wallet_state.lock().unwrap();
+                        state.add_received_output(
+                            block_height,
+                            output_index,
+                            output.commitment().clone(),
+                            coinbase_value,
+                            PaymentId::Empty,
+                            if is_mature { 
+                                TransactionStatus::CoinbaseConfirmed 
+                            } else { 
+                                TransactionStatus::CoinbaseUnconfirmed 
+                            },
+                            TransactionDirection::Inbound,
+                            is_mature,
+                        );
+                    }
+                    found_output = true;
+                }
+                
+                if found_output {
+                    continue;
+                }
+                
+                // STEP 6: Try imported key derivation (for imported outputs)
+                if let Some((value, payment_id)) = try_detect_imported_output_wrapper(output, block_height, output_index, &entropy_array) {
                     println!("\n💎 Found IMPORTED output in block {}, output {}: {} μT", 
                         block_height, output_index, value);
-                        
                     {
                         let mut state = wallet_state.lock().unwrap();
                         state.add_received_output(
@@ -357,244 +449,6 @@ async fn scan_wallet_across_blocks(
                             TransactionDirection::Inbound,
                             true, // Imported outputs are always mature
                         );
-                    }
-                    found_output = true;
-                }
-                
-                // Skip further processing if we found an imported output
-                if found_output {
-                    continue;
-                }
-                
-                // STEP 2: Range Proof Rewinding with caching optimization
-                if let Some(ref range_proof) = output.proof() {
-                    if !range_proof.bytes.is_empty() {
-                        let commitment_bytes = output.commitment().as_bytes().to_vec();
-                        
-                        // Check cache first if enabled
-                        if perf_config.enable_caching {
-                            if let Some(cached) = check_cache(&range_proof_cache, &commitment_bytes) {
-                                if cached.success && cached.value.is_some() {
-                                    let cached_value = cached.value.unwrap();
-                                    
-                                    let mut state = wallet_state.lock().unwrap();
-                                    state.add_received_output(
-                                        block_height,
-                                        output_index,
-                                        output.commitment().clone(),
-                                        cached_value,
-                                        PaymentId::Empty,
-                                        TransactionStatus::OneSidedConfirmed,
-                                        TransactionDirection::Inbound,
-                                        true,
-                                    );
-                                    found_output = true;
-                                    metrics.cache_hits += 1;
-                                    continue; // Move to next output
-                                }
-                            }
-                        }
-                        
-                        // Try rewinding with optimized nonce selection
-                        let nonce_count = 5;
-                        for nonce_index in 0..nonce_count {
-                            // Generate a rewind nonce from wallet entropy
-                            if let Ok(seed_nonce) = range_proof_service.generate_rewind_nonce(&entropy, nonce_index) {
-                                if let Ok(Some(rewind_result)) = range_proof_service.attempt_rewind(
-                                    &range_proof.bytes,
-                                    output.commitment(),
-                                    &seed_nonce,
-                                    Some(output.minimum_value_promise().as_u64())
-                                ) {
-                                    {
-                                        let mut state = wallet_state.lock().unwrap();
-                                        state.add_received_output(
-                                            block_height,
-                                            output_index,
-                                            output.commitment().clone(),
-                                            rewind_result.value,
-                                            PaymentId::Empty,
-                                            TransactionStatus::OneSidedConfirmed,
-                                            TransactionDirection::Inbound,
-                                            true,
-                                        );
-                                    }
-                                    
-                                    // Cache the successful result
-                                    if perf_config.enable_caching {
-                                        cache_result(&range_proof_cache, commitment_bytes.clone(), true, Some(rewind_result.value), None);
-                                        metrics.cache_misses += 1;
-                                    }
-                                    
-                                    found_output = true;
-                                    break; // Found a successful rewind, move to next output
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                // Skip further processing if we already found this output via range proof rewinding
-                if found_output {
-                    continue;
-                }
-                
-                // STEP 3: Try stealth address detection (one-sided payments)
-                if !output.sender_offset_public_key().as_bytes().is_empty() {
-                    // Try to recover stealth address spending key using view key and sender offset
-                    // This detects one-sided payments sent to stealth addresses
-                    
-                    if let Ok(shared_secret) = stealth_service.generate_shared_secret(&view_key, output.sender_offset_public_key()) {
-                        // Try to derive encryption key from shared secret
-                        if let Ok(encryption_key) = stealth_service.shared_secret_to_output_encryption_key(&shared_secret) {
-                            // Try decryption with stealth-derived key
-                            if !output.encrypted_data().as_bytes().is_empty() {
-                                if let Ok((value, _mask, payment_id)) = EncryptedData::decrypt_data(&encryption_key, output.commitment(), output.encrypted_data()) {
-                                    let value_u64 = value.as_u64();
-                                    println!("\n🎭 Found STEALTH ADDRESS output in block {}, output {}: {} μT", 
-                                        block_height, output_index, value_u64);
-                                        
-                                    {
-                                        let mut state = wallet_state.lock().unwrap();
-                                        state.add_received_output(
-                                            block_height,
-                                            output_index,
-                                            output.commitment().clone(),
-                                            value_u64,
-                                            payment_id,
-                                            TransactionStatus::OneSidedConfirmed, // Stealth addresses are one-sided
-                                            TransactionDirection::Inbound,
-                                            true, // One-sided payments are always mature
-                                        );
-                                    }
-                                    found_output = true;
-                                    continue;
-                                }
-                                
-                                // Also try one-sided decryption with stealth encryption key
-                                if let Ok((value, _mask, payment_id)) = EncryptedData::decrypt_one_sided_data(&encryption_key, output.commitment(), output.sender_offset_public_key(), output.encrypted_data()) {
-                                    let value_u64 = value.as_u64();
-                                    println!("\n🎭 Found STEALTH ADDRESS one-sided output in block {}, output {}: {} μT", 
-                                        block_height, output_index, value_u64);
-                                        
-                                    {
-                                        let mut state = wallet_state.lock().unwrap();
-                                        state.add_received_output(
-                                            block_height,
-                                            output_index,
-                                            output.commitment().clone(),
-                                            value_u64,
-                                            payment_id,
-                                            TransactionStatus::OneSidedConfirmed, // Stealth addresses are one-sided
-                                            TransactionDirection::Inbound,
-                                            true, // One-sided payments are always mature
-                                        );
-                                    }
-                                    found_output = true;
-                                    continue;
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                // Skip further processing if we found a stealth address output
-                if found_output {
-                    continue;
-                }
-                
-                // STEP 4: Check for coinbase outputs
-                if matches!(output.features().output_type, lightweight_wallet_libs::data_structures::wallet_output::LightweightOutputType::Coinbase) {
-                    let coinbase_value = output.minimum_value_promise().as_u64();
-                    if coinbase_value > 0 {
-                        let mut is_ours = false;
-                        
-                        if !output.encrypted_data().as_bytes().is_empty() {
-                            // Try regular decryption for ownership verification
-                            if let Ok((_value, _mask, _payment_id)) = EncryptedData::decrypt_data(&view_key, output.commitment(), output.encrypted_data()) {
-                                is_ours = true;
-                            }
-                            // Try one-sided decryption for ownership verification
-                            else if !output.sender_offset_public_key().as_bytes().is_empty() {
-                                if let Ok((_value, _mask, _payment_id)) = EncryptedData::decrypt_one_sided_data(&view_key, output.commitment(), output.sender_offset_public_key(), output.encrypted_data()) {
-                                    is_ours = true;
-                                }
-                            }
-                        }
-                        
-                        // Only add to wallet if we can prove ownership through decryption
-                        if is_ours {
-                            let is_mature = block_height >= output.features().maturity;
-                            
-                            {
-                                let mut state = wallet_state.lock().unwrap();
-                                state.add_received_output(
-                                    block_height,
-                                    output_index,
-                                    output.commitment().clone(),
-                                    coinbase_value,
-                                    PaymentId::Empty,
-                                    if is_mature { 
-                                        TransactionStatus::CoinbaseConfirmed 
-                                    } else { 
-                                        TransactionStatus::CoinbaseUnconfirmed 
-                                    },
-                                    TransactionDirection::Inbound,
-                                    is_mature,
-                                );
-                            }
-                            found_output = true;
-                        }
-                    }
-                }
-                
-                // Skip encrypted data processing if we already found a coinbase output
-                if found_output {
-                    continue;
-                }
-                
-                // STEP 5: Try regular encrypted data decryption (standard wallet outputs)
-                // Skip if no encrypted data
-                if output.encrypted_data().as_bytes().is_empty() {
-                    continue;
-                }
-                
-                // Try regular decryption first
-                if let Ok((value, _mask, payment_id)) = EncryptedData::decrypt_data(&view_key, output.commitment(), output.encrypted_data()) {
-                    let value_u64 = value.as_u64();
-                    {
-                        let mut state = wallet_state.lock().unwrap();
-                        state.add_received_output(
-                            block_height,
-                            output_index,
-                            output.commitment().clone(),
-                            value_u64,
-                            payment_id,
-                            TransactionStatus::MinedConfirmed,
-                            TransactionDirection::Inbound,
-                            true, // Regular payments are always mature
-                        );
-                    }
-                    continue;
-                }
-                
-                // STEP 6: Try one-sided decryption (non-stealth one-sided payments)
-                if !output.sender_offset_public_key().as_bytes().is_empty() {
-                    if let Ok((value, _mask, payment_id)) = EncryptedData::decrypt_one_sided_data(&view_key, output.commitment(), output.sender_offset_public_key(), output.encrypted_data()) {
-                        let value_u64 = value.as_u64();
-                        {
-                            let mut state = wallet_state.lock().unwrap();
-                            state.add_received_output(
-                                block_height,
-                                output_index,
-                                output.commitment().clone(),
-                                value_u64,
-                                payment_id,
-                                TransactionStatus::OneSidedConfirmed,
-                                TransactionDirection::Inbound,
-                                true, // One-sided payments are always mature
-                            );
-                        }
                     }
                 }
             }
@@ -909,6 +763,195 @@ fn try_detect_imported_output(
         }
     }
     
+    None
+}
+
+/// Try to detect one-sided transaction outputs (most common output type)
+#[cfg(feature = "grpc")]
+fn try_detect_one_sided_output(
+    output: &lightweight_wallet_libs::data_structures::transaction_output::LightweightTransactionOutput,
+    view_key: &PrivateKey,
+) -> Option<(u64, PaymentId)> {
+    // Skip if no encrypted data or sender offset
+    if output.encrypted_data().as_bytes().is_empty() || output.sender_offset_public_key().as_bytes().is_empty() {
+        return None;
+    }
+    
+    // Try one-sided decryption (non-stealth one-sided payments)
+    if let Ok((value, _mask, payment_id)) = EncryptedData::decrypt_one_sided_data(view_key, output.commitment(), output.sender_offset_public_key(), output.encrypted_data()) {
+        return Some((value.as_u64(), payment_id));
+    }
+    
+    None
+}
+
+/// Try to detect regular encrypted data outputs (standard wallet outputs)
+#[cfg(feature = "grpc")]
+fn try_detect_regular_output(
+    output: &lightweight_wallet_libs::data_structures::transaction_output::LightweightTransactionOutput,
+    view_key: &PrivateKey,
+) -> Option<(u64, PaymentId)> {
+    // Skip if no encrypted data
+    if output.encrypted_data().as_bytes().is_empty() {
+        return None;
+    }
+    
+    // Try regular decryption
+    if let Ok((value, _mask, payment_id)) = EncryptedData::decrypt_data(view_key, output.commitment(), output.encrypted_data()) {
+        return Some((value.as_u64(), payment_id));
+    }
+    
+    None
+}
+
+/// Try to detect stealth address outputs
+#[cfg(feature = "grpc")]
+fn try_detect_stealth_output(
+    output: &lightweight_wallet_libs::data_structures::transaction_output::LightweightTransactionOutput,
+    view_key: &PrivateKey,
+    stealth_service: &StealthAddressService,
+) -> Option<(u64, PaymentId)> {
+    // Skip if no sender offset public key
+    if output.sender_offset_public_key().as_bytes().is_empty() {
+        return None;
+    }
+    
+    // Try to recover stealth address spending key using view key and sender offset
+    // This detects one-sided payments sent to stealth addresses
+    if let Ok(shared_secret) = stealth_service.generate_shared_secret(view_key, output.sender_offset_public_key()) {
+        // Try to derive encryption key from shared secret
+        if let Ok(encryption_key) = stealth_service.shared_secret_to_output_encryption_key(&shared_secret) {
+            // Try decryption with stealth-derived key
+            if !output.encrypted_data().as_bytes().is_empty() {
+                if let Ok((value, _mask, payment_id)) = EncryptedData::decrypt_data(&encryption_key, output.commitment(), output.encrypted_data()) {
+                    return Some((value.as_u64(), payment_id));
+                }
+                
+                // Also try one-sided decryption with stealth encryption key
+                if let Ok((value, _mask, payment_id)) = EncryptedData::decrypt_one_sided_data(&encryption_key, output.commitment(), output.sender_offset_public_key(), output.encrypted_data()) {
+                    return Some((value.as_u64(), payment_id));
+                }
+            }
+        }
+    }
+    
+    None
+}
+
+/// Try to detect range proof rewinding (with caching optimization)
+#[cfg(feature = "grpc")]
+fn try_detect_range_proof_output(
+    output: &lightweight_wallet_libs::data_structures::transaction_output::LightweightTransactionOutput,
+    entropy: &[u8],
+    range_proof_service: &RangeProofRewindService,
+    range_proof_cache: &ResultCache,
+    perf_config: &PerformanceConfig,
+    metrics: &mut PerformanceMetrics,
+) -> Option<u64> {
+    // Range Proof Rewinding with caching optimization
+    if let Some(ref range_proof) = output.proof() {
+        if !range_proof.bytes.is_empty() {
+            let commitment_bytes = output.commitment().as_bytes().to_vec();
+            
+            // Check cache first if enabled
+            if perf_config.enable_caching {
+                let check_cache = |cache: &ResultCache, key: &[u8]| -> Option<CachedResult> {
+                    let cache_read = cache.read().unwrap();
+                    cache_read.get(key).cloned()
+                };
+                
+                if let Some(cached) = check_cache(range_proof_cache, &commitment_bytes) {
+                    if cached.success && cached.value.is_some() {
+                        metrics.cache_hits += 1;
+                        return cached.value;
+                    }
+                }
+            }
+            
+            // Try rewinding with optimized nonce selection
+            let nonce_count = 5;
+            for nonce_index in 0..nonce_count {
+                // Generate a rewind nonce from wallet entropy
+                if let Ok(seed_nonce) = range_proof_service.generate_rewind_nonce(entropy, nonce_index) {
+                    if let Ok(Some(rewind_result)) = range_proof_service.attempt_rewind(
+                        &range_proof.bytes,
+                        output.commitment(),
+                        &seed_nonce,
+                        Some(output.minimum_value_promise().as_u64())
+                    ) {
+                        // Cache the successful result
+                        if perf_config.enable_caching {
+                            let cache_result = |cache: &ResultCache, key: Vec<u8>, success: bool, value: Option<u64>, payment_id: Option<PaymentId>| {
+                                let mut cache_write = cache.write().unwrap();
+                                cache_write.insert(key, CachedResult {
+                                    success,
+                                    value,
+                                    payment_id,
+                                    timestamp: Instant::now(),
+                                });
+                            };
+                            cache_result(range_proof_cache, commitment_bytes.clone(), true, Some(rewind_result.value), None);
+                            metrics.cache_misses += 1;
+                        }
+                        
+                        return Some(rewind_result.value);
+                    }
+                }
+            }
+        }
+    }
+    
+    None
+}
+
+/// Try to detect coinbase outputs
+#[cfg(feature = "grpc")]
+fn try_detect_coinbase_output(
+    output: &lightweight_wallet_libs::data_structures::transaction_output::LightweightTransactionOutput,
+    view_key: &PrivateKey,
+    block_height: u64,
+) -> Option<(u64, bool)> {
+    // Check for coinbase outputs
+    if matches!(output.features().output_type, lightweight_wallet_libs::data_structures::wallet_output::LightweightOutputType::Coinbase) {
+        let coinbase_value = output.minimum_value_promise().as_u64();
+        if coinbase_value > 0 {
+            let mut is_ours = false;
+            
+            if !output.encrypted_data().as_bytes().is_empty() {
+                // Try regular decryption for ownership verification
+                if let Ok((_value, _mask, _payment_id)) = EncryptedData::decrypt_data(view_key, output.commitment(), output.encrypted_data()) {
+                    is_ours = true;
+                }
+                // Try one-sided decryption for ownership verification
+                else if !output.sender_offset_public_key().as_bytes().is_empty() {
+                    if let Ok((_value, _mask, _payment_id)) = EncryptedData::decrypt_one_sided_data(view_key, output.commitment(), output.sender_offset_public_key(), output.encrypted_data()) {
+                        is_ours = true;
+                    }
+                }
+            }
+            
+            // Only add to wallet if we can prove ownership through decryption
+            if is_ours {
+                let is_mature = block_height >= output.features().maturity;
+                return Some((coinbase_value, is_mature));
+            }
+        }
+    }
+    
+    None
+}
+
+/// Try to detect imported outputs
+#[cfg(feature = "grpc")]
+fn try_detect_imported_output_wrapper(
+    output: &lightweight_wallet_libs::data_structures::transaction_output::LightweightTransactionOutput,
+    block_height: u64,
+    output_index: usize,
+    entropy_array: &[u8; 16],
+) -> Option<(u64, PaymentId)> {
+    if let Some((value, payment_id, _imported_key)) = try_detect_imported_output(output, block_height, output_index, entropy_array) {
+        return Some((value, payment_id));
+    }
     None
 }
 
