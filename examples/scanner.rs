@@ -386,7 +386,7 @@ async fn scan_wallet_across_blocks(
             // PHASE 1: Process outputs for wallet discovery (same as before)
             for (output_index, output) in block_info.outputs.iter().enumerate() {
                 let mut found_output = false;
-                
+
                 
                 // STEP 1: Try imported key derivation first (for imported outputs)
                 if let Some((value, payment_id, _imported_key)) = try_detect_imported_output(output, block_height, output_index, &entropy_array) {
@@ -977,7 +977,7 @@ async fn main() -> LightweightWalletResult<()> {
     let args = CliArgs::parse();
 
     // Create performance configuration from CLI args
-    let perf_config = PerformanceConfig::from_cli_args(&args);
+    let mut perf_config = PerformanceConfig::from_cli_args(&args);
 
     println!("🔨 Creating wallet from seed phrase...");
     let wallet = Wallet::new_from_seed_phrase(&args.seed_phrase, None)?;
@@ -1010,6 +1010,7 @@ async fn main() -> LightweightWalletResult<()> {
         let min_block = *blocks.iter().min().unwrap_or(&0);
         let max_block = *blocks.iter().max().unwrap_or(&0);
         println!("🎯 Scanning {} specific blocks (range {} to {})", blocks.len(), min_block, max_block);
+        perf_config.grpc_batch_size = 1;
         (min_block, max_block, Some(blocks))
     } else {
         // Scanning block range
