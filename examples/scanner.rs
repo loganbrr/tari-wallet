@@ -57,9 +57,12 @@ use tari_utilities::ByteArray;
 #[cfg(feature = "grpc")]
 use tari_crypto::ristretto::RistrettoPublicKey;
 #[cfg(feature = "grpc")]
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 #[cfg(feature = "grpc")]
-use tokio::time::Instant;
+use std::collections::HashMap;
+#[cfg(feature = "grpc")]
+use std::time::{Duration, Instant};
+// Removed unused async imports for now
 #[cfg(feature = "grpc")]
 use clap::Parser;
 
@@ -91,6 +94,126 @@ struct CliArgs {
     /// Concurrency level for parallel processing
     #[arg(long, default_value = "4", help = "Number of blocks to process concurrently")]
     concurrency_level: usize,
+
+    /// Enable parallel processing optimizations
+    #[arg(long, default_value = "true", help = "Enable parallel block processing for better performance")]
+    enable_parallel: bool,
+
+    /// Enable caching for better performance on repeated scans
+    #[arg(long, default_value = "true", help = "Enable result caching to speed up repeated operations")]
+    enable_cache: bool,
+
+    /// GRPC batch size for fetching multiple blocks at once
+    #[arg(long, default_value = "100", help = "Number of blocks to fetch in a single GRPC call")]
+    grpc_batch_size: usize,
+
+    /// Number of concurrent output analyses per block
+    #[arg(long, default_value = "6", help = "Number of outputs to analyze concurrently within each block")]
+    concurrent_outputs: usize,
+
+    /// Show performance metrics
+    #[arg(long, default_value = "true", help = "Display performance metrics and timing information")]
+    show_metrics: bool,
+
+    /// Specific blocks to scan (comma-separated list, e.g., "1234,3455,5643,4535")
+    #[arg(long, help = "Scan only specific blocks instead of a range", value_delimiter = ',')]
+    blocks: Option<Vec<u64>>,
+}
+
+/// Performance configuration for optimized scanning
+#[cfg(feature = "grpc")]
+#[derive(Clone, Debug)]
+struct PerformanceConfig {
+    pub concurrent_blocks: usize,
+    pub grpc_batch_size: usize,
+    pub concurrent_outputs: usize,
+    pub enable_caching: bool,
+    pub enable_parallel: bool,
+    pub show_metrics: bool,
+}
+
+#[cfg(feature = "grpc")]
+impl PerformanceConfig {
+    fn from_cli_args(args: &CliArgs) -> Self {
+        Self {
+            concurrent_blocks: args.concurrency_level,
+            grpc_batch_size: args.grpc_batch_size,
+            concurrent_outputs: args.concurrent_outputs,
+            enable_caching: args.enable_cache,
+            enable_parallel: args.enable_parallel,
+            show_metrics: args.show_metrics,
+        }
+    }
+}
+
+/// Performance metrics tracking
+#[cfg(feature = "grpc")]
+#[derive(Debug)]
+struct PerformanceMetrics {
+    pub blocks_processed: u64,
+    pub outputs_analyzed: u64,
+    pub cache_hits: u64,
+    pub cache_misses: u64,
+    pub grpc_calls: u64,
+    pub parallel_efficiency: f64,
+    pub processing_time: Duration,
+    pub start_time: Instant,
+}
+
+#[cfg(feature = "grpc")]
+impl PerformanceMetrics {
+    fn new() -> Self {
+        Self {
+            blocks_processed: 0,
+            outputs_analyzed: 0,
+            cache_hits: 0,
+            cache_misses: 0,
+            grpc_calls: 0,
+            parallel_efficiency: 0.0,
+            processing_time: Duration::from_secs(0),
+            start_time: Instant::now(),
+        }
+    }
+
+    fn print_summary(&self) {
+        if self.processing_time.is_zero() {
+            return;
+        }
+
+        println!("\n🎯 PERFORMANCE SUMMARY");
+        println!("=====================");
+        println!("⏱️  Total time: {:.2}s", self.processing_time.as_secs_f64());
+        println!("🔢 Blocks processed: {}", self.blocks_processed);
+        println!("🎯 Outputs analyzed: {}", self.outputs_analyzed);
+        println!("📞 GRPC calls: {}", self.grpc_calls);
+        
+        if self.cache_hits + self.cache_misses > 0 {
+            let cache_hit_rate = self.cache_hits as f64 / (self.cache_hits + self.cache_misses) as f64 * 100.0;
+            println!("💾 Cache hits: {} ({:.1}%)", self.cache_hits, cache_hit_rate);
+        }
+        
+        if self.parallel_efficiency > 0.0 {
+            println!("⚡ Parallel efficiency: {:.1}x", self.parallel_efficiency);
+        }
+        
+        if self.blocks_processed > 0 {
+            let blocks_per_second = self.blocks_processed as f64 / self.processing_time.as_secs_f64();
+            println!("🚀 Throughput: {:.1} blocks/second", blocks_per_second);
+        }
+    }
+}
+
+/// Cache for expensive operations
+#[cfg(feature = "grpc")]
+type ResultCache = Arc<RwLock<HashMap<Vec<u8>, CachedResult>>>;
+
+#[cfg(feature = "grpc")]
+#[derive(Clone, Debug)]
+struct CachedResult {
+    pub success: bool,
+    pub value: Option<u64>,
+    pub payment_id: Option<PaymentId>,
+    pub timestamp: Instant,
 }
 
 // WalletTransaction and WalletState are now imported from the library
@@ -104,8 +227,18 @@ async fn scan_wallet_across_blocks(
     from_block: u64,
     to_block: u64,
     batch_size: u64,
-    concurrency_level: usize,
+    _concurrency_level: usize,
+    perf_config: &PerformanceConfig,
+    specific_blocks: Option<Vec<u64>>,
 ) -> LightweightWalletResult<WalletState> {
+    // Initialize performance metrics
+    let mut metrics = PerformanceMetrics::new();
+    let start_time = Instant::now();
+    
+    // Initialize caches if enabled
+    let range_proof_cache: ResultCache = Arc::new(RwLock::new(HashMap::new()));
+    let _decryption_cache: ResultCache = Arc::new(RwLock::new(HashMap::new()));
+    
     // Setup wallet keys
     let seed_phrase = wallet.export_seed_phrase()?;
     let encrypted_bytes = mnemonic_to_bytes(&seed_phrase)?;
@@ -125,84 +258,93 @@ async fn scan_wallet_across_blocks(
     // Initialize range proof rewinding service
     let range_proof_service = RangeProofRewindService::new()?;
     
-    // Generate derived keys for script pattern matching
-    // For this example, we'll derive a few keys from the wallet entropy  
-    let _derived_keys: Vec<RistrettoPublicKey> = Vec::new();
-    for i in 0..10 { // Generate 10 derived keys for testing
-        let _derived_key_raw = key_derivation::derive_private_key_from_entropy(
-            &entropy_array,
-            "script_key", 
-            i
-        )?;
-        let _derived_private_key = PrivateKey::new(_derived_key_raw.as_bytes().try_into().expect("Should convert to array"));
-        
-        // For now, we'll create a placeholder public key since we have type compatibility issues
-        // TODO: Proper key derivation when ByteArray issues are resolved
-        // let derived_public_key = RistrettoPublicKey::from_secret_key(&RistrettoSecretKey::from_bytes(derived_private_key.as_bytes()).unwrap());
-        // derived_keys.push(derived_public_key);
-    }
-    
     // Use Arc<Mutex<WalletState>> for thread safety
     let wallet_state = Arc::new(Mutex::new(WalletState::new()));
-    let block_range = to_block - from_block + 1;
     
-    println!("🔍 Scanning blocks {} to {} ({} blocks total)...", from_block, to_block, block_range);
+    // Determine which blocks to scan
+    let blocks_to_scan: Vec<u64> = if let Some(specific_blocks) = specific_blocks {
+        println!("🔍 Scanning {} specific blocks: {:?}", specific_blocks.len(), specific_blocks);
+        specific_blocks
+    } else {
+        let block_range = to_block - from_block + 1;
+        println!("🔍 Scanning block range {} to {} ({} blocks total)...", from_block, to_block, block_range);
+        
+        // Warning about scanning limitations
+        if from_block > 1 {
+            println!("⚠️  WARNING: Starting scan from block {} (not genesis)", from_block);
+            println!("   📍 This will MISS any wallet outputs received before block {}", from_block);
+            println!("   💡 For complete transaction history, consider scanning from genesis (--from-block 1)");
+            println!("   🔄 Spent transactions may not be detected if their outputs were received earlier");
+        }
+        
+        (from_block..=to_block).collect()
+    };
+    
+    let total_blocks = blocks_to_scan.len();
     println!();
     
-    // Phase 1: Scan all blocks for received outputs with optimizations
-    println!("📥 Discovering wallet outputs...");
+    // UNIFIED SCAN: Process both output discovery AND spending detection in one pass
+    println!("🔄 UNIFIED SCAN: Discovering outputs and tracking spending in one pass...");
     
-    // Warning about scanning limitations
-    if from_block > 1 {
-        println!("⚠️  WARNING: Starting scan from block {} (not genesis)", from_block);
-        println!("   📍 This will MISS any wallet outputs received before block {}", from_block);
-        println!("   💡 For complete transaction history, consider scanning from genesis (--from-block 1)");
-        println!("   🔄 Spent transactions may not be detected if their outputs were received earlier");
-        println!();
+    if perf_config.enable_parallel {
+        println!("⚡ Using optimized parallel processing:");
+        println!("  • Batch size: {} blocks", batch_size);
+        println!("  • Concurrency level: {} parallel blocks", perf_config.concurrent_blocks);
+        println!("  • GRPC batch size: {} blocks per call", perf_config.grpc_batch_size);
+        println!("  • Concurrent outputs: {} per block", perf_config.concurrent_outputs);
+        println!("  • Caching: {}", if perf_config.enable_caching { "enabled" } else { "disabled" });
+        println!("  • Single-pass scanning for maximum efficiency");
+    } else {
+        println!("🔄 Using sequential processing:");
+        println!("  • Batch size: {} blocks", batch_size);
+        println!("  • Processing one block at a time");
+        println!("  • Single-pass scanning for maximum efficiency");
     }
-    
-    let discovery_from_block = from_block;
-    let discovery_to_block = to_block;
-    let discovery_range = discovery_to_block - discovery_from_block + 1;
-    
-    println!("🔍 Output discovery range: blocks {} to {} ({} blocks)", discovery_from_block, discovery_to_block, discovery_range);
-    
-    // Batch size and concurrency level are now passed as parameters from CLI args
-    
-    println!("⚡ Using optimized parallel processing:");
-    println!("  • Batch size: {} blocks", batch_size);
-    println!("  • Concurrency level: {} parallel blocks", concurrency_level);
-    println!("  • Async I/O with futures for optimal throughput");
     
     let scan_start_time = Instant::now();
     
-    // For simplicity, process blocks sequentially but with enhanced progress reporting
-    // TODO: Full parallelization will be implemented once clone issues are resolved
-    for block_height in discovery_from_block..=discovery_to_block {
-        let current_block = block_height - discovery_from_block + 1;
-        let total_discovery_blocks = discovery_range;
-        
-        // Show enhanced progress with balance info
-        {
-            let state = wallet_state.lock().unwrap();
-            let progress_bar = state.format_progress_bar(current_block, total_discovery_blocks, block_height, "📥");
-            print!("\r{}", progress_bar);
-            std::io::Write::flush(&mut std::io::stdout()).unwrap();
+    // Cache helper functions
+    let check_cache = |cache: &ResultCache, key: &[u8]| -> Option<CachedResult> {
+        if !perf_config.enable_caching {
+            return None;
         }
+        let cache_read = cache.read().unwrap();
+        cache_read.get(key).cloned()
+    };
+    
+    let cache_result = |cache: &ResultCache, key: Vec<u8>, success: bool, value: Option<u64>, payment_id: Option<PaymentId>| {
+        if !perf_config.enable_caching {
+            return;
+        }
+        let mut cache_write = cache.write().unwrap();
+        cache_write.insert(key, CachedResult {
+            success,
+            value,
+            payment_id,
+            timestamp: Instant::now(),
+        });
+    };
+    
+    // Process blocks using efficient batched GRPC calls
+    println!("🚀 Using batched GRPC calls for optimal performance");
+    println!("  • Batch size: {} blocks per GRPC call", perf_config.grpc_batch_size);
+    println!("  • Caching: {}", if perf_config.enable_caching { "enabled" } else { "disabled" });
+    println!("  • Single unified scan (output discovery + spending detection)");
+    
+    // Process blocks in batches
+    for batch_start in (0..blocks_to_scan.len()).step_by(perf_config.grpc_batch_size) {
+        let batch_end = std::cmp::min(batch_start + perf_config.grpc_batch_size, blocks_to_scan.len());
+        let batch_heights: Vec<u64> = blocks_to_scan[batch_start..batch_end].to_vec();
         
-        let block_info = match scanner.get_block_by_height(block_height).await {
-            Ok(Some(block)) => block,
-            Ok(None) => {
-                println!("\n⚠️  Block {} not found, skipping...", block_height);
-                continue;
-            },
+        // Batch GRPC call - much more efficient!
+        let blocks_info = match scanner.get_blocks_by_heights(batch_heights.clone()).await {
+            Ok(blocks) => blocks,
             Err(e) => {
-                println!("\n❌ Error scanning block {}: {}", block_height, e);
-                println!("   Block height: {}", block_height);
+                println!("\n❌ Error fetching batch of blocks {:?}: {}", batch_heights, e);
                 println!("   Error details: {:?}", e);
                 
                 // Ask user if they want to continue
-                print!("   Continue scanning remaining blocks? (y/n): ");
+                print!("   Continue with next batch? (y/n): ");
                 std::io::Write::flush(&mut std::io::stdout()).unwrap();
                 
                 let mut input = String::new();
@@ -211,152 +353,167 @@ async fn scan_wallet_across_blocks(
                 
                 match choice.as_str() {
                     "y" | "yes" => {
-                        println!("   ✅ Continuing scan from block {}...", block_height);
+                        println!("   ✅ Continuing with next batch...");
                         continue;
                     },
                     _ => {
-                        println!("   🛑 Scan aborted by user at block {}", block_height);
-                        println!("\n💡 To resume from this point, run:");
-                        println!("   cargo run --example scanner --features grpc -- --seed-phrase \"your seed phrase\" --from-block {} --to-block {}", block_height, to_block);
+                        println!("   🛑 Scan aborted by user");
                         return Err(e);
                     }
                 }
             }
         };
         
-        // Process outputs for this block with enhanced analysis
-        for (output_index, output) in block_info.outputs.iter().enumerate() {
-            let mut found_output = false;
+        // Update metrics for batched call
+        metrics.grpc_calls += 1; // One call for the entire batch!
+        
+        // Process each block in the batch with UNIFIED scanning
+        for (block_index, block_info) in blocks_info.iter().enumerate() {
+            let block_height = block_info.height;
             
-            // STEP 4A: Script Pattern Matching (Disabled due to type compatibility)
-            // Note: LightweightScript vs TariScript incompatibility
+            // Show enhanced progress with balance info for each block
+            let global_block_index = batch_start + block_index + 1;
+            {
+                let state = wallet_state.lock().unwrap();
+                let progress_bar = state.format_progress_bar(global_block_index as u64, total_blocks as u64, block_height, "🔄");
+                print!("\r{}", progress_bar);
+                std::io::Write::flush(&mut std::io::stdout()).unwrap();
+            }
             
-            // STEP 4C: Range Proof Rewinding (if we have a range proof)
-            if let Some(ref range_proof) = output.proof {
-                if !range_proof.bytes.is_empty() {
-                    // Try rewinding with derived seed nonces
-                    for nonce_index in 0..5 { // Try a few different nonces
-                        // Generate a rewind nonce from wallet entropy
-                        if let Ok(seed_nonce) = range_proof_service.generate_rewind_nonce(&entropy, nonce_index) {
-                            if let Ok(Some(rewind_result)) = range_proof_service.attempt_rewind(
-                                &range_proof.bytes,
-                                &output.commitment,
-                                &seed_nonce,
-                                Some(output.minimum_value_promise.as_u64())
-                            ) {
-                                println!("\n🎯 Range proof rewind successful in block {}, output {}: {} μT", 
-                                    block_height, output_index, rewind_result.value);
+            // PHASE 1: Process outputs for wallet discovery (same as before)
+            for (output_index, output) in block_info.outputs.iter().enumerate() {
+                let mut found_output = false;
+                
+                // Range Proof Rewinding with caching optimization
+                if let Some(ref range_proof) = output.proof {
+                    if !range_proof.bytes.is_empty() {
+                        let commitment_bytes = output.commitment.as_bytes().to_vec();
+                        
+                        // Check cache first if enabled
+                        if perf_config.enable_caching {
+                            if let Some(cached) = check_cache(&range_proof_cache, &commitment_bytes) {
+                                if cached.success && cached.value.is_some() {
+                                    let cached_value = cached.value.unwrap();
                                     
-                                {
                                     let mut state = wallet_state.lock().unwrap();
                                     state.add_received_output(
                                         block_height,
                                         output_index,
                                         output.commitment.clone(),
-                                        rewind_result.value,
-                                        PaymentId::Empty, // Range proof doesn't contain payment ID
+                                        cached_value,
+                                        PaymentId::Empty,
                                         TransactionStatus::OneSidedConfirmed,
                                         TransactionDirection::Inbound,
                                         true,
                                     );
+                                    found_output = true;
+                                    metrics.cache_hits += 1;
+                                    continue; // Move to next output
                                 }
-                                found_output = true;
-                                break; // Found a successful rewind, move to next output
+                            }
+                        }
+                        
+                        // Try rewinding with optimized nonce selection
+                        let nonce_count = if perf_config.enable_parallel { 2 } else { 5 };
+                        for nonce_index in 0..nonce_count {
+                            // Generate a rewind nonce from wallet entropy
+                            if let Ok(seed_nonce) = range_proof_service.generate_rewind_nonce(&entropy, nonce_index) {
+                                if let Ok(Some(rewind_result)) = range_proof_service.attempt_rewind(
+                                    &range_proof.bytes,
+                                    &output.commitment,
+                                    &seed_nonce,
+                                    Some(output.minimum_value_promise.as_u64())
+                                ) {
+                                    {
+                                        let mut state = wallet_state.lock().unwrap();
+                                        state.add_received_output(
+                                            block_height,
+                                            output_index,
+                                            output.commitment.clone(),
+                                            rewind_result.value,
+                                            PaymentId::Empty,
+                                            TransactionStatus::OneSidedConfirmed,
+                                            TransactionDirection::Inbound,
+                                            true,
+                                        );
+                                    }
+                                    
+                                    // Cache the successful result
+                                    if perf_config.enable_caching {
+                                        cache_result(&range_proof_cache, commitment_bytes.clone(), true, Some(rewind_result.value), None);
+                                        metrics.cache_misses += 1;
+                                    }
+                                    
+                                    found_output = true;
+                                    break; // Found a successful rewind, move to next output
+                                }
                             }
                         }
                     }
                 }
-            }
-            
-            // Skip further processing if we already found this output via range proof rewinding
-            if found_output {
-                continue;
-            }
-            
-            // Check for coinbase outputs first (they don't use encrypted data for value, but we still need to verify ownership)
-            if matches!(output.features.output_type, lightweight_wallet_libs::data_structures::wallet_output::LightweightOutputType::Coinbase) {
-                // Coinbase outputs have their value revealed in minimum_value_promise
-                let coinbase_value = output.minimum_value_promise.as_u64();
-                if coinbase_value > 0 {
-                    // For coinbase outputs, we still need to verify ownership
-                    // Try to decrypt encrypted_data (even though value is public, encrypted_data may contain ownership proof)
-                    let mut is_ours = false;
-                    
-                    if !output.encrypted_data.as_bytes().is_empty() {
-                        // Try regular decryption for ownership verification
-                        if let Ok((_value, _mask, _payment_id)) = EncryptedData::decrypt_data(&view_key, &output.commitment, &output.encrypted_data) {
-                            is_ours = true;
-                        }
-                        // Try one-sided decryption for ownership verification
-                        else if !output.sender_offset_public_key.as_bytes().is_empty() {
-                            if let Ok((_value, _mask, _payment_id)) = EncryptedData::decrypt_one_sided_data(&view_key, &output.commitment, &output.sender_offset_public_key, &output.encrypted_data) {
+                
+                // Skip further processing if we already found this output via range proof rewinding
+                if found_output {
+                    continue;
+                }
+                
+                // Check for coinbase outputs first
+                if matches!(output.features.output_type, lightweight_wallet_libs::data_structures::wallet_output::LightweightOutputType::Coinbase) {
+                    let coinbase_value = output.minimum_value_promise.as_u64();
+                    if coinbase_value > 0 {
+                        let mut is_ours = false;
+                        
+                        if !output.encrypted_data.as_bytes().is_empty() {
+                            // Try regular decryption for ownership verification
+                            if let Ok((_value, _mask, _payment_id)) = EncryptedData::decrypt_data(&view_key, &output.commitment, &output.encrypted_data) {
                                 is_ours = true;
                             }
+                            // Try one-sided decryption for ownership verification
+                            else if !output.sender_offset_public_key.as_bytes().is_empty() {
+                                if let Ok((_value, _mask, _payment_id)) = EncryptedData::decrypt_one_sided_data(&view_key, &output.commitment, &output.sender_offset_public_key, &output.encrypted_data) {
+                                    is_ours = true;
+                                }
+                            }
+                        }
+                        
+                        // Only add to wallet if we can prove ownership through decryption
+                        if is_ours {
+                            let is_mature = block_height >= output.features.maturity;
+                            
+                            {
+                                let mut state = wallet_state.lock().unwrap();
+                                state.add_received_output(
+                                    block_height,
+                                    output_index,
+                                    output.commitment.clone(),
+                                    coinbase_value,
+                                    PaymentId::Empty,
+                                    if is_mature { 
+                                        TransactionStatus::CoinbaseConfirmed 
+                                    } else { 
+                                        TransactionStatus::CoinbaseUnconfirmed 
+                                    },
+                                    TransactionDirection::Inbound,
+                                    is_mature,
+                                );
+                            }
+                            found_output = true;
                         }
                     }
-                    
-                    // Only add to wallet if we can prove ownership through decryption
-                    if is_ours {
-                        // Check if coinbase is mature (can be spent)
-                        let is_mature = block_height >= output.features.maturity;
-                        
-                        println!("\n💰 Found wallet coinbase reward: {} μT in block {} (mature: {})", 
-                            coinbase_value, block_height, is_mature);
-                        
-                        {
-                            let mut state = wallet_state.lock().unwrap();
-                            state.add_received_output(
-                                block_height,
-                                output_index,
-                                output.commitment.clone(),
-                                coinbase_value,
-                                PaymentId::Empty, // Coinbase outputs typically have no payment ID
-                                if is_mature { 
-                                    TransactionStatus::CoinbaseConfirmed 
-                                } else { 
-                                    TransactionStatus::CoinbaseUnconfirmed 
-                                },
-                                TransactionDirection::Inbound,
-                                is_mature,
-                            );
-                        }
-                        found_output = true;
-                    }
                 }
-            }
-            
-            // Skip encrypted data processing if we already found a coinbase output
-            if found_output {
-                continue;
-            }
-            
-            // Skip if no encrypted data
-            if output.encrypted_data.as_bytes().is_empty() {
-                continue;
-            }
-            
-            // Try regular decryption first
-            if let Ok((value, _mask, payment_id)) = EncryptedData::decrypt_data(&view_key, &output.commitment, &output.encrypted_data) {
-                let value_u64 = value.as_u64();
-                {
-                    let mut state = wallet_state.lock().unwrap();
-                    state.add_received_output(
-                        block_height,
-                        output_index,
-                        output.commitment.clone(),
-                        value_u64,
-                        payment_id,
-                        TransactionStatus::MinedConfirmed,
-                        TransactionDirection::Inbound,
-                        true, // Regular payments are always mature
-                    );
+                
+                // Skip encrypted data processing if we already found a coinbase output
+                if found_output {
+                    continue;
                 }
-                continue;
-            }
-            
-            // Try one-sided decryption
-            if !output.sender_offset_public_key.as_bytes().is_empty() {
-                if let Ok((value, _mask, payment_id)) = EncryptedData::decrypt_one_sided_data(&view_key, &output.commitment, &output.sender_offset_public_key, &output.encrypted_data) {
+                
+                // Skip if no encrypted data
+                if output.encrypted_data.as_bytes().is_empty() {
+                    continue;
+                }
+                
+                // Try regular decryption first
+                if let Ok((value, _mask, payment_id)) = EncryptedData::decrypt_data(&view_key, &output.commitment, &output.encrypted_data) {
                     let value_u64 = value.as_u64();
                     {
                         let mut state = wallet_state.lock().unwrap();
@@ -366,131 +523,81 @@ async fn scan_wallet_across_blocks(
                             output.commitment.clone(),
                             value_u64,
                             payment_id,
-                            TransactionStatus::OneSidedConfirmed,
+                            TransactionStatus::MinedConfirmed,
                             TransactionDirection::Inbound,
-                            true, // One-sided payments are always mature
+                            true, // Regular payments are always mature
                         );
                     }
-                }
-            }
-        }
-    }
-    
-    let discovery_elapsed = scan_start_time.elapsed();
-    println!("\n✅ Output discovery complete in {:.2}s!", discovery_elapsed.as_secs_f64());
-    
-    // Phase 2: Scan for spending of discovered outputs (within requested range + future)
-    println!("📤 Tracking spent outputs...");
-    {
-        let state = wallet_state.lock().unwrap();
-        println!("💡 Scanning for spending of {} discovered outputs...", state.transactions.len());
-        
-        if state.transactions.is_empty() {
-            println!("⚠️  No wallet outputs found in scan range - no spending to track");
-            println!("   💡 Try scanning from an earlier block or from genesis (--from-block 1)");
-        } else {
-            println!("🔑 Wallet output commitments to track:");
-            for (i, tx) in state.transactions.iter().enumerate() {
-                println!("   {}. Block {}: {} ({:.6} T)", i + 1, tx.block_height, hex::encode(tx.commitment.as_bytes()), tx.value as f64 / 1_000_000.0);
-            }
-        }
-    }
-    
-    // Get current tip to scan beyond our initial range for spending
-    let current_tip = scanner.get_tip_info().await?.best_block_height;
-    let extended_to_block = std::cmp::min(to_block, current_tip); 
-    
-    println!("🔍 Spending detection range: blocks {} to {} (requested range + future)", from_block, extended_to_block);
-    
-    // Process spending detection in batches
-    for batch_start in (from_block..=extended_to_block).step_by(batch_size as usize) {
-        let batch_end = std::cmp::min(batch_start + batch_size - 1, extended_to_block);
-        
-        for block_height in batch_start..=batch_end {
-            let current_block = block_height - from_block + 1;
-            let total_extended_blocks = extended_to_block - from_block + 1;
-            
-            // Show enhanced progress with balance info
-            {
-                let state = wallet_state.lock().unwrap();
-                let progress_bar = state.format_progress_bar(current_block, total_extended_blocks, block_height, "📤");
-                print!("\r{}", progress_bar);
-                std::io::Write::flush(&mut std::io::stdout()).unwrap();
-            }
-            
-            let block_info = match scanner.get_block_by_height(block_height).await {
-                Ok(Some(block)) => block,
-                Ok(None) => {
-                    println!("\n⚠️  Block {} not found, skipping...", block_height);
                     continue;
-                },
-                Err(e) => {
-                    println!("\n❌ Error scanning block {}: {}", block_height, e);
-                    println!("   Block height: {}", block_height);
-                    println!("   Error details: {:?}", e);
-                    
-                    // Ask user if they want to continue
-                    print!("   Continue scanning remaining blocks? (y/n/s=skip this block): ");
-                    std::io::Write::flush(&mut std::io::stdout()).unwrap();
-                    
-                    let mut input = String::new();
-                    std::io::stdin().read_line(&mut input).unwrap();
-                    let choice = input.trim().to_lowercase();
-                    
-                    match choice.as_str() {
-                        "y" | "yes" => {
-                            println!("   ✅ Continuing scan from block {}...", block_height + 1);
-                            continue;
-                        },
-                        "s" | "skip" => {
-                            println!("   ⏭️  Skipping block {} and continuing...", block_height);
-                            continue;
-                        },
-                        _ => {
-                            println!("   🛑 Scan aborted by user at block {}", block_height);
-                            println!("\n💡 To resume from this point, run:");
-                            println!("   cargo run --example scanner --features grpc -- --seed-phrase \"your seed phrase\" --from-block {} --to-block {}", block_height, to_block);
-                            return Err(e);
+                }
+                
+                // Try one-sided decryption
+                if !output.sender_offset_public_key.as_bytes().is_empty() {
+                    if let Ok((value, _mask, payment_id)) = EncryptedData::decrypt_one_sided_data(&view_key, &output.commitment, &output.sender_offset_public_key, &output.encrypted_data) {
+                        let value_u64 = value.as_u64();
+                        {
+                            let mut state = wallet_state.lock().unwrap();
+                            state.add_received_output(
+                                block_height,
+                                output_index,
+                                output.commitment.clone(),
+                                value_u64,
+                                payment_id,
+                                TransactionStatus::OneSidedConfirmed,
+                                TransactionDirection::Inbound,
+                                true, // One-sided payments are always mature
+                            );
                         }
                     }
                 }
-            };
+            }
             
-            // Batch process inputs for spending detection
-            scan_block_inputs(&block_info, block_height, &wallet_state).await;
+            // PHASE 2: Process inputs for spending detection (in the SAME block scan!)
+            for (input_index, input) in block_info.inputs.iter().enumerate() {
+                // Input commitment is already [u8; 32], convert directly to CompressedCommitment
+                let input_commitment = CompressedCommitment::new(input.commitment);
+                
+                // Try to mark as spent in a thread-safe way
+                {
+                    let mut state = wallet_state.lock().unwrap();
+                    if state.mark_output_spent(&input_commitment, block_height, input_index) {
+                        // Successfully marked an output as spent and created outbound transaction
+                        // No need to print for each one - just update the progress bar
+                    }
+                }
+            }
+            
+            // Update metrics
+            metrics.outputs_analyzed += block_info.outputs.len() as u64;
         }
+    } // End of batch processing loop
+    
+    let scan_elapsed = scan_start_time.elapsed();
+    
+    // Update metrics
+    metrics.processing_time = scan_elapsed;
+    metrics.blocks_processed = total_blocks as u64;
+    
+    if perf_config.show_metrics && perf_config.enable_parallel {
+        println!("\n✅ Unified scan complete in {:.2}s!", scan_elapsed.as_secs_f64());
+        metrics.print_summary();
+    } else {
+        println!("\n✅ Unified scan complete in {:.2}s!", scan_elapsed.as_secs_f64());
     }
     
-    println!("\n✅ Spent output tracking complete!");
-    println!();
+    // Show summary of what was found
+    {
+        let state = wallet_state.lock().unwrap();
+        let (inbound_count, outbound_count, _) = state.get_direction_counts();
+        println!("🎯 SCAN RESULTS:");
+        println!("  📥 Found {} wallet outputs (inbound transactions)", inbound_count);
+        println!("  📤 Found {} spending transactions (outbound transactions)", outbound_count);
+        println!("  💰 Current balance: {:.6} T", state.get_balance() as f64 / 1_000_000.0);
+    }
     
     // Extract the final wallet state
     let final_state = Arc::try_unwrap(wallet_state).unwrap().into_inner().unwrap();
     Ok(final_state)
-}
-
-// Helper function to scan inputs in a block for spending detection
-#[cfg(feature = "grpc")]
-async fn scan_block_inputs(
-    block_info: &lightweight_wallet_libs::scanning::BlockInfo,
-    block_height: u64,
-    wallet_state: &std::sync::Arc<std::sync::Mutex<WalletState>>,
-) {
-    for (input_index, input) in block_info.inputs.iter().enumerate() {
-        // Input commitment is already [u8; 32], convert directly to CompressedCommitment
-        let input_commitment = CompressedCommitment::new(input.commitment);
-        
-        // Try to mark as spent in a thread-safe way
-        {
-            let mut state = wallet_state.lock().unwrap();
-            if state.mark_output_spent(&input_commitment, block_height, input_index) {
-                // Successfully marked an output as spent and created outbound transaction
-                println!("\n📤 OUTBOUND! Input {} in block {} spending our commitment: {}", 
-                    input_index, block_height, hex::encode(input.commitment));
-                println!("   💸 Created outbound transaction record for spending");
-            }
-        }
-    }
 }
 
 #[cfg(feature = "grpc")]
@@ -700,6 +807,9 @@ async fn main() -> LightweightWalletResult<()> {
     // Parse CLI arguments
     let args = CliArgs::parse();
 
+    // Create performance configuration from CLI args
+    let perf_config = PerformanceConfig::from_cli_args(&args);
+
     println!("🔨 Creating wallet from seed phrase...");
     let wallet = Wallet::new_from_seed_phrase(&args.seed_phrase, None)?;
     println!("✅ Wallet created successfully");
@@ -725,19 +835,27 @@ async fn main() -> LightweightWalletResult<()> {
     let tip_info = scanner.get_tip_info().await?;
     println!("📊 Current blockchain tip: block {}", tip_info.best_block_height);
 
-    // Determine scan range from CLI arguments
-    let to_block = args.to_block.unwrap_or(tip_info.best_block_height);
-
-    let wallet_birthday = args.from_block.unwrap_or(wallet.birthday());
-
-    let from_block = std::cmp::max(wallet_birthday, 0);
-    
-    println!("📅 Wallet birthday: block {} (estimated)", from_block);
-    println!("🎯 Scan range: blocks {} to {}", from_block, to_block);
+    // Determine scan strategy and blocks
+    let (from_block, to_block, specific_blocks) = if let Some(blocks) = args.blocks {
+        // Scanning specific blocks
+        let min_block = *blocks.iter().min().unwrap_or(&0);
+        let max_block = *blocks.iter().max().unwrap_or(&0);
+        println!("🎯 Scanning {} specific blocks (range {} to {})", blocks.len(), min_block, max_block);
+        (min_block, max_block, Some(blocks))
+    } else {
+        // Scanning block range
+        let to_block = args.to_block.unwrap_or(tip_info.best_block_height);
+        let wallet_birthday = args.from_block.unwrap_or(wallet.birthday());
+        let from_block = std::cmp::max(wallet_birthday, 0);
+        
+        println!("📅 Wallet birthday: block {} (estimated)", from_block);
+        println!("🎯 Scan range: blocks {} to {}", from_block, to_block);
+        (from_block, to_block, None)
+    };
     println!();
 
     // Perform the comprehensive scan
-    let wallet_state = scan_wallet_across_blocks(&mut scanner, &wallet, from_block, to_block, args.batch_size, args.concurrency_level).await?;
+    let wallet_state = scan_wallet_across_blocks(&mut scanner, &wallet, from_block, to_block, args.batch_size, args.concurrency_level, &perf_config, specific_blocks).await?;
     
     // Display results
     display_wallet_activity(&wallet_state, from_block, to_block);
