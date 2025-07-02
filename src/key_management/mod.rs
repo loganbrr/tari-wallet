@@ -191,7 +191,7 @@ impl Drop for ImportedPrivateKey {
 }
 
 pub use seed_phrase::{mnemonic_to_master_key, generate_seed_phrase, validate_seed_phrase, bytes_to_mnemonic, mnemonic_to_bytes, CipherSeed};
-pub use stealth_address::{StealthAddress, StealthAddressManager};
+pub use stealth_address::{StealthAddress, StealthAddressService};
 pub use key_derivation::{derive_view_and_spend_keys_from_entropy, derive_private_key_from_entropy};
 
 /// Key store for managing both derived and imported keys
