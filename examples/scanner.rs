@@ -26,11 +26,14 @@
 //! # Scan specific range
 //! cargo run --example scanner --features grpc -- --seed-phrase "your seed phrase" --from-block 34920 --to-block 34930
 //!
+//! # Scan specific blocks only
+//! cargo run --example scanner --features grpc -- --seed-phrase "your seed phrase" --blocks 1000,2000,5000,10000
+//!
 //! # Use custom base node URL
 //! cargo run --example scanner --features grpc -- --seed-phrase "your seed phrase" --base-url "http://192.168.1.100:18142"
 //!
-//! # Resume from a specific block after error with custom batch size
-//! cargo run --example scanner --features grpc -- --seed-phrase "your seed phrase" --from-block 25000 --to-block 30000 --batch-size 5
+//! # Resume from a specific block after error
+//! cargo run --example scanner --features grpc -- --seed-phrase "your seed phrase" --from-block 25000 --to-block 30000
 //!
 //! # Show help
 //! cargo run --example scanner --features grpc -- --help
@@ -84,22 +87,28 @@ struct CliArgs {
     #[arg(long, help = "Ending block height (defaults to current tip)")]
     to_block: Option<u64>,
 
-    /// Batch size for processing blocks
-    #[arg(long, default_value = "10", help = "Number of blocks to process in each batch")]
-    batch_size: u64,
+    /// Specific block heights to scan (comma-separated)
+    #[arg(long, help = "Specific block heights to scan (comma-separated). If provided, overrides from-block and to-block", value_delimiter = ',')]
+    blocks: Option<Vec<u64>>,
 }
 
-// WalletTransaction and WalletState are now imported from the library
+pub struct BlockHeightRange {
+    pub from_block: u64,
+    pub to_block: u64,
+    pub block_heights: Option<Vec<u64>>,
+}
 
-// WalletState implementation is now in the library
+impl BlockHeightRange {
+    pub fn new(from_block: u64, to_block: u64, block_heights: Option<Vec<u64>>) -> Self {
+        Self { from_block, to_block, block_heights }
+    }
+}
 
 #[cfg(feature = "grpc")]
 async fn scan_wallet_across_blocks(
     scanner: &mut GrpcBlockchainScanner,
     wallet: &Wallet,
-    from_block: u64,
-    to_block: u64,
-    batch_size: u64,
+    block_height_range: BlockHeightRange,
 ) -> LightweightWalletResult<WalletState> {
     // Setup wallet keys
     let seed_phrase = wallet.export_seed_phrase()?;
@@ -139,13 +148,28 @@ async fn scan_wallet_across_blocks(
     
     // Use Arc<Mutex<WalletState>> for thread safety
     let wallet_state = Arc::new(Mutex::new(WalletState::new()));
-    let block_range = to_block - from_block + 1;
+    let scan_start_time = Instant::now();
     
-    println!("🔍 Scanning blocks {} to {} ({} blocks total)...", from_block, to_block, block_range);
+    // Extract values before any moves to avoid borrow checker issues
+    let from_block = block_height_range.from_block;
+    let to_block = block_height_range.to_block;
+    let has_specific_blocks = block_height_range.block_heights.is_some();
+    
+    let block_heights = block_height_range.block_heights.unwrap_or_else(|| {
+        (from_block..=to_block).collect()
+    });
+
+    // Display scan information
+    if has_specific_blocks {
+        println!("🔍 Scanning {} specific blocks: {:?}", block_heights.len(), block_heights);
+    } else {
+        let block_range = to_block - from_block + 1;
+        println!("🔍 Scanning blocks {} to {} ({} blocks total)...", from_block, to_block, block_range);
+    }
     println!();
     
     // Warning about scanning limitations
-    if from_block > 1 {
+    if from_block > 1 && !has_specific_blocks {
         println!("⚠️  WARNING: Starting scan from block {} (not genesis)", from_block);
         println!("   📍 This will MISS any wallet outputs received before block {}", from_block);
         println!("   💡 For complete transaction history, consider scanning from genesis (--from-block 1)");
@@ -154,24 +178,20 @@ async fn scan_wallet_across_blocks(
     }
     
     println!("🔍 Unified scan: discovering outputs and tracking spending in single pass");
-    
-    let scan_start_time = Instant::now();
-    
-    // OPTIMIZED: Single unified scanning loop that processes both outputs and inputs
-    // This eliminates the duplicate GRPC calls by doing both discovery and spending detection in one pass
-    for block_height in from_block..=to_block {
-        let current_block = block_height - from_block + 1;
-        let total_blocks = block_range;
+
+    let total_blocks = block_heights.len();
+    for (block_index, block_height) in block_heights.iter().enumerate() {
+        let current_progress = block_index + 1; // Sequential progress index (1, 2, 3...)
         
         // Show enhanced progress with balance info
         {
             let state = wallet_state.lock().unwrap();
-            let progress_bar = state.format_progress_bar(current_block, total_blocks, block_height, "🔍");
+            let progress_bar = state.format_progress_bar(current_progress as u64, total_blocks as u64, *block_height, "🔍");
             print!("\r{}", progress_bar);
             std::io::Write::flush(&mut std::io::stdout()).unwrap();
         }
         
-        let block_info = match scanner.get_block_by_height(block_height).await {
+        let block_info = match scanner.get_block_by_height(*block_height).await {
             Ok(Some(block)) => block,
             Ok(None) => {
                 println!("\n⚠️  Block {} not found, skipping...", block_height);
@@ -192,7 +212,7 @@ async fn scan_wallet_across_blocks(
                 
                 match choice.as_str() {
                     "y" | "yes" => {
-                        println!("   ✅ Continuing scan from block {}...", block_height + 1);
+                        println!("   ✅ Continuing scan from next block...");
                         continue;
                     },
                     "s" | "skip" => {
@@ -202,7 +222,15 @@ async fn scan_wallet_across_blocks(
                     _ => {
                         println!("   🛑 Scan aborted by user at block {}", block_height);
                         println!("\n💡 To resume from this point, run:");
-                        println!("   cargo run --example scanner --features grpc -- --seed-phrase \"your seed phrase\" --from-block {} --to-block {}", block_height, to_block);
+                        if has_specific_blocks {
+                            // For specific blocks, suggest using --blocks
+                            let remaining_blocks: Vec<u64> = block_heights.iter().skip(block_index).copied().collect();
+                            println!("   cargo run --example scanner --features grpc -- --seed-phrase \"your seed phrase\" --blocks {}", 
+                                remaining_blocks.iter().map(|b| b.to_string()).collect::<Vec<_>>().join(","));
+                        } else {
+                            // For range, suggest using --from-block
+                            println!("   cargo run --example scanner --features grpc -- --seed-phrase \"your seed phrase\" --from-block {} --to-block {}", block_height, to_block);
+                        }
                         return Err(e);
                     }
                 }
@@ -235,7 +263,7 @@ async fn scan_wallet_across_blocks(
                                 {
                                     let mut state = wallet_state.lock().unwrap();
                                     state.add_received_output(
-                                        block_height,
+                                        *block_height,
                                         output_index,
                                         output.commitment.clone(),
                                         rewind_result.value,
@@ -283,7 +311,7 @@ async fn scan_wallet_across_blocks(
                     // Only add to wallet if we can prove ownership through decryption
                     if is_ours {
                         // Check if coinbase is mature (can be spent)
-                        let is_mature = block_height >= output.features.maturity;
+                        let is_mature = *block_height >= output.features.maturity;
                         
                         println!("\n💰 Found wallet coinbase reward: {} μT in block {} (mature: {})", 
                             coinbase_value, block_height, is_mature);
@@ -291,7 +319,7 @@ async fn scan_wallet_across_blocks(
                         {
                             let mut state = wallet_state.lock().unwrap();
                             state.add_received_output(
-                                block_height,
+                                *block_height,
                                 output_index,
                                 output.commitment.clone(),
                                 coinbase_value,
@@ -326,7 +354,7 @@ async fn scan_wallet_across_blocks(
                 {
                     let mut state = wallet_state.lock().unwrap();
                     state.add_received_output(
-                        block_height,
+                        *block_height,
                         output_index,
                         output.commitment.clone(),
                         value_u64,
@@ -346,7 +374,7 @@ async fn scan_wallet_across_blocks(
                     {
                         let mut state = wallet_state.lock().unwrap();
                         state.add_received_output(
-                            block_height,
+                            *block_height,
                             output_index,
                             output.commitment.clone(),
                             value_u64,
@@ -369,11 +397,8 @@ async fn scan_wallet_across_blocks(
             // Try to mark as spent in a thread-safe way
             {
                 let mut state = wallet_state.lock().unwrap();
-                if state.mark_output_spent(&input_commitment, block_height, input_index) {
+                if state.mark_output_spent(&input_commitment, *block_height, input_index) {
                     // Successfully marked an output as spent and created outbound transaction
-                    println!("\n📤 OUTBOUND! Input {} in block {} spending our commitment: {}", 
-                        input_index, block_height, hex::encode(input.commitment));
-                    println!("   💸 Created outbound transaction record for spending");
                 }
             }
         }
@@ -539,14 +564,6 @@ fn display_wallet_activity(wallet_state: &WalletState, from_block: u64, to_block
     println!("Spent outputs: {} ({:.6} T)", spent_count, total_spent as f64 / 1_000_000.0);
     println!("Total wallet activity: {} transactions", total_count);
     
-    if from_block > 1 {
-        println!();
-        println!("⚠️  SCAN LIMITATION NOTE");
-        println!("=======================");
-        println!("Scanned from block {} (not genesis) - transactions before this may be missing", from_block);
-        println!("For complete wallet history, scan from genesis: --from-block 1");
-    }
-    
     // Show detailed transaction analysis
     let (inbound_count, outbound_count, unknown_count) = wallet_state.get_direction_counts();
     let inbound_transactions = wallet_state.get_inbound_transactions();
@@ -602,6 +619,7 @@ fn display_wallet_activity(wallet_state: &WalletState, from_block: u64, to_block
 #[tokio::main]
 async fn main() -> LightweightWalletResult<()> {
     // Initialize logging
+
     tracing_subscriber::fmt::init();
 
     println!("🚀 Enhanced Tari Wallet Scanner");
@@ -640,9 +658,11 @@ async fn main() -> LightweightWalletResult<()> {
     let wallet_birthday = args.from_block.unwrap_or(wallet.birthday());
 
     let from_block = std::cmp::max(wallet_birthday, 0);
+
+    let block_height_range = BlockHeightRange::new(from_block, to_block, args.blocks);
   
     // Perform the comprehensive scan
-    let wallet_state = scan_wallet_across_blocks(&mut scanner, &wallet, from_block, to_block, args.batch_size).await?;
+    let wallet_state = scan_wallet_across_blocks(&mut scanner, &wallet, block_height_range).await?;
     
     // Display results
     display_wallet_activity(&wallet_state, from_block, to_block);
