@@ -20,11 +20,14 @@
 //!
 //! ## Usage
 //! ```bash
-//! # Scan with wallet from birthday to tip
+//! # Scan with wallet from birthday to tip using seed phrase
 //! cargo run --example scanner --features grpc -- --seed-phrase "your seed phrase here"
 //!
-//! # Scan specific range
-//! cargo run --example scanner --features grpc -- --seed-phrase "your seed phrase" --from-block 34920 --to-block 34930
+//! # Scan using private view key (hex format, 64 characters)
+//! cargo run --example scanner --features grpc -- --view-key "a1b2c3d4e5f6789abcdef0123456789abcdef0123456789abcdef0123456789ab"
+//!
+//! # Scan specific range with view key
+//! cargo run --example scanner --features grpc -- --view-key "your_view_key_here" --from-block 34920 --to-block 34930
 //!
 //! # Scan specific blocks only
 //! cargo run --example scanner --features grpc -- --seed-phrase "your seed phrase" --blocks 1000,2000,5000,10000
@@ -32,12 +35,32 @@
 //! # Use custom base node URL
 //! cargo run --example scanner --features grpc -- --seed-phrase "your seed phrase" --base-url "http://192.168.1.100:18142"
 //!
+//! # Quiet mode with JSON output (script-friendly)
+//! cargo run --example scanner --features grpc -- --view-key "your_view_key" --quiet --format json
+//!
+//! # Summary output with minimal progress updates
+//! cargo run --example scanner --features grpc -- --seed-phrase "your seed phrase" --format summary --progress-frequency 50
+//!
 //! # Resume from a specific block after error
 //! cargo run --example scanner --features grpc -- --seed-phrase "your seed phrase" --from-block 25000 --to-block 30000
 //!
 //! # Show help
 //! cargo run --example scanner --features grpc -- --help
 //! ```
+//!
+//! ## View Key vs Seed Phrase
+//! 
+//! **Seed Phrase Mode:**
+//! - Full wallet functionality including range proof rewinding
+//! - Automatic wallet birthday detection
+//! - Requires seed phrase security
+//! 
+//! **View Key Mode:**
+//! - View-only access with encrypted data decryption
+//! - Range proof rewinding is limited (no seed entropy)
+//! - Starts from genesis by default (can be overridden)
+//! - More secure for monitoring purposes
+//! - View key format: 64-character hex string (32 bytes)
 
 #[cfg(feature = "grpc")]
 use lightweight_wallet_libs::{
@@ -67,16 +90,20 @@ use clap::Parser;
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct CliArgs {
-    /// Seed phrase for the wallet (required)
+    /// Seed phrase for the wallet (required unless --view-key is provided)
     #[arg(short, long, help = "Seed phrase for the wallet")]
-    seed_phrase: String,
+    seed_phrase: Option<String>,
+
+    /// Private view key in hex format (alternative to seed phrase)
+    #[arg(long, help = "Private view key in hex format (64 characters). Alternative to --seed-phrase")]
+    view_key: Option<String>,
 
     /// Base URL for the Tari base node GRPC endpoint
     #[arg(short, long, default_value = "http://127.0.0.1:18142", help = "Base URL for Tari base node GRPC")]
     base_url: String,
 
     /// Starting block height for scanning
-    #[arg(long, help = "Starting block height (defaults to wallet birthday)")]
+    #[arg(long, help = "Starting block height (defaults to wallet birthday or 0 for view-key mode)")]
     from_block: Option<u64>,
 
     /// Ending block height for scanning
@@ -168,6 +195,40 @@ impl ScanContext {
             entropy: entropy_array,
             range_proof_service,
         })
+    }
+
+    pub fn from_view_key(view_key_hex: &str) -> LightweightWalletResult<Self> {
+        // Parse the hex view key
+        let view_key_bytes = hex::decode(view_key_hex)
+            .map_err(|_| KeyManagementError::key_derivation_failed("Invalid hex format for view key"))?;
+        
+        if view_key_bytes.len() != 32 {
+            return Err(KeyManagementError::key_derivation_failed(
+                "View key must be exactly 32 bytes (64 hex characters)"
+            ).into());
+        }
+
+        let view_key_array: [u8; 32] = view_key_bytes.try_into()
+            .map_err(|_| KeyManagementError::key_derivation_failed("Failed to convert view key to array"))?;
+        
+        let view_key = PrivateKey::new(view_key_array);
+        
+        // Initialize range proof rewinding service
+        let range_proof_service = RangeProofRewindService::new()?;
+        
+        // Note: Without seed entropy, range proof rewinding will be limited
+        // We use a zero entropy array as a fallback
+        let entropy = [0u8; 16];
+        
+        Ok(Self {
+            view_key,
+            entropy,
+            range_proof_service,
+        })
+    }
+
+    pub fn has_entropy(&self) -> bool {
+        self.entropy != [0u8; 16]
     }
 }
 
@@ -582,17 +643,47 @@ async fn main() -> LightweightWalletResult<()> {
 
     let args = CliArgs::parse();
 
+    // Validate input arguments
+    match (&args.seed_phrase, &args.view_key) {
+        (Some(_), Some(_)) => {
+            eprintln!("❌ Error: Cannot specify both --seed-phrase and --view-key. Choose one.");
+            std::process::exit(1);
+        },
+        (None, None) => {
+            eprintln!("❌ Error: Must specify either --seed-phrase or --view-key.");
+            eprintln!("💡 Use --help for usage information.");
+            std::process::exit(1);
+        },
+        _ => {} // Valid: exactly one is provided
+    }
+
     if !args.quiet {
         println!("🚀 Enhanced Tari Wallet Scanner");
         println!("===============================");
     }
 
-    // Create wallet and scan context
-    if !args.quiet {
-        println!("🔨 Creating wallet from seed phrase...");
-    }
-    let wallet = Wallet::new_from_seed_phrase(&args.seed_phrase, None)?;
-    let scan_context = ScanContext::from_wallet(&wallet)?;
+    // Create scan context based on input method
+    let (scan_context, default_from_block) = if let Some(seed_phrase) = &args.seed_phrase {
+        if !args.quiet {
+            println!("🔨 Creating wallet from seed phrase...");
+        }
+        let wallet = Wallet::new_from_seed_phrase(seed_phrase, None)?;
+        let scan_context = ScanContext::from_wallet(&wallet)?;
+        let default_from_block = wallet.birthday();
+        (scan_context, default_from_block)
+    } else if let Some(view_key_hex) = &args.view_key {
+        if !args.quiet {
+            println!("🔑 Creating scan context from view key...");
+            if !args.quiet {
+                println!("⚠️  Note: Range proof rewinding will be limited without seed entropy");
+            }
+        }
+        let scan_context = ScanContext::from_view_key(view_key_hex)?;
+        let default_from_block = 0; // Start from genesis when using view key only
+        (scan_context, default_from_block)
+    } else {
+        unreachable!("Validation above ensures exactly one option is provided");
+    };
 
     // Connect to base node
     if !args.quiet {
@@ -621,7 +712,7 @@ async fn main() -> LightweightWalletResult<()> {
     }
 
     let to_block = args.to_block.unwrap_or(tip_info.best_block_height);
-    let from_block = args.from_block.unwrap_or(wallet.birthday());
+    let from_block = args.from_block.unwrap_or(default_from_block);
 
     let block_height_range = BlockHeightRange::new(from_block, to_block, args.blocks.clone());
     let config = block_height_range.into_scan_config(&args)?;

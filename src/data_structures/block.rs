@@ -185,6 +185,11 @@ impl Block {
         entropy: &[u8; 16],
         wallet_state: &mut WalletState,
     ) -> LightweightWalletResult<Option<u64>> {
+        // Skip range proof rewinding if entropy is all zeros (view key only mode)
+        if entropy == &[0u8; 16] {
+            return Ok(None);
+        }
+
         if let Some(ref range_proof) = output.proof {
             // Try rewinding with derived seed nonces
             for nonce_index in 0..5 {
