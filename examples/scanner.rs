@@ -48,11 +48,11 @@ use lightweight_wallet_libs::{
     errors::{LightweightWalletResult},
     KeyManagementError,
     data_structures::{
-        types::{PrivateKey, CompressedCommitment},
-        encrypted_data::EncryptedData,
+        types::PrivateKey,
         payment_id::PaymentId,
         wallet_transaction::WalletState,
-        transaction::{TransactionStatus, TransactionDirection},
+        transaction::TransactionDirection,
+        block::Block,
     },
 };
 #[cfg(feature = "grpc")]
@@ -237,168 +237,23 @@ async fn scan_wallet_across_blocks(
             }
         };
         
-        // PART 1: Process outputs for discovery (same as Phase 1 logic)
-        for (output_index, output) in block_info.outputs.iter().enumerate() {
-            let mut found_output = false;
-            
-            // STEP 4A: Script Pattern Matching (Disabled due to type compatibility)
-            // Note: LightweightScript vs TariScript incompatibility
-            
-            // STEP 4C: Range Proof Rewinding (if we have a range proof)
-            if let Some(ref range_proof) = output.proof {
-                if !range_proof.bytes.is_empty() {
-                    // Try rewinding with derived seed nonces
-                    for nonce_index in 0..5 { // Try a few different nonces
-                        // Generate a rewind nonce from wallet entropy
-                        if let Ok(seed_nonce) = range_proof_service.generate_rewind_nonce(&entropy, nonce_index) {
-                            if let Ok(Some(rewind_result)) = range_proof_service.attempt_rewind(
-                                &range_proof.bytes,
-                                &output.commitment,
-                                &seed_nonce,
-                                Some(output.minimum_value_promise.as_u64())
-                            ) {
-                                println!("\n🎯 Range proof rewind successful in block {}, output {}: {} μT", 
-                                    block_height, output_index, rewind_result.value);
-                                    
-                                {
-                                    let mut state = wallet_state.lock().unwrap();
-                                    state.add_received_output(
-                                        *block_height,
-                                        output_index,
-                                        output.commitment.clone(),
-                                        rewind_result.value,
-                                        PaymentId::Empty, // Range proof doesn't contain payment ID
-                                        TransactionStatus::OneSidedConfirmed,
-                                        TransactionDirection::Inbound,
-                                        true,
-                                    );
-                                }
-                                found_output = true;
-                                break; // Found a successful rewind, move to next output
-                            }
-                        }
-                    }
-                }
-            }
-            
-            // Skip further processing if we already found this output via range proof rewinding
-            if found_output {
-                continue;
-            }
-            
-            // Check for coinbase outputs first (they don't use encrypted data for value, but we still need to verify ownership)
-            if matches!(output.features.output_type, lightweight_wallet_libs::data_structures::wallet_output::LightweightOutputType::Coinbase) {
-                // Coinbase outputs have their value revealed in minimum_value_promise
-                let coinbase_value = output.minimum_value_promise.as_u64();
-                if coinbase_value > 0 {
-                    // For coinbase outputs, we still need to verify ownership
-                    // Try to decrypt encrypted_data (even though value is public, encrypted_data may contain ownership proof)
-                    let mut is_ours = false;
-                    
-                    if !output.encrypted_data.as_bytes().is_empty() {
-                        // Try regular decryption for ownership verification
-                        if let Ok((_value, _mask, _payment_id)) = EncryptedData::decrypt_data(&view_key, &output.commitment, &output.encrypted_data) {
-                            is_ours = true;
-                        }
-                        // Try one-sided decryption for ownership verification
-                        else if !output.sender_offset_public_key.as_bytes().is_empty() {
-                            if let Ok((_value, _mask, _payment_id)) = EncryptedData::decrypt_one_sided_data(&view_key, &output.commitment, &output.sender_offset_public_key, &output.encrypted_data) {
-                                is_ours = true;
-                            }
-                        }
-                    }
-                    
-                    // Only add to wallet if we can prove ownership through decryption
-                    if is_ours {
-                        // Check if coinbase is mature (can be spent)
-                        let is_mature = *block_height >= output.features.maturity;
-                        
-                        println!("\n💰 Found wallet coinbase reward: {} μT in block {} (mature: {})", 
-                            coinbase_value, block_height, is_mature);
-                        
-                        {
-                            let mut state = wallet_state.lock().unwrap();
-                            state.add_received_output(
-                                *block_height,
-                                output_index,
-                                output.commitment.clone(),
-                                coinbase_value,
-                                PaymentId::Empty, // Coinbase outputs typically have no payment ID
-                                if is_mature { 
-                                    TransactionStatus::CoinbaseConfirmed 
-                                } else { 
-                                    TransactionStatus::CoinbaseUnconfirmed 
-                                },
-                                TransactionDirection::Inbound,
-                                is_mature,
-                            );
-                        }
-                        found_output = true;
-                    }
-                }
-            }
-            
-            // Skip encrypted data processing if we already found a coinbase output
-            if found_output {
-                continue;
-            }
-            
-            // Skip if no encrypted data
-            if output.encrypted_data.as_bytes().is_empty() {
-                continue;
-            }
-            
-            // Try regular decryption first
-            if let Ok((value, _mask, payment_id)) = EncryptedData::decrypt_data(&view_key, &output.commitment, &output.encrypted_data) {
-                let value_u64 = value.as_u64();
-                {
-                    let mut state = wallet_state.lock().unwrap();
-                    state.add_received_output(
-                        *block_height,
-                        output_index,
-                        output.commitment.clone(),
-                        value_u64,
-                        payment_id,
-                        TransactionStatus::MinedConfirmed,
-                        TransactionDirection::Inbound,
-                        true, // Regular payments are always mature
-                    );
-                }
-                continue;
-            }
-            
-            // Try one-sided decryption
-            if !output.sender_offset_public_key.as_bytes().is_empty() {
-                if let Ok((value, _mask, payment_id)) = EncryptedData::decrypt_one_sided_data(&view_key, &output.commitment, &output.sender_offset_public_key, &output.encrypted_data) {
-                    let value_u64 = value.as_u64();
-                    {
-                        let mut state = wallet_state.lock().unwrap();
-                        state.add_received_output(
-                            *block_height,
-                            output_index,
-                            output.commitment.clone(),
-                            value_u64,
-                            payment_id,
-                            TransactionStatus::OneSidedConfirmed,
-                            TransactionDirection::Inbound,
-                            true, // One-sided payments are always mature
-                        );
-                    }
-                }
-            }
-        }
+        // Use the new Block struct to process all wallet activity
+        let block = Block::from_block_info(block_info);
         
-        // PART 2: Process inputs for spending detection (same as Phase 2 logic)
-        // This is now done in the same loop iteration, eliminating duplicate GRPC calls
-        for (input_index, input) in block_info.inputs.iter().enumerate() {
-            // Input commitment is already [u8; 32], convert directly to CompressedCommitment
-            let input_commitment = CompressedCommitment::new(input.commitment);
-            
-            // Try to mark as spent in a thread-safe way
-            {
-                let mut state = wallet_state.lock().unwrap();
-                if state.mark_output_spent(&input_commitment, *block_height, input_index) {
-                    // Successfully marked an output as spent and created outbound transaction
+        // Process all wallet activity in this block using the Block struct
+        {
+            let mut state = wallet_state.lock().unwrap();
+            if let Ok((found_outputs, spent_outputs)) = block.scan_for_wallet_activity(
+                &view_key,
+                &entropy_array,
+                &mut state,
+                &range_proof_service,
+            ) {
+                if found_outputs > 0 {
+                    println!("\n🎯 Found {} wallet outputs in block {}", found_outputs, block_height);
+                }
+                if spent_outputs > 0 {
+                    println!("📤 Detected {} wallet outputs spent in block {}", spent_outputs, block_height);
                 }
             }
         }
