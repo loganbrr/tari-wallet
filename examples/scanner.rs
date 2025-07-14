@@ -58,10 +58,6 @@ use lightweight_wallet_libs::{
 #[cfg(feature = "grpc")]
 use tari_utilities::ByteArray;
 #[cfg(feature = "grpc")]
-use tari_crypto::ristretto::RistrettoPublicKey;
-#[cfg(feature = "grpc")]
-use std::sync::{Arc, Mutex};
-#[cfg(feature = "grpc")]
 use tokio::time::Instant;
 #[cfg(feature = "grpc")]
 use clap::Parser;
@@ -80,7 +76,7 @@ struct CliArgs {
     base_url: String,
 
     /// Starting block height for scanning
-    #[arg(long, help = "Starting block height (defaults to last 1000 blocks from tip)")]
+    #[arg(long, help = "Starting block height (defaults to wallet birthday)")]
     from_block: Option<u64>,
 
     /// Ending block height for scanning
@@ -90,6 +86,141 @@ struct CliArgs {
     /// Specific block heights to scan (comma-separated)
     #[arg(long, help = "Specific block heights to scan (comma-separated). If provided, overrides from-block and to-block", value_delimiter = ',')]
     blocks: Option<Vec<u64>>,
+
+    /// Progress update frequency
+    #[arg(long, default_value = "10", help = "Update progress every N blocks")]
+    progress_frequency: usize,
+
+    /// Quiet mode - minimal output
+    #[arg(short, long, help = "Quiet mode - only show essential information")]
+    quiet: bool,
+
+    /// Output format
+    #[arg(long, default_value = "detailed", help = "Output format: detailed, summary, json")]
+    format: String,
+}
+
+/// Configuration for wallet scanning
+#[cfg(feature = "grpc")]
+#[derive(Debug, Clone)]
+pub struct ScanConfig {
+    pub from_block: u64,
+    pub to_block: u64,
+    pub block_heights: Option<Vec<u64>>,
+    pub progress_frequency: usize,
+    pub quiet: bool,
+    pub output_format: OutputFormat,
+}
+
+/// Output format options
+#[cfg(feature = "grpc")]
+#[derive(Debug, Clone)]
+pub enum OutputFormat {
+    Detailed,
+    Summary,
+    Json,
+}
+
+impl std::str::FromStr for OutputFormat {
+    type Err = String;
+    
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "detailed" => Ok(OutputFormat::Detailed),
+            "summary" => Ok(OutputFormat::Summary),
+            "json" => Ok(OutputFormat::Json),
+            _ => Err(format!("Invalid output format: {}. Valid options: detailed, summary, json", s)),
+        }
+    }
+}
+
+/// Wallet scanning context
+#[cfg(feature = "grpc")]
+pub struct ScanContext {
+    pub view_key: PrivateKey,
+    pub entropy: [u8; 16],
+    pub range_proof_service: RangeProofRewindService,
+}
+
+impl ScanContext {
+    pub fn from_wallet(wallet: &Wallet) -> LightweightWalletResult<Self> {
+        // Setup wallet keys
+        let seed_phrase = wallet.export_seed_phrase()?;
+        let encrypted_bytes = mnemonic_to_bytes(&seed_phrase)?;
+        let cipher_seed = CipherSeed::from_enciphered_bytes(&encrypted_bytes, None)?;
+        let entropy = cipher_seed.entropy();
+        
+        let entropy_array: [u8; 16] = entropy.try_into()
+            .map_err(|_| KeyManagementError::key_derivation_failed("Invalid entropy length"))?;
+        
+        let view_key_raw = key_derivation::derive_private_key_from_entropy(
+            &entropy_array, 
+            "data encryption", 
+            0
+        )?;
+        let view_key = PrivateKey::new(view_key_raw.as_bytes().try_into().expect("Should convert to array"));
+        
+        // Initialize range proof rewinding service
+        let range_proof_service = RangeProofRewindService::new()?;
+        
+        Ok(Self {
+            view_key,
+            entropy: entropy_array,
+            range_proof_service,
+        })
+    }
+}
+
+/// Progress tracking for scanning
+#[cfg(feature = "grpc")]
+pub struct ScanProgress {
+    pub current_block: u64,
+    pub total_blocks: usize,
+    pub blocks_processed: usize,
+    pub outputs_found: usize,
+    pub inputs_found: usize,
+    pub start_time: Instant,
+}
+
+impl ScanProgress {
+    pub fn new(total_blocks: usize) -> Self {
+        Self {
+            current_block: 0,
+            total_blocks,
+            blocks_processed: 0,
+            outputs_found: 0,
+            inputs_found: 0,
+            start_time: Instant::now(),
+        }
+    }
+
+    pub fn update(&mut self, block_height: u64, found_outputs: usize, spent_outputs: usize) {
+        self.current_block = block_height;
+        self.blocks_processed += 1;
+        self.outputs_found += found_outputs;
+        self.inputs_found += spent_outputs;
+    }
+
+    pub fn display_progress(&self, quiet: bool, frequency: usize) {
+        if quiet || self.blocks_processed % frequency != 0 {
+            return;
+        }
+
+        let progress_percent = (self.blocks_processed as f64 / self.total_blocks as f64) * 100.0;
+        let elapsed = self.start_time.elapsed();
+        let blocks_per_sec = self.blocks_processed as f64 / elapsed.as_secs_f64();
+        
+        print!("\r🔍 Progress: {:.1}% ({}/{}) | Block {} | {:.1} blocks/s | Found: {} outputs, {} spent   ",
+            progress_percent,
+            self.blocks_processed,
+            self.total_blocks,
+            self.current_block,
+            blocks_per_sec,
+            self.outputs_found,
+            self.inputs_found
+        );
+        std::io::Write::flush(&mut std::io::stdout()).unwrap();
+    }
 }
 
 pub struct BlockHeightRange {
@@ -102,185 +233,158 @@ impl BlockHeightRange {
     pub fn new(from_block: u64, to_block: u64, block_heights: Option<Vec<u64>>) -> Self {
         Self { from_block, to_block, block_heights }
     }
+
+    pub fn into_scan_config(self, args: &CliArgs) -> LightweightWalletResult<ScanConfig> {
+        let output_format = args.format.parse()
+            .map_err(|e: String| KeyManagementError::key_derivation_failed(&e))?;
+
+        Ok(ScanConfig {
+            from_block: self.from_block,
+            to_block: self.to_block,
+            block_heights: self.block_heights,
+            progress_frequency: args.progress_frequency,
+            quiet: args.quiet,
+            output_format,
+        })
+    }
 }
 
+/// Handle errors during block scanning
+#[cfg(feature = "grpc")]
+fn handle_scan_error(
+    block_height: u64,
+    remaining_blocks: &[u64],
+    has_specific_blocks: bool,
+    to_block: u64,
+) -> bool {
+    // Ask user if they want to continue
+    print!("   Continue scanning remaining blocks? (y/n/s=skip this block): ");
+    std::io::Write::flush(&mut std::io::stdout()).unwrap();
+    
+    let mut input = String::new();
+    if std::io::stdin().read_line(&mut input).is_err() {
+        return false; // Abort on input error
+    }
+    let choice = input.trim().to_lowercase();
+    
+    match choice.as_str() {
+        "y" | "yes" => {
+            println!("   ✅ Continuing scan from next block...");
+            true // Continue
+        },
+        "s" | "skip" => {
+            println!("   ⏭️  Skipping block {} and continuing...", block_height);
+            true // Continue (skip this block)
+        },
+        _ => {
+            println!("   🛑 Scan aborted by user at block {}", block_height);
+            println!("\n💡 To resume from this point, run:");
+            if has_specific_blocks {
+                let remaining_blocks_str: Vec<String> = remaining_blocks.iter().map(|b| b.to_string()).collect();
+                println!("   cargo run --example scanner --features grpc -- --seed-phrase \"your seed phrase\" --blocks {}", 
+                    remaining_blocks_str.join(","));
+            } else {
+                println!("   cargo run --example scanner --features grpc -- --seed-phrase \"your seed phrase\" --from-block {} --to-block {}", block_height, to_block);
+            }
+            false // Abort
+        }
+    }
+}
+
+/// Core scanning logic - simplified and focused
 #[cfg(feature = "grpc")]
 async fn scan_wallet_across_blocks(
     scanner: &mut GrpcBlockchainScanner,
-    wallet: &Wallet,
-    block_height_range: BlockHeightRange,
+    scan_context: &ScanContext,
+    config: &ScanConfig,
 ) -> LightweightWalletResult<WalletState> {
-    // Setup wallet keys
-    let seed_phrase = wallet.export_seed_phrase()?;
-    let encrypted_bytes = mnemonic_to_bytes(&seed_phrase)?;
-    let cipher_seed = CipherSeed::from_enciphered_bytes(&encrypted_bytes, None)?;
-    let entropy = cipher_seed.entropy();
-    
-    let entropy_array: [u8; 16] = entropy.try_into()
-        .map_err(|_| KeyManagementError::key_derivation_failed("Invalid entropy length"))?;
-    
-    let view_key_raw = key_derivation::derive_private_key_from_entropy(
-        &entropy_array, 
-        "data encryption", 
-        0
-    )?;
-    let view_key = PrivateKey::new(view_key_raw.as_bytes().try_into().expect("Should convert to array"));
-    
-    // Initialize range proof rewinding service
-    let range_proof_service = RangeProofRewindService::new()?;
-    
-    // Generate derived keys for script pattern matching
-    // For this example, we'll derive a few keys from the wallet entropy  
-    let _derived_keys: Vec<RistrettoPublicKey> = Vec::new();
-    for i in 0..10 { // Generate 10 derived keys for testing
-        let _derived_key_raw = key_derivation::derive_private_key_from_entropy(
-            &entropy_array,
-            "script_key", 
-            i
-        )?;
-        let _derived_private_key = PrivateKey::new(_derived_key_raw.as_bytes().try_into().expect("Should convert to array"));
-        
-        // For now, we'll create a placeholder public key since we have type compatibility issues
-        // TODO: Proper key derivation when ByteArray issues are resolved
-        // let derived_public_key = RistrettoPublicKey::from_secret_key(&RistrettoSecretKey::from_bytes(derived_private_key.as_bytes()).unwrap());
-        // derived_keys.push(derived_public_key);
-    }
-    
-    // Use Arc<Mutex<WalletState>> for thread safety
-    let wallet_state = Arc::new(Mutex::new(WalletState::new()));
-    let scan_start_time = Instant::now();
-    
-    // Extract values before any moves to avoid borrow checker issues
-    let from_block = block_height_range.from_block;
-    let to_block = block_height_range.to_block;
-    let has_specific_blocks = block_height_range.block_heights.is_some();
-    
-    let block_heights = block_height_range.block_heights.unwrap_or_else(|| {
-        (from_block..=to_block).collect()
+    let has_specific_blocks = config.block_heights.is_some();
+    let block_heights = config.block_heights.clone().unwrap_or_else(|| {
+        (config.from_block..=config.to_block).collect()
     });
 
-    // Display scan information
-    if has_specific_blocks {
-        println!("🔍 Scanning {} specific blocks: {:?}", block_heights.len(), block_heights);
-    } else {
-        let block_range = to_block - from_block + 1;
-        println!("🔍 Scanning blocks {} to {} ({} blocks total)...", from_block, to_block, block_range);
+    if !config.quiet {
+        display_scan_info(&config, &block_heights, has_specific_blocks);
     }
-    println!();
-    
-    // Warning about scanning limitations
-    if from_block > 1 && !has_specific_blocks {
-        println!("⚠️  WARNING: Starting scan from block {} (not genesis)", from_block);
-        println!("   📍 This will MISS any wallet outputs received before block {}", from_block);
-        println!("   💡 For complete transaction history, consider scanning from genesis (--from-block 1)");
-        println!("   🔄 Spent transactions may not be detected if their outputs were received earlier");
-        println!();
-    }
-    
-    println!("🔍 Unified scan: discovering outputs and tracking spending in single pass");
 
-    let total_blocks = block_heights.len();
-    for (block_index, block_height) in block_heights.iter().enumerate() {
-        let current_progress = block_index + 1; // Sequential progress index (1, 2, 3...)
+    let mut wallet_state = WalletState::new(); // No Arc<Mutex> needed!
+    let mut progress = ScanProgress::new(block_heights.len());
+
+    for (block_index, &block_height) in block_heights.iter().enumerate() {
+        progress.display_progress(config.quiet, config.progress_frequency);
         
-        // Show enhanced progress with balance info
-        {
-            let state = wallet_state.lock().unwrap();
-            let progress_bar = state.format_progress_bar(current_progress as u64, total_blocks as u64, *block_height, "🔍");
-            print!("\r{}", progress_bar);
-            std::io::Write::flush(&mut std::io::stdout()).unwrap();
-        }
-        
-        let block_info = match scanner.get_block_by_height(*block_height).await {
+        let block_info = match scanner.get_block_by_height(block_height).await {
             Ok(Some(block)) => block,
             Ok(None) => {
-                println!("\n⚠️  Block {} not found, skipping...", block_height);
+                if !config.quiet {
+                    println!("\n⚠️  Block {} not found, skipping...", block_height);
+                }
                 continue;
             },
-            Err(e) => {
-                println!("\n❌ Error scanning block {}: {}", block_height, e);
-                println!("   Block height: {}", block_height);
-                println!("   Error details: {:?}", e);
-                
-                // Ask user if they want to continue
-                print!("   Continue scanning remaining blocks? (y/n/s=skip this block): ");
-                std::io::Write::flush(&mut std::io::stdout()).unwrap();
-                
-                let mut input = String::new();
-                std::io::stdin().read_line(&mut input).unwrap();
-                let choice = input.trim().to_lowercase();
-                
-                match choice.as_str() {
-                    "y" | "yes" => {
-                        println!("   ✅ Continuing scan from next block...");
-                        continue;
-                    },
-                    "s" | "skip" => {
-                        println!("   ⏭️  Skipping block {} and continuing...", block_height);
-                        continue;
-                    },
-                    _ => {
-                        println!("   🛑 Scan aborted by user at block {}", block_height);
-                        println!("\n💡 To resume from this point, run:");
-                        if has_specific_blocks {
-                            // For specific blocks, suggest using --blocks
-                            let remaining_blocks: Vec<u64> = block_heights.iter().skip(block_index).copied().collect();
-                            println!("   cargo run --example scanner --features grpc -- --seed-phrase \"your seed phrase\" --blocks {}", 
-                                remaining_blocks.iter().map(|b| b.to_string()).collect::<Vec<_>>().join(","));
-                        } else {
-                            // For range, suggest using --from-block
-                            println!("   cargo run --example scanner --features grpc -- --seed-phrase \"your seed phrase\" --from-block {} --to-block {}", block_height, to_block);
-                        }
-                        return Err(e);
-                    }
-                }
-            }
+                         Err(e) => {
+                 println!("\n❌ Error scanning block {}: {}", block_height, e);
+                 println!("   Block height: {}", block_height);
+                 println!("   Error details: {:?}", e);
+                 
+                 let remaining_blocks = &block_heights[block_index..];
+                 if handle_scan_error(block_height, remaining_blocks, has_specific_blocks, config.to_block) {
+                     continue;  // Continue or skip
+                 } else {
+                     return Err(e); // Abort
+                 }
+             }
         };
         
-        // Use the new Block struct to process all wallet activity
+        // Process block using the Block struct
         let block = Block::from_block_info(block_info);
-        
-        // Process all wallet activity in this block using the Block struct
-        {
-            let mut state = wallet_state.lock().unwrap();
-            if let Ok((found_outputs, spent_outputs)) = block.scan_for_wallet_activity(
-                &view_key,
-                &entropy_array,
-                &mut state,
-                &range_proof_service,
-            ) {
-                if found_outputs > 0 {
-                    println!("\n🎯 Found {} wallet outputs in block {}", found_outputs, block_height);
-                }
-                if spent_outputs > 0 {
-                    println!("📤 Detected {} wallet outputs spent in block {}", spent_outputs, block_height);
-                }
-            }
+        let (found_outputs, spent_outputs) = block.scan_for_wallet_activity(
+            &scan_context.view_key,
+            &scan_context.entropy,
+            &mut wallet_state,
+            &scan_context.range_proof_service,
+        )?;
+
+        progress.update(block_height, found_outputs, spent_outputs);
+
+        // Show detailed results if not quiet and found something
+        if !config.quiet && (found_outputs > 0 || spent_outputs > 0) {
+            println!("\n🎯 Block {}: {} outputs found, {} outputs spent", 
+                block_height, found_outputs, spent_outputs);
         }
     }
-    
-    let scan_elapsed = scan_start_time.elapsed();
-    println!("\n✅ Unified scan complete in {:.2}s!", scan_elapsed.as_secs_f64());
-    
-    // Summary of what was found
-    {
-        let state = wallet_state.lock().unwrap();
-        let (inbound_count, outbound_count, _) = state.get_direction_counts();
-        println!("📊 Scan results: {} inbound, {} outbound transactions discovered", inbound_count, outbound_count);
-        
-        if state.transactions.is_empty() {
-            println!("⚠️  No wallet activity found in scan range");
-            println!("   💡 Try scanning from an earlier block or from genesis (--from-block 1)");
-        } else {
-            println!("🔑 Found {} wallet transactions to display", state.transactions.len());
-        }
+
+    if !config.quiet {
+        let scan_elapsed = progress.start_time.elapsed();
+        println!("\n✅ Scan complete in {:.2}s!", scan_elapsed.as_secs_f64());
+        println!("📊 Total: {} outputs found, {} outputs spent", progress.outputs_found, progress.inputs_found);
     }
-    
+
+    Ok(wallet_state)
+}
+
+/// Display scan configuration information
+#[cfg(feature = "grpc")]
+fn display_scan_info(config: &ScanConfig, block_heights: &[u64], has_specific_blocks: bool) {
+    if has_specific_blocks {
+        println!("🔍 Scanning {} specific blocks: {:?}", block_heights.len(), 
+            if block_heights.len() <= 10 { 
+                block_heights.iter().map(|h| h.to_string()).collect::<Vec<_>>().join(", ")
+            } else {
+                format!("{}..{} and {} others", block_heights[0], block_heights.last().unwrap(), block_heights.len() - 2)
+            });
+    } else {
+        let block_range = config.to_block - config.from_block + 1;
+        println!("🔍 Scanning blocks {} to {} ({} blocks total)...", 
+            config.from_block, config.to_block, block_range);
+    }
+
+    // Warning about scanning limitations
+    if config.from_block > 1 && !has_specific_blocks {
+        println!("⚠️  WARNING: Starting scan from block {} (not genesis)", config.from_block);
+        println!("   📍 This will MISS any wallet outputs received before block {}", config.from_block);
+        println!("   💡 For complete transaction history, consider scanning from genesis (--from-block 1)");
+    }
     println!();
-    
-    // Extract the final wallet state
-    let final_state = Arc::try_unwrap(wallet_state).unwrap().into_inner().unwrap();
-    Ok(final_state)
 }
 
 #[cfg(feature = "grpc")]
@@ -474,57 +578,107 @@ fn display_wallet_activity(wallet_state: &WalletState, from_block: u64, to_block
 #[tokio::main]
 async fn main() -> LightweightWalletResult<()> {
     // Initialize logging
-
     tracing_subscriber::fmt::init();
 
-    println!("🚀 Enhanced Tari Wallet Scanner");
-    println!("===============================");
-
-    // Parse CLI arguments
     let args = CliArgs::parse();
 
-    println!("🔨 Creating wallet from seed phrase...");
+    if !args.quiet {
+        println!("🚀 Enhanced Tari Wallet Scanner");
+        println!("===============================");
+    }
+
+    // Create wallet and scan context
+    if !args.quiet {
+        println!("🔨 Creating wallet from seed phrase...");
+    }
     let wallet = Wallet::new_from_seed_phrase(&args.seed_phrase, None)?;
+    let scan_context = ScanContext::from_wallet(&wallet)?;
 
-    println!("🌐 Connecting to Tari base node...");
-    let mut scanner = match GrpcScannerBuilder::new()
-            .with_base_url(args.base_url.clone())
+    // Connect to base node
+    if !args.quiet {
+        println!("🌐 Connecting to Tari base node...");
+    }
+    let mut scanner = GrpcScannerBuilder::new()
+        .with_base_url(args.base_url.clone())
         .with_timeout(std::time::Duration::from_secs(30))
-        .build().await 
-    {
-        Ok(scanner) => {
-            println!("✅ Connected to Tari base node successfully");
-            scanner
-        },
-        Err(e) => {
-            eprintln!("❌ Failed to connect to Tari base node: {}", e);
-            eprintln!("💡 Make sure tari_base_node is running with GRPC enabled on port 18142");
-            return Err(e);
-        }
-    };
+        .build().await
+        .map_err(|e| {
+            if !args.quiet {
+                eprintln!("❌ Failed to connect to Tari base node: {}", e);
+                eprintln!("💡 Make sure tari_base_node is running with GRPC enabled on port 18142");
+            }
+            e
+        })?;
 
-    // Get blockchain tip
+    if !args.quiet {
+        println!("✅ Connected to Tari base node successfully");
+    }
+
+    // Get blockchain tip and determine scan range
     let tip_info = scanner.get_tip_info().await?;
-    println!("📊 Current blockchain tip: block {}", tip_info.best_block_height);
+    if !args.quiet {
+        println!("📊 Current blockchain tip: block {}", tip_info.best_block_height);
+    }
 
-    // Determine scan range from CLI arguments
     let to_block = args.to_block.unwrap_or(tip_info.best_block_height);
+    let from_block = args.from_block.unwrap_or(wallet.birthday());
 
-    let wallet_birthday = args.from_block.unwrap_or(wallet.birthday());
+    let block_height_range = BlockHeightRange::new(from_block, to_block, args.blocks.clone());
+    let config = block_height_range.into_scan_config(&args)?;
 
-    let from_block = std::cmp::max(wallet_birthday, 0);
-
-    let block_height_range = BlockHeightRange::new(from_block, to_block, args.blocks);
-  
-    // Perform the comprehensive scan
-    let wallet_state = scan_wallet_across_blocks(&mut scanner, &wallet, block_height_range).await?;
+    // Perform the scan
+    let wallet_state = scan_wallet_across_blocks(&mut scanner, &scan_context, &config).await?;
     
-    // Display results
-    display_wallet_activity(&wallet_state, from_block, to_block);
+    // Display results based on output format
+    match config.output_format {
+        OutputFormat::Json => display_json_results(&wallet_state),
+        OutputFormat::Summary => display_summary_results(&wallet_state, &config),
+        OutputFormat::Detailed => display_wallet_activity(&wallet_state, config.from_block, config.to_block),
+    }
     
-    println!("✅ Scan completed successfully!");
+    if !args.quiet {
+        println!("✅ Scan completed successfully!");
+    }
     
     Ok(())
+}
+
+/// Display results in JSON format
+#[cfg(feature = "grpc")]
+fn display_json_results(wallet_state: &WalletState) {
+    // Simple JSON-like output for now
+    let (total_received, total_spent, balance, unspent_count, spent_count) = wallet_state.get_summary();
+    let (inbound_count, outbound_count, _) = wallet_state.get_direction_counts();
+    
+    println!("{{");
+    println!("  \"summary\": {{");
+    println!("    \"total_transactions\": {},", wallet_state.transactions.len());
+    println!("    \"inbound_count\": {},", inbound_count);
+    println!("    \"outbound_count\": {},", outbound_count);
+    println!("    \"total_received\": {},", total_received);
+    println!("    \"total_spent\": {},", total_spent);
+    println!("    \"current_balance\": {},", balance);
+    println!("    \"unspent_outputs\": {},", unspent_count);
+    println!("    \"spent_outputs\": {}", spent_count);
+    println!("  }}");
+    println!("}}");
+}
+
+/// Display summary results
+#[cfg(feature = "grpc")]
+fn display_summary_results(wallet_state: &WalletState, config: &ScanConfig) {
+    let (total_received, total_spent, balance, unspent_count, spent_count) = wallet_state.get_summary();
+    let (inbound_count, outbound_count, _) = wallet_state.get_direction_counts();
+    
+    println!("📊 WALLET SCAN SUMMARY");
+    println!("=====================");
+    println!("Scan range: Block {} to {}", config.from_block, config.to_block);
+    println!("Total transactions: {}", wallet_state.transactions.len());
+    println!("Inbound: {} transactions ({:.6} T)", inbound_count, total_received as f64 / 1_000_000.0);
+    println!("Outbound: {} transactions ({:.6} T)", outbound_count, total_spent as f64 / 1_000_000.0);
+    println!("Current balance: {:.6} T", balance as f64 / 1_000_000.0);
+    println!("Unspent outputs: {}", unspent_count);
+    println!("Spent outputs: {}", spent_count);
 }
 
 #[cfg(not(feature = "grpc"))]
