@@ -1,8 +1,4 @@
 # Tari Lightweight Wallet Libraries
-
-
-[![Crates.io](https://img.shields.io/crates/v/lightweight_wallet_libs.svg)](https://crates.io/crates/lightweight_wallet_libs)
-[![Documentation](https://docs.rs/lightweight_wallet_libs/badge.svg)](https://docs.rs/lightweight_wallet_libs)
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
 
 A standalone, minimal dependency implementation of core Tari wallet functionality designed for lightweight applications, mobile wallets, web applications, and embedded systems.
