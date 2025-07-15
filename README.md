@@ -1,15 +1,11 @@
 # Tari Lightweight Wallet Libraries
 
-# 🚧 Under HEAVY Development, this is not production ready yet. 🚧
-
-> ⚠️ **Development Status**: This library is currently under active development. UTXO scanning functionality is partially complete and will be finished as part of the implementation outlined in the [PRD](create-prd.md).
-
 
 [![Crates.io](https://img.shields.io/crates/v/lightweight_wallet_libs.svg)](https://crates.io/crates/lightweight_wallet_libs)
 [![Documentation](https://docs.rs/lightweight_wallet_libs/badge.svg)](https://docs.rs/lightweight_wallet_libs)
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
 
-A standalone, dependency-free implementation of core Tari wallet functionality designed for lightweight applications, mobile wallets, web applications, and embedded systems.
+A standalone, minimal dependency implementation of core Tari wallet functionality designed for lightweight applications, mobile wallets, web applications, and embedded systems.
 
 ## 🚀 **What is this?**
 
@@ -41,20 +37,23 @@ The Tari Lightweight Wallet Libraries provide essential wallet functionality ext
 - ✅ Single addresses (spend key only) for simplified use
 - ✅ Multiple formats: Emoji 🦀, Base58, and Hex
 - ✅ Payment ID embedding and extraction
-- ✅ Network support (MainNet, StageNet, TestNet)
+- ✅ Network support (MainNet, StageNet, Esmeralda, LocalNet)
 
-### 🔍 **Blockchain Scanning** (In Development)
-- 🚧 GRPC-based blockchain scanning (partially complete)
-- 🚧 UTXO discovery and validation (partially complete)
-- 🚧 Progress tracking and resumable scans (partially complete)
-- 🚧 Batch processing for performance (partially complete)
-- 🚧 Wallet output reconstruction from blockchain data (in progress)
+### 🔍 **Blockchain Scanning**
+- ✅ GRPC-based blockchain scanning with Tari base nodes
+- ✅ UTXO discovery and wallet output reconstruction
+- ✅ Progress tracking and interactive error handling
+- ✅ Batch processing with configurable block ranges
+- ✅ Multiple scanning strategies (one-sided, recoverable, coinbase)
+- ✅ Resume functionality for interrupted scans
+- ✅ Multiple output formats (detailed, summary, JSON)
 
-### 🔒 **Cryptographic Validation** (In Development)
-- 🚧 Range proof validation (BulletProof+, RevealedValue) (partially complete)
-- 🚧 Signature verification (metadata, script signatures) (partially complete)
-- 🚧 Commitment validation and integrity checks (partially complete)
-- 🚧 Encrypted data decryption and validation (partially complete)
+### 🔒 **Cryptographic Validation**
+- ✅ Range proof validation and rewinding
+- ✅ Encrypted data decryption using view keys
+- ✅ Commitment validation and verification
+- ✅ Payment ID extraction and decoding
+- ✅ Stealth address key recovery
 
 ## 📦 **Installation**
 
@@ -90,11 +89,17 @@ let wallet = Wallet::generate_new_with_seed_phrase(None)?;
 let seed_phrase = wallet.export_seed_phrase()?;
 println!("Backup this seed phrase: {}", seed_phrase);
 
-// Generate a Tari address
+// Generate a dual Tari address (supports both interactive and one-sided payments)
 let features = TariAddressFeatures::create_interactive_and_one_sided();
 let address = wallet.get_dual_address(features, None)?;
 
-println!("Your Tari address: {}", address.to_emoji_string());
+println!("Your Tari address (emoji): {}", address.to_emoji_string());
+println!("Your Tari address (base58): {}", address.to_base58());
+
+// Generate a single address (spend key only, simpler)
+let single_features = TariAddressFeatures::create_one_sided_only();
+let single_address = wallet.get_single_address(single_features)?;
+println!("Single address: {}", single_address.to_base58());
 ```
 
 ### Restore Wallet from Seed Phrase
@@ -119,38 +124,89 @@ let address = wallet.get_dual_address(
 use lightweight_wallet_libs::key_management::{
     generate_seed_phrase,
     validate_seed_phrase,
-    derive_view_and_spend_keys_from_entropy,
+    seed_phrase::{CipherSeed, mnemonic_to_bytes},
 };
 
 // Generate a new 24-word seed phrase
 let seed_phrase = generate_seed_phrase()?;
+println!("Generated seed phrase: {}", seed_phrase);
 
 // Validate an existing seed phrase
 validate_seed_phrase(&seed_phrase)?;
+println!("Seed phrase is valid!");
 
-// Derive keys from entropy
-let entropy = [42u8; 16]; // Your entropy source
-let (view_key, spend_key) = derive_view_and_spend_keys_from_entropy(&entropy)?;
+// Work with CipherSeed for advanced operations
+let cipher_seed = CipherSeed::new(); // Creates with random entropy
+let encrypted_bytes = cipher_seed.encipher(Some("optional_passphrase"))?;
+
+// Convert bytes back to mnemonic
+let encrypted_bytes = mnemonic_to_bytes(&seed_phrase)?;
+let cipher_seed = CipherSeed::from_enciphered_bytes(&encrypted_bytes, Some("optional_passphrase"))?;
+let entropy = cipher_seed.entropy();
+println!("Extracted entropy: {:?}", entropy);
 ```
 
 ### Blockchain Scanning
 
 ```rust
-use lightweight_wallet_libs::scanning::{GrpcBlockchainScanner, WalletScanConfig};
+use lightweight_wallet_libs::scanning::{GrpcScannerBuilder, BlockchainScanner};
+use lightweight_wallet_libs::wallet::Wallet;
 
 // Connect to a Tari base node
-let mut scanner = GrpcBlockchainScanner::new("http://127.0.0.1:18142".to_string()).await?;
+let mut scanner = GrpcScannerBuilder::new()
+    .with_base_url("http://127.0.0.1:18142".to_string())
+    .with_timeout(std::time::Duration::from_secs(30))
+    .build().await?;
 
-// Configure wallet scanning
-let wallet_birthday = 950; // Block height when wallet was created
-let scan_config = WalletScanConfig::new(wallet_birthday)
-    .with_stealth_address_scanning(true)
-    .with_max_addresses_per_account(100);
+// Create wallet for scanning
+let wallet = Wallet::new_from_seed_phrase("your seed phrase here", None)?;
 
-// Scan for wallet outputs
-let results = scanner.scan_wallet(scan_config).await?;
-println!("Found {} wallet outputs", results.total_wallet_outputs);
+// Get blockchain tip and scan from wallet birthday
+let tip_info = scanner.get_tip_info().await?;
+let from_block = wallet.birthday();
+let to_block = tip_info.best_block_height;
+
+// Scan specific block range
+let block_info = scanner.get_block_by_height(12345).await?;
+if let Some(block) = block_info {
+    println!("Block {} has {} outputs", block.height, block.outputs.len());
+}
 ```
+
+### Advanced Blockchain Scanning
+
+The scanner provides comprehensive blockchain analysis with multiple scanning modes:
+
+```rust
+// The scanner example demonstrates advanced features like:
+// 
+// 1. Seed phrase OR view key scanning
+// cargo run --example scanner --features grpc -- --seed-phrase "your seed phrase"
+// cargo run --example scanner --features grpc -- --view-key "64_char_hex_view_key"
+//
+// 2. Flexible block range scanning
+// cargo run --example scanner --features grpc -- --from-block 1000 --to-block 2000
+// cargo run --example scanner --features grpc -- --blocks 1000,1500,2000,2500
+//
+// 3. Multiple output formats
+// cargo run --example scanner --features grpc -- --format detailed  # Full transaction history
+// cargo run --example scanner --features grpc -- --format summary   # Compact overview  
+// cargo run --example scanner --features grpc -- --format json      # Machine-readable
+//
+// 4. Error recovery and resume functionality
+// When errors occur, the scanner provides interactive options and resume commands
+//
+// 5. Progress tracking with real-time statistics
+// Shows blocks/second, outputs found, balance changes, etc.
+```
+
+**Scanner Features:**
+- **Dual Input Methods**: Use seed phrase (full wallet) or view key (view-only)  
+- **Interactive Error Handling**: Continue, skip, or abort on GRPC errors with resume commands
+- **Transaction History**: Complete chronological transaction listing with spent/unspent tracking
+- **Payment ID Decoding**: Automatic extraction and UTF-8 decoding of payment IDs
+- **Balance Analysis**: Running balances, net flow calculations, and transaction breakdowns
+- **Maturity Tracking**: Coinbase output maturity detection and immature balance warnings
 
 ## 🏛️ **Architecture**
 
@@ -198,16 +254,28 @@ use lightweight_wallet_libs::wasm::*;
 
 Check out the [`examples/`](examples/) directory for complete working examples:
 
-- [`wallet_example.rs`](examples/wallet_example.rs) - Comprehensive wallet operations
-- [`grpc_scanner_example.rs`](examples/grpc_scanner_example.rs) - Blockchain scanning demo
+- [`wallet_cli.rs`](examples/wallet_cli.rs) - Complete wallet CLI with address generation
+- [`scanner.rs`](examples/scanner.rs) - Advanced blockchain scanner with comprehensive features
 
 Run examples:
 ```bash
-# Basic wallet operations
-cargo run --example wallet_example
+# Create new wallet with seed phrase
+cargo run --example wallet_cli new-wallet
 
-# GRPC scanning (requires running Tari base node)
-cargo run --example grpc_scanner_example --features grpc
+# Generate address from existing seed phrase
+cargo run --example wallet_cli new-address "your 24-word seed phrase here"
+
+# Create wallet with payment ID and custom network
+cargo run --example wallet_cli new-wallet --network stagenet --payment-id "my-payment-123"
+
+# Comprehensive blockchain scanning (requires running Tari base node)
+cargo run --example scanner --features grpc -- --seed-phrase "your seed phrase"
+
+# Scan specific block range with view key
+cargo run --example scanner --features grpc -- --view-key "your_64_char_hex_view_key" --from-block 1000 --to-block 2000
+
+# Scan with multiple output formats
+cargo run --example scanner --features grpc -- --seed-phrase "your seed phrase" --format summary --quiet
 ```
 
 ## 🔒 **Security Features**
@@ -307,10 +375,13 @@ This project is licensed under the [BSD 3-Clause License](LICENSE).
 ## 🎯 **Roadmap**
 
 - [ ] Hardware wallet integration (Ledger, Trezor)
-- [ ] Additional language bindings (Python, JavaScript)
-- [ ] Advanced stealth address features
-- [ ] Performance optimizations for mobile
-- [ ] Enhanced error recovery mechanisms
+- [ ] Additional language bindings (Python, JavaScript) 
+- [ ] Advanced stealth address features and multi-party protocols
+- [ ] Performance optimizations for mobile and WASM
+- [ ] Transaction building and broadcasting capabilities
+- [ ] Improved UTXO management and coin selection
+- [ ] Advanced scanning filters and indexing
+- [ ] Enhanced privacy features and mixing protocols
 
 ---
 
