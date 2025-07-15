@@ -148,6 +148,7 @@ pub enum OutputFormat {
     Json,
 }
 
+#[cfg(feature = "grpc")]
 impl std::str::FromStr for OutputFormat {
     type Err = String;
     
@@ -169,6 +170,7 @@ pub struct ScanContext {
     pub range_proof_service: RangeProofRewindService,
 }
 
+#[cfg(feature = "grpc")]
 impl ScanContext {
     pub fn from_wallet(wallet: &Wallet) -> LightweightWalletResult<Self> {
         // Setup wallet keys
@@ -243,6 +245,7 @@ pub struct ScanProgress {
     pub start_time: Instant,
 }
 
+#[cfg(feature = "grpc")]
 impl ScanProgress {
     pub fn new(total_blocks: usize) -> Self {
         Self {
@@ -284,12 +287,14 @@ impl ScanProgress {
     }
 }
 
+#[cfg(feature = "grpc")]
 pub struct BlockHeightRange {
     pub from_block: u64,
     pub to_block: u64,
     pub block_heights: Option<Vec<u64>>,
 }
 
+#[cfg(feature = "grpc")]
 impl BlockHeightRange {
     pub fn new(from_block: u64, to_block: u64, block_heights: Option<Vec<u64>>) -> Self {
         Self { from_block, to_block, block_heights }
