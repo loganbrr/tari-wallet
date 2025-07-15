@@ -802,7 +802,7 @@
                 }
                 
             } catch (error) {
-                log('error', `❌ Scan failed: ${error.message}`);
+                log('error', `❌ Scan failed: ${error.message || error}`);
                 updateProgress(0, 'Scan failed');
                 throw error;
             } finally {
