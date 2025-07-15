@@ -611,7 +611,7 @@ async fn scan_wallet_across_blocks_with_cancellation(
         let scan_elapsed = profile_data.total_scan_time;
         let (inbound_count, outbound_count, _) = wallet_state.get_direction_counts();
         println!("\n✅ Scan complete in {:.2}s!", scan_elapsed.as_secs_f64());
-        println!("📊 Total: {} outputs found, {} outputs spent", inbound_count, outbound_count);
+        println!("📊 Total: {} outputs found, {} outputs spent", format_number(inbound_count), format_number(outbound_count));
     }
 
     Ok(ScanResult::Completed(wallet_state, profile_data))
@@ -635,8 +635,8 @@ fn display_scan_info(config: &ScanConfig, block_heights: &[u64], has_specific_bl
 
     // Warning about scanning limitations
     if config.from_block > 1 && !has_specific_blocks {
-        println!("⚠️  WARNING: Starting scan from block {} (not genesis)", config.from_block);
-        println!("   📍 This will MISS any wallet outputs received before block {}", config.from_block);
+        println!("⚠️  WARNING: Starting scan from block {} (not genesis)", format_number(config.from_block));
+        println!("   📍 This will MISS any wallet outputs received before block {}", format_number(config.from_block));
         println!("   💡 For complete transaction history, consider scanning from genesis (--from-block 1)");
     }
     println!();
@@ -648,9 +648,9 @@ fn display_wallet_activity(wallet_state: &WalletState, from_block: u64, to_block
     let total_count = wallet_state.transactions.len();
     
     if total_count == 0 {
-        println!("💡 No wallet activity found in blocks {} to {}", from_block, to_block);
+        println!("💡 No wallet activity found in blocks {} to {}", format_number(from_block), format_number(to_block));
         if from_block > 1 {
-            println!("   ⚠️  Note: Scanning from block {} - wallet history before this block was not checked", from_block);
+            println!("   ⚠️  Note: Scanning from block {} - wallet history before this block was not checked", format_number(from_block));
             println!("   💡 For complete history, try: cargo run --example scanner --features grpc -- --seed-phrase \"your seed phrase\" --from-block 1");
         }
         return;
@@ -979,11 +979,11 @@ async fn main() -> LightweightWalletResult<()> {
             if !args.quiet {
                 println!("\n🔄 To resume scanning from where you left off, use:");
                 println!("   cargo run --example scanner --features grpc -- <your-options> --from-block {}", 
-                    wallet_state.transactions.iter()
+                    format_number(wallet_state.transactions.iter()
                         .map(|tx| tx.block_height)
                         .max()
                         .map(|h| h + 1)
-                        .unwrap_or(config.from_block)
+                        .unwrap_or(config.from_block))
                 );
             }
             std::process::exit(130); // Standard exit code for SIGINT
