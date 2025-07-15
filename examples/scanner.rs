@@ -377,7 +377,17 @@ async fn scan_wallet_across_blocks(
     let mut progress = ScanProgress::new(block_heights.len());
 
     for (block_index, &block_height) in block_heights.iter().enumerate() {
-        progress.display_progress(config.quiet, config.progress_frequency);
+        // Display progress using WalletState's format_progress_bar method
+        if !config.quiet && block_index % config.progress_frequency == 0 {
+            let progress_bar = wallet_state.format_progress_bar(
+                block_index as u64 + 1,
+                block_heights.len() as u64,
+                block_height,
+                "Scanning"
+            );
+            print!("\r{}", progress_bar);
+            std::io::Write::flush(&mut std::io::stdout()).unwrap();
+        }
         
         let block_info = match scanner.get_block_by_height(block_height).await {
             Ok(Some(block)) => block,
@@ -410,8 +420,6 @@ async fn scan_wallet_across_blocks(
             &scan_context.range_proof_service,
         )?;
 
-        progress.update(block_height, found_outputs, spent_outputs);
-
         // Show detailed results if not quiet and found something
         if !config.quiet && (found_outputs > 0 || spent_outputs > 0) {
             println!("\n🎯 Block {}: {} outputs found, {} outputs spent", 
@@ -420,9 +428,19 @@ async fn scan_wallet_across_blocks(
     }
 
     if !config.quiet {
+        // Show final progress bar at 100%
+        let final_progress_bar = wallet_state.format_progress_bar(
+            block_heights.len() as u64,
+            block_heights.len() as u64,
+            block_heights.last().cloned().unwrap_or(0),
+            "Complete"
+        );
+        println!("\r{}", final_progress_bar);
+        
         let scan_elapsed = progress.start_time.elapsed();
+        let (inbound_count, outbound_count, _) = wallet_state.get_direction_counts();
         println!("\n✅ Scan complete in {:.2}s!", scan_elapsed.as_secs_f64());
-        println!("📊 Total: {} outputs found, {} outputs spent", progress.outputs_found, progress.inputs_found);
+        println!("📊 Total: {} outputs found, {} outputs spent", inbound_count, outbound_count);
     }
 
     Ok(wallet_state)
