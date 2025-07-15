@@ -868,9 +868,6 @@ async fn main() -> LightweightWalletResult<()> {
     } else if let Some(view_key_hex) = &args.view_key {
         if !args.quiet {
             println!("🔑 Creating scan context from view key...");
-            if !args.quiet {
-                println!("⚠️  Note: Range proof rewinding will be limited without seed entropy");
-            }
         }
         let scan_context = ScanContext::from_view_key(view_key_hex)?;
         let default_from_block = 0; // Start from genesis when using view key only
