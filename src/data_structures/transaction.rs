@@ -1,6 +1,3 @@
-// Copyright 2024 The Tari Project
-// SPDX-License-Identifier: BSD-3-Clause
-
 //! Transaction metadata types for lightweight wallets
 //! 
 //! This module contains transaction status, direction, and import status types

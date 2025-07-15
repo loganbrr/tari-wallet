@@ -1,6 +1,3 @@
-// Copyright 2024 The Tari Project
-// SPDX-License-Identifier: BSD-3-Clause
-
 //! Block processing functionality for wallet scanning
 //!
 //! This module provides a `Block` struct that encapsulates all the logic for:

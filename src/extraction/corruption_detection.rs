@@ -1,6 +1,3 @@
-// Copyright 2024 The Tari Project
-// SPDX-License-Identifier: BSD-3-Clause
-
 //! Corruption detection and error handling for lightweight wallet extraction
 //!
 //! This module provides functionality to detect and handle corrupted or invalid

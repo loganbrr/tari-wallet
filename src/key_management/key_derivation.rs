@@ -1,6 +1,3 @@
-// Copyright 2024 The Tari Project
-// SPDX-License-Identifier: BSD-3-Clause
-
 //! Key derivation functions for lightweight wallets
 //! 
 //! This implementation follows the Tari key derivation specification for compatibility

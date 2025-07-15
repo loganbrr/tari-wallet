@@ -1,6 +1,3 @@
-// Copyright 2024 The Tari Project
-// SPDX-License-Identifier: BSD-3-Clause
-
 //! Script signature validation for lightweight wallets
 //! 
 //! This module provides lightweight validation for transaction input script signatures

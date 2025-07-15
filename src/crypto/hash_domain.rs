@@ -1,6 +1,3 @@
-// Copyright 2024 The Tari Project
-// SPDX-License-Identifier: BSD-3-Clause
-
 //! Hash domain definitions for domain separation
 
 use tari_crypto::hashing::DomainSeparation;

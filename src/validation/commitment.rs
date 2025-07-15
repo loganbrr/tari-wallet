@@ -1,6 +1,3 @@
-// Copyright 2024 The Tari Project
-// SPDX-License-Identifier: BSD-3-Clause
-
 //! Commitment integrity and correctness verification for lightweight wallets
 //!
 //! This module provides lightweight validation for Pedersen commitments

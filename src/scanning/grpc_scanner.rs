@@ -1,6 +1,3 @@
-// Copyright 2024 The Tari Project
-// SPDX-License-Identifier: BSD-3-Clause
-
 //! GRPC-based blockchain scanner implementation
 //! 
 //! This module provides a GRPC implementation of the BlockchainScanner trait

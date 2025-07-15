@@ -1,6 +1,3 @@
-// Copyright 2024 The Tari Project
-// SPDX-License-Identifier: BSD-3-Clause
-
 //! Address handling utilities for lightweight wallets
 //!
 //! This module provides functionality to load and parse Tari addresses

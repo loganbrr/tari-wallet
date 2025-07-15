@@ -1,6 +1,3 @@
-// Copyright 2024 The Tari Project
-// SPDX-License-Identifier: BSD-3-Clause
-
 //! UTXO scanning module for lightweight wallet libraries
 //! 
 //! This module provides a lightweight interface for scanning the Tari blockchain

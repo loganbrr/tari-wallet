@@ -1,6 +1,3 @@
-// Copyright 2024 The Tari Project
-// SPDX-License-Identifier: BSD-3-Clause
-
 //! Stealth address key recovery for lightweight wallets
 //!
 //! This module provides functionality to recover private keys for stealth addresses

@@ -1,6 +1,3 @@
-// Copyright 2024 The Tari Project
-// SPDX-License-Identifier: BSD-3-Clause
-
 //! Validation module for lightweight wallet functionality
 //! 
 //! This module provides lightweight validation for UTXOs and transactions

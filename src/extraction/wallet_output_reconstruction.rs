@@ -1,6 +1,3 @@
-// Copyright 2024 The Tari Project
-// SPDX-License-Identifier: BSD-3-Clause
-
 use crate::data_structures::{
     wallet_output::{
         LightweightWalletOutput, LightweightKeyId, 

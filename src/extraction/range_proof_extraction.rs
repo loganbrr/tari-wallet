@@ -1,6 +1,3 @@
-// Copyright 2024 The Tari Project
-// SPDX-License-Identifier: BSD-3-Clause
-
 //! Range proof extraction and validation for lightweight wallets
 //!
 //! This module provides functionality to extract and validate range proofs

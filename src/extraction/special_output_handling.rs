@@ -1,6 +1,3 @@
-// Copyright 2024 The Tari Project
-// SPDX-License-Identifier: BSD-3-Clause
-
 //! Special output handling for lightweight wallets
 //!
 //! This module provides functionality to handle coinbase and burn outputs

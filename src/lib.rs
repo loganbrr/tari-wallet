@@ -1,6 +1,3 @@
-// Copyright 2024 The Tari Project
-// SPDX-License-Identifier: BSD-3-Clause
-
 //! Lightweight wallet libraries for Tari
 //!
 //! This crate provides lightweight wallet functionality for the Tari blockchain,

@@ -1,6 +1,3 @@
-// Copyright 2024 The Tari Project
-// SPDX-License-Identifier: BSD-3-Clause
-
 //! Payment ID extraction from encrypted data
 //!
 //! This module provides functionality to extract the payment ID from

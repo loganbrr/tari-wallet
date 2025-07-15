@@ -1,6 +1,3 @@
-// Copyright 2024 The Tari Project
-// SPDX-License-Identifier: BSD-3-Clause
-
 //! Stealth address implementation for lightweight wallets
 //! 
 //! This module provides stealth address functionality including key derivation,
