@@ -1,6 +1,6 @@
 [package]
 name = "lightweight_wallet_libs"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Krakaw"]
 description = "Lightweight wallet libraries for Tari"
@@ -8,6 +8,12 @@ license = "BSD-3-Clause"
 repository = "https://github.com/Krakaw/tari-wallet"
 keywords = ["tari", "wallet", "cryptocurrency", "blockchain"]
 categories = ["cryptography", "blockchain"]
+
+[package.metadata.cargo-machete]
+ignored = [
+    "tonic-build",  # Used in build.rs for GRPC code generation
+    "prost",        # Used by generated GRPC protobuf code (verified by compilation test)
+]
 
 [dependencies]
 # Core dependencies
@@ -25,7 +31,7 @@ chacha20poly1305 = "0.10"
 digest = "0.10"
 blake2 = "0.10"
 blake2b_simd = "1.0"
-getrandom = "0.2"
+# getrandom = "0.2"  # Testing if this is needed explicitly
 
 # Hex encoding
 hex = "0.4"
@@ -46,11 +52,7 @@ primitive-types = { version = "0.12", features = ["serde"] }
 curve25519-dalek = { version = "4.1", features = ["alloc"] }
 rand_core = "0.6"
 wasm-bindgen = "0.2"
-subtle = "2.5"
 rand = "0.8"
-pbkdf2 = "0.12"
-hmac = "0.12"
-sha2 = "0.10"
 
 # Address dependencies
 bs58 = "0.5"
@@ -75,9 +77,6 @@ clap = { version = "4.4", features = ["derive"], optional = true }
 # Added tracing-subscriber dependency (optional)
 tracing-subscriber = { version = "0.3", optional = true }
 
-# Async dependencies (optional)
-futures = { version = "0.3", optional = true }
-
 [dev-dependencies]
 # Test dependencies
 serde_json = "1.0"
@@ -89,7 +88,7 @@ tonic-build = "0.10"
 [features]
 default = []
 wasm = ["getrandom/js"]
-grpc = ["rayon", "tonic", "prost", "clap", "async-trait", "tokio", "tracing", "tracing-subscriber", "futures"]
+grpc = ["rayon", "tonic", "prost", "clap", "async-trait", "tokio", "tracing", "tracing-subscriber"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.2", features = ["js"] } 

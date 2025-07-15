@@ -1,0 +1,55 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Build
+        run: |
+          echo "Building WASM module..."
+          wasm-pack build --target web 
+          echo "Creating docs directory..."
+          mkdir -p docs
+          echo "Copying files to docs directory..."
+          cp pkg/lightweight* docs/
+          cp pkg/package.json docs/
+          cp examples/wasm/scanner.html docs/index.html
+          cp examples/wasm/icon.png docs/
+          echo "Creating _redirects file..."
+          echo '{
+            "rewrites": [
+              { "source": "**", "destination": "/index.html" }
+            ]
+          }' > docs/_redirects
+          touch docs/.nojekyll
+          echo "Final docs directory contents:"
+          ls -la docs/
+
+      - name: Deploy
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          force: true
+          folder: docs
+          branch: gh-pages
+          clean: true
+          commit-message: "Deploy WASM module and web interface" 
