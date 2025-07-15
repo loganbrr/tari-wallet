@@ -113,6 +113,10 @@ struct CliArgs {
     #[arg(long, help = "Specific block heights to scan (comma-separated). If provided, overrides from-block and to-block", value_delimiter = ',')]
     blocks: Option<Vec<u64>>,
 
+    /// Batch size for scanning
+    #[arg(long, default_value = "10", help = "Batch size for scanning")]
+    batch_size: usize,
+
     /// Progress update frequency
     #[arg(long, default_value = "10", help = "Update progress every N blocks")]
     progress_frequency: usize,
@@ -136,6 +140,7 @@ pub struct ScanConfig {
     pub progress_frequency: usize,
     pub quiet: bool,
     pub output_format: OutputFormat,
+    pub batch_size: usize,
 }
 
 /// Output format options
@@ -299,6 +304,7 @@ impl BlockHeightRange {
             progress_frequency: args.progress_frequency,
             quiet: args.quiet,
             output_format,
+            batch_size: args.batch_size,
         })
     }
 }
@@ -370,7 +376,7 @@ async fn scan_wallet_across_blocks(
 
     let mut wallet_state = WalletState::new();
     let mut progress = ScanProgress::new(block_heights.len());
-    let batch_size = 100; // Process up to 100 blocks per batch
+    let batch_size = config.batch_size;
 
     // Process blocks in batches
     for (batch_index, batch_heights) in block_heights.chunks(batch_size).enumerate() {
