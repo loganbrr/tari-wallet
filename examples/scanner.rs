@@ -9,6 +9,7 @@
 //! - Running balance calculation
 //! - Clean, user-friendly output with bash-style progress bars
 //! - Automatic scan from wallet birthday to chain tip
+//! - **Batch processing for improved performance (up to 100 blocks per batch)**
 //! - **Graceful error handling with resume functionality**
 //!
 //! ## Error Handling
@@ -51,13 +52,12 @@
 //! ## View Key vs Seed Phrase
 //! 
 //! **Seed Phrase Mode:**
-//! - Full wallet functionality including range proof rewinding
+//! - Full wallet functionality
 //! - Automatic wallet birthday detection
 //! - Requires seed phrase security
 //! 
 //! **View Key Mode:**
 //! - View-only access with encrypted data decryption
-//! - Range proof rewinding is limited (no seed entropy)
 //! - Starts from genesis by default (can be overridden)
 //! - More secure for monitoring purposes
 //! - View key format: 64-character hex string (32 bytes)
@@ -66,7 +66,6 @@
 use lightweight_wallet_libs::{
     scanning::{GrpcScannerBuilder, GrpcBlockchainScanner, BlockchainScanner},
     key_management::{key_derivation, seed_phrase::{mnemonic_to_bytes, CipherSeed}},
-    extraction::RangeProofRewindService,
     wallet::Wallet,
     errors::{LightweightWalletResult},
     KeyManagementError,
@@ -167,7 +166,6 @@ impl std::str::FromStr for OutputFormat {
 pub struct ScanContext {
     pub view_key: PrivateKey,
     pub entropy: [u8; 16],
-    pub range_proof_service: RangeProofRewindService,
 }
 
 #[cfg(feature = "grpc")]
@@ -189,13 +187,9 @@ impl ScanContext {
         )?;
         let view_key = PrivateKey::new(view_key_raw.as_bytes().try_into().expect("Should convert to array"));
         
-        // Initialize range proof rewinding service
-        let range_proof_service = RangeProofRewindService::new()?;
-        
         Ok(Self {
             view_key,
             entropy: entropy_array,
-            range_proof_service,
         })
     }
 
@@ -215,17 +209,11 @@ impl ScanContext {
         
         let view_key = PrivateKey::new(view_key_array);
         
-        // Initialize range proof rewinding service
-        let range_proof_service = RangeProofRewindService::new()?;
-        
-        // Note: Without seed entropy, range proof rewinding will be limited
-        // We use a zero entropy array as a fallback
         let entropy = [0u8; 16];
         
         Ok(Self {
             view_key,
             entropy,
-            range_proof_service,
         })
     }
 
@@ -315,16 +303,16 @@ impl BlockHeightRange {
     }
 }
 
-/// Handle errors during block scanning
+/// Handle errors during block scanning (updated for batch processing)
 #[cfg(feature = "grpc")]
 fn handle_scan_error(
-    block_height: u64,
+    error_block_height: u64,
     remaining_blocks: &[u64],
     has_specific_blocks: bool,
     to_block: u64,
 ) -> bool {
     // Ask user if they want to continue
-    print!("   Continue scanning remaining blocks? (y/n/s=skip this block): ");
+    print!("   Continue scanning remaining blocks? (y/n/s=skip this batch/block): ");
     std::io::Write::flush(&mut std::io::stdout()).unwrap();
     
     let mut input = String::new();
@@ -335,29 +323,36 @@ fn handle_scan_error(
     
     match choice.as_str() {
         "y" | "yes" => {
-            println!("   ✅ Continuing scan from next block...");
+            println!("   ✅ Continuing scan from next batch/block...");
             true // Continue
         },
         "s" | "skip" => {
-            println!("   ⏭️  Skipping block {} and continuing...", block_height);
-            true // Continue (skip this block)
+            println!("   ⏭️  Skipping problematic batch/block and continuing...");
+            true // Continue (skip this batch/block)
         },
         _ => {
-            println!("   🛑 Scan aborted by user at block {}", block_height);
+            println!("   🛑 Scan aborted by user at block {}", error_block_height);
             println!("\n💡 To resume from this point, run:");
             if has_specific_blocks {
                 let remaining_blocks_str: Vec<String> = remaining_blocks.iter().map(|b| b.to_string()).collect();
-                println!("   cargo run --example scanner --features grpc -- --seed-phrase \"your seed phrase\" --blocks {}", 
-                    remaining_blocks_str.join(","));
+                if remaining_blocks_str.len() <= 20 {
+                    println!("   cargo run --example scanner --features grpc -- --seed-phrase \"your seed phrase\" --blocks {}", 
+                        remaining_blocks_str.join(","));
+                } else {
+                    // For large lists, show range instead
+                    let first_block = remaining_blocks.first().unwrap_or(&error_block_height);
+                    let last_block = remaining_blocks.last().unwrap_or(&to_block);
+                    println!("   cargo run --example scanner --features grpc -- --seed-phrase \"your seed phrase\" --from-block {} --to-block {}", first_block, last_block);
+                }
             } else {
-                println!("   cargo run --example scanner --features grpc -- --seed-phrase \"your seed phrase\" --from-block {} --to-block {}", block_height, to_block);
+                println!("   cargo run --example scanner --features grpc -- --seed-phrase \"your seed phrase\" --from-block {} --to-block {}", error_block_height, to_block);
             }
             false // Abort
         }
     }
 }
 
-/// Core scanning logic - simplified and focused
+/// Core scanning logic - simplified and focused with batch processing
 #[cfg(feature = "grpc")]
 async fn scan_wallet_across_blocks(
     scanner: &mut GrpcBlockchainScanner,
@@ -373,62 +368,103 @@ async fn scan_wallet_across_blocks(
         display_scan_info(&config, &block_heights, has_specific_blocks);
     }
 
-    let mut wallet_state = WalletState::new(); // No Arc<Mutex> needed!
+    let mut wallet_state = WalletState::new();
     let mut progress = ScanProgress::new(block_heights.len());
+    let batch_size = 100; // Process up to 100 blocks per batch
 
-    for (block_index, &block_height) in block_heights.iter().enumerate() {
-        // Display progress using WalletState's format_progress_bar method
-        if !config.quiet && block_index % config.progress_frequency == 0 {
+    // Process blocks in batches
+    for (batch_index, batch_heights) in block_heights.chunks(batch_size).enumerate() {
+        let batch_start_index = batch_index * batch_size;
+        
+        // Display progress at the start of each batch
+        if !config.quiet && batch_index % config.progress_frequency == 0 {
             let progress_bar = wallet_state.format_progress_bar(
-                block_index as u64 + 1,
+                batch_start_index as u64 + 1,
                 block_heights.len() as u64,
-                block_height,
+                batch_heights[0],
                 "Scanning"
             );
             print!("\r{}", progress_bar);
             std::io::Write::flush(&mut std::io::stdout()).unwrap();
         }
         
-        let block_info = match scanner.get_block_by_height(block_height).await {
-            Ok(Some(block)) => block,
-            Ok(None) => {
-                if !config.quiet {
-                    println!("\n⚠️  Block {} not found, skipping...", block_height);
+        // Fetch the batch of blocks
+        let batch_results = match scanner.get_blocks_by_heights(batch_heights.to_vec()).await {
+            Ok(blocks) => blocks,
+            Err(e) => {
+                println!("\n❌ Error scanning batch starting at block {}: {}", batch_heights[0], e);
+                println!("   Batch heights: {:?}", batch_heights);
+                println!("   Error details: {:?}", e);
+                
+                let remaining_blocks = &block_heights[batch_start_index..];
+                if handle_scan_error(batch_heights[0], remaining_blocks, has_specific_blocks, config.to_block) {
+                    continue;  // Continue to next batch
+                } else {
+                    return Err(e); // Abort
                 }
-                continue;
-            },
-                         Err(e) => {
-                 println!("\n❌ Error scanning block {}: {}", block_height, e);
-                 println!("   Block height: {}", block_height);
-                 println!("   Error details: {:?}", e);
-                 
-                 let remaining_blocks = &block_heights[block_index..];
-                 if handle_scan_error(block_height, remaining_blocks, has_specific_blocks, config.to_block) {
-                     continue;  // Continue or skip
-                 } else {
-                     return Err(e); // Abort
-                 }
-             }
+            }
         };
-        
-        // Process block using the Block struct
-        let block = Block::from_block_info(block_info);
-        let (found_outputs, spent_outputs) = block.scan_for_wallet_activity(
-            &scan_context.view_key,
-            &scan_context.entropy,
-            &mut wallet_state,
-            &scan_context.range_proof_service,
-        )?;
 
-        // Show detailed results if not quiet and found something
-        if !config.quiet && (found_outputs > 0 || spent_outputs > 0) {
-            println!("\n🎯 Block {}: {} outputs found, {} outputs spent", 
-                block_height, found_outputs, spent_outputs);
+        // Process each block in the batch
+        for (block_index_in_batch, block_height) in batch_heights.iter().enumerate() {
+            let global_block_index = batch_start_index + block_index_in_batch;
+            
+            // Find the corresponding block info from the batch results
+            let block_info = match batch_results.iter().find(|b| b.height == *block_height) {
+                Some(block) => block.clone(),
+                None => {
+                    if !config.quiet {
+                        println!("\n⚠️  Block {} not found in batch, skipping...", block_height);
+                    }
+                    continue;
+                }
+            };
+            
+            // Process block using the Block struct
+            let block = Block::from_block_info(block_info);
+            let (found_outputs, spent_outputs) = match block.scan_for_wallet_activity(
+                &scan_context.view_key,
+                &scan_context.entropy,
+                &mut wallet_state,
+            ) {
+                Ok(result) => result,
+                Err(e) => {
+                    println!("\n❌ Error processing block {}: {}", block_height, e);
+                    println!("   Block height: {}", block_height);
+                    println!("   Error details: {:?}", e);
+                    
+                    let remaining_blocks = &block_heights[global_block_index..];
+                    if handle_scan_error(*block_height, remaining_blocks, has_specific_blocks, config.to_block) {
+                        continue;  // Continue to next block
+                    } else {
+                        return Err(e); // Abort
+                    }
+                }
+            };
+
+            // Show detailed results if not quiet and found something
+            if !config.quiet && (found_outputs > 0 || spent_outputs > 0) {
+                println!("\n🎯 Block {}: {} outputs found, {} outputs spent", 
+                    block_height, found_outputs, spent_outputs);
+            }
+        }
+
+        // Update progress display after processing each batch
+        if !config.quiet {
+            let processed_blocks = std::cmp::min(batch_start_index + batch_size, block_heights.len());
+            let progress_bar = wallet_state.format_progress_bar(
+                processed_blocks as u64,
+                block_heights.len() as u64,
+                batch_heights.last().cloned().unwrap_or(0),
+                if processed_blocks == block_heights.len() { "Complete" } else { "Scanning" }
+            );
+            print!("\r{}", progress_bar);
+            std::io::Write::flush(&mut std::io::stdout()).unwrap();
         }
     }
 
     if !config.quiet {
-        // Show final progress bar at 100%
+        // Ensure final progress bar shows 100%
         let final_progress_bar = wallet_state.format_progress_bar(
             block_heights.len() as u64,
             block_heights.len() as u64,

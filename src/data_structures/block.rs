@@ -17,7 +17,6 @@ use crate::{
         transaction_input::TransactionInput,
         wallet_output::LightweightOutputType,
     },
-    extraction::RangeProofRewindService,
     errors::LightweightWalletResult,
     scanning::BlockInfo,
 };
@@ -80,34 +79,13 @@ impl Block {
         view_key: &PrivateKey,
         entropy: &[u8; 16],
         wallet_state: &mut WalletState,
-        range_proof_service: &RangeProofRewindService,
     ) -> LightweightWalletResult<usize> {
         let mut found_outputs = 0;
 
         for (output_index, output) in self.outputs.iter().enumerate() {
             let mut found_output = false;
 
-            // Try range proof rewinding first (if available)
-            if let Some(ref range_proof) = output.proof {
-                if !range_proof.bytes.is_empty() {
-                    if let Some(_rewind_result) = self.try_range_proof_rewinding(
-                        output,
-                        output_index,
-                        range_proof_service,
-                        entropy,
-                        wallet_state,
-                    )? {
-                        found_output = true;
-                        found_outputs += 1;
-                    }
-                }
-            }
-
-            // Skip further processing if already found via range proof
-            if found_output {
-                continue;
-            }
-
+           
             // Try coinbase output processing
             if matches!(output.features.output_type, LightweightOutputType::Coinbase) {
                 if self.try_coinbase_output(output, output_index, view_key, wallet_state)? {
@@ -135,6 +113,7 @@ impl Block {
             // Try one-sided decryption
             if self.try_one_sided_decryption(output, output_index, view_key, wallet_state)? {
                 found_outputs += 1;
+                continue;
             }
         }
 
@@ -166,55 +145,10 @@ impl Block {
         view_key: &PrivateKey,
         entropy: &[u8; 16],
         wallet_state: &mut WalletState,
-        range_proof_service: &RangeProofRewindService,
     ) -> LightweightWalletResult<(usize, usize)> {
-        let found_outputs = self.process_outputs(view_key, entropy, wallet_state, range_proof_service)?;
+        let found_outputs = self.process_outputs(view_key, entropy, wallet_state)?;
         let spent_outputs = self.process_inputs(wallet_state)?;
         Ok((found_outputs, spent_outputs))
-    }
-
-    /// Try to rewind range proofs to discover wallet outputs
-    fn try_range_proof_rewinding(
-        &self,
-        output: &LightweightTransactionOutput,
-        output_index: usize,
-        range_proof_service: &RangeProofRewindService,
-        entropy: &[u8; 16],
-        wallet_state: &mut WalletState,
-    ) -> LightweightWalletResult<Option<u64>> {
-        // Skip range proof rewinding if entropy is all zeros (view key only mode)
-        if entropy == &[0u8; 16] {
-            return Ok(None);
-        }
-
-        if let Some(ref range_proof) = output.proof {
-            // Try rewinding with derived seed nonces
-            for nonce_index in 0..5 {
-                // Generate a rewind nonce from wallet entropy
-                if let Ok(seed_nonce) = range_proof_service.generate_rewind_nonce(entropy, nonce_index) {
-                    if let Ok(Some(rewind_result)) = range_proof_service.attempt_rewind(
-                        &range_proof.bytes,
-                        &output.commitment,
-                        &seed_nonce,
-                        Some(output.minimum_value_promise.as_u64())
-                    ) {
-                        // Add to wallet state
-                        wallet_state.add_received_output(
-                            self.height,
-                            output_index,
-                            output.commitment.clone(),
-                            rewind_result.value,
-                            PaymentId::Empty, // Range proof doesn't contain payment ID
-                            TransactionStatus::OneSidedConfirmed,
-                            TransactionDirection::Inbound,
-                            true,
-                        );
-                        return Ok(Some(rewind_result.value));
-                    }
-                }
-            }
-        }
-        Ok(None)
     }
 
     /// Try to process a coinbase output with ownership verification
