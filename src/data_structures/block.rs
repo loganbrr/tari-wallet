@@ -5,6 +5,7 @@
 //! - Processing transaction inputs to detect spending
 //! - Multiple decryption methods (regular, one-sided, range proof rewinding)
 //! - Coinbase output handling with ownership verification
+//! - **Parallel processing for performance optimization**
 
 use crate::{
     data_structures::{
@@ -21,6 +22,10 @@ use crate::{
     scanning::BlockInfo,
 };
 
+// Add rayon for parallel processing
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
+
 /// A block with wallet-focused processing capabilities
 /// 
 /// This struct wraps a `BlockInfo` and provides methods to extract wallet outputs
@@ -36,6 +41,17 @@ pub struct Block {
     pub outputs: Vec<LightweightTransactionOutput>,
     /// Transaction inputs in this block  
     pub inputs: Vec<TransactionInput>,
+}
+
+/// Result of processing a single output
+#[derive(Debug, Clone)]
+struct OutputProcessingResult {
+    output_index: usize,
+    found: bool,
+    value: u64,
+    payment_id: PaymentId,
+    transaction_status: TransactionStatus,
+    is_mature: bool,
 }
 
 impl Block {
@@ -67,57 +83,200 @@ impl Block {
         }
     }
 
-    /// Process all outputs in this block to discover wallet outputs
+    /// Process all outputs in this block to discover wallet outputs - OPTIMIZED VERSION
     /// 
-    /// This method tries multiple discovery techniques:
-    /// 1. Range proof rewinding (if available)
-    /// 2. Coinbase output handling (with ownership verification)
-    /// 3. Regular encrypted data decryption  
-    /// 4. One-sided encrypted data decryption
+    /// This method uses parallel processing and optimized decryption attempts to maximize performance
     pub fn process_outputs(
         &self,
         view_key: &PrivateKey,
-        entropy: &[u8; 16],
+        _entropy: &[u8; 16],
         wallet_state: &mut WalletState,
     ) -> LightweightWalletResult<usize> {
-        let mut found_outputs = 0;
+        if self.outputs.is_empty() {
+            return Ok(0);
+        }
 
-        for (output_index, output) in self.outputs.iter().enumerate() {
-            let mut found_output = false;
+        // Process outputs in parallel when feature is enabled
+        #[cfg(feature = "parallel")]
+        let results: Vec<OutputProcessingResult> = self.outputs
+            .par_iter()
+            .enumerate()
+            .filter_map(|(output_index, output)| {
+                self.process_single_output_parallel(output_index, output, view_key)
+            })
+            .collect();
 
-           
-            // Try coinbase output processing
-            if matches!(output.features.output_type, LightweightOutputType::Coinbase) {
-                if self.try_coinbase_output(output, output_index, view_key, wallet_state)? {
-                    found_output = true;
-                    found_outputs += 1;
-                }
-            }
+        // Fallback to sequential processing when parallel feature not enabled
+        #[cfg(not(feature = "parallel"))]
+        let results: Vec<OutputProcessingResult> = self.outputs
+            .iter()
+            .enumerate()
+            .filter_map(|(output_index, output)| {
+                self.process_single_output_parallel(output_index, output, view_key)
+            })
+            .collect();
 
-            // Skip further processing if already found as coinbase
-            if found_output {
-                continue;
-            }
+        // Add all found outputs to wallet state
+        let found_count = results.len();
+        for result in results {
+            wallet_state.add_received_output(
+                self.height,
+                result.output_index,
+                self.outputs[result.output_index].commitment.clone(),
+                result.value,
+                result.payment_id,
+                result.transaction_status,
+                TransactionDirection::Inbound,
+                result.is_mature,
+            );
+        }
 
-            // Skip if no encrypted data
-            if output.encrypted_data.as_bytes().is_empty() {
-                continue;
-            }
+        Ok(found_count)
+    }
 
-            // Try regular encrypted data decryption
-            if self.try_regular_decryption(output, output_index, view_key, wallet_state)? {
-                found_outputs += 1;
-                continue;
-            }
+    /// Process a single output with optimized decryption strategy
+    fn process_single_output_parallel(
+        &self,
+        output_index: usize,
+        output: &LightweightTransactionOutput,
+        view_key: &PrivateKey,
+    ) -> Option<OutputProcessingResult> {
+        // Early exit for outputs with no encrypted data (except coinbase)
+        let has_encrypted_data = !output.encrypted_data.as_bytes().is_empty();
+        let is_coinbase = matches!(output.features.output_type, LightweightOutputType::Coinbase);
+        
+        if !has_encrypted_data && !is_coinbase {
+            return None;
+        }
 
-            // Try one-sided decryption
-            if self.try_one_sided_decryption(output, output_index, view_key, wallet_state)? {
-                found_outputs += 1;
-                continue;
+        // Handle coinbase outputs
+        if is_coinbase {
+            if let Some(result) = self.try_coinbase_output_optimized(output_index, output, view_key) {
+                return Some(result);
             }
         }
 
-        Ok(found_outputs)
+        // Skip further processing if no encrypted data
+        if !has_encrypted_data {
+            return None;
+        }
+
+        // Try regular decryption first (most common case)
+        if let Some(result) = self.try_regular_decryption_optimized(output_index, output, view_key) {
+            return Some(result);
+        }
+
+        // Try one-sided decryption only if sender offset key is present
+        if !output.sender_offset_public_key.as_bytes().is_empty() {
+            if let Some(result) = self.try_one_sided_decryption_optimized(output_index, output, view_key) {
+                return Some(result);
+            }
+        }
+
+        None
+    }
+
+    /// Optimized coinbase output processing
+    fn try_coinbase_output_optimized(
+        &self,
+        output_index: usize,
+        output: &LightweightTransactionOutput,
+        view_key: &PrivateKey,
+    ) -> Option<OutputProcessingResult> {
+        let coinbase_value = output.minimum_value_promise.as_u64();
+        if coinbase_value == 0 {
+            return None;
+        }
+
+        // For coinbase outputs, verify ownership through encrypted data decryption
+        let mut is_ours = false;
+
+        if !output.encrypted_data.as_bytes().is_empty() {
+            // Try regular decryption for ownership verification first (faster)
+            if EncryptedData::decrypt_data(view_key, &output.commitment, &output.encrypted_data).is_ok() {
+                is_ours = true;
+            }
+            // Only try one-sided decryption if regular failed and sender offset key exists
+            else if !output.sender_offset_public_key.as_bytes().is_empty() {
+                if EncryptedData::decrypt_one_sided_data(
+                    view_key, 
+                    &output.commitment, 
+                    &output.sender_offset_public_key, 
+                    &output.encrypted_data
+                ).is_ok() {
+                    is_ours = true;
+                }
+            }
+        }
+
+        if is_ours {
+            // Check if coinbase is mature (can be spent)
+            let is_mature = self.height >= output.features.maturity;
+
+            return Some(OutputProcessingResult {
+                output_index,
+                found: true,
+                value: coinbase_value,
+                payment_id: PaymentId::Empty, // Coinbase outputs typically have no payment ID
+                transaction_status: if is_mature { 
+                    TransactionStatus::CoinbaseConfirmed 
+                } else { 
+                    TransactionStatus::CoinbaseUnconfirmed 
+                },
+                is_mature,
+            });
+        }
+
+        None
+    }
+
+    /// Optimized regular encrypted data decryption
+    fn try_regular_decryption_optimized(
+        &self,
+        output_index: usize,
+        output: &LightweightTransactionOutput,
+        view_key: &PrivateKey,
+    ) -> Option<OutputProcessingResult> {
+        if let Ok((value, _mask, payment_id)) = EncryptedData::decrypt_data(
+            view_key, 
+            &output.commitment, 
+            &output.encrypted_data
+        ) {
+            return Some(OutputProcessingResult {
+                output_index,
+                found: true,
+                value: value.as_u64(),
+                payment_id,
+                transaction_status: TransactionStatus::MinedConfirmed,
+                is_mature: true, // Regular payments are always mature
+            });
+        }
+        None
+    }
+
+    /// Optimized one-sided encrypted data decryption
+    fn try_one_sided_decryption_optimized(
+        &self,
+        output_index: usize,
+        output: &LightweightTransactionOutput,
+        view_key: &PrivateKey,
+    ) -> Option<OutputProcessingResult> {
+        if let Ok((value, _mask, payment_id)) = EncryptedData::decrypt_one_sided_data(
+            view_key, 
+            &output.commitment, 
+            &output.sender_offset_public_key, 
+            &output.encrypted_data
+        ) {
+            return Some(OutputProcessingResult {
+                output_index,
+                found: true,
+                value: value.as_u64(),
+                payment_id,
+                transaction_status: TransactionStatus::OneSidedConfirmed,
+                is_mature: true, // One-sided payments are always mature
+            });
+        }
+        None
     }
 
     /// Process all inputs in this block to detect spending of wallet outputs
