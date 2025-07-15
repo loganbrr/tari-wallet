@@ -105,6 +105,27 @@ pub struct TransactionSummary {
 }
 
 impl WasmScanner {
+    /// Create scanner from string input (automatically detects view key or seed phrase)
+    pub fn from_str(data: &str) -> Result<Self, String> {
+        // Try view key first
+        match Self::from_view_key(data) {
+            Ok(scanner) => Ok(scanner),
+            Err(view_key_error) => {
+                // If view key fails, try seed phrase
+                match Self::from_seed_phrase(data) {
+                    Ok(scanner) => Ok(scanner),
+                    Err(seed_phrase_error) => {
+                        // Both failed, return combined error message
+                        Err(format!(
+                            "Failed to create scanner. View key error: {}. Seed phrase error: {}",
+                            view_key_error, seed_phrase_error
+                        ))
+                    }
+                }
+            }
+        }
+    }
+
     /// Create scanner from seed phrase
     pub fn from_seed_phrase(seed_phrase: &str) -> Result<Self, String> {
         // Convert seed phrase to bytes
@@ -376,14 +397,11 @@ impl WasmScanner {
     }
 }
 
-/// Create a scanner from seed phrase (WASM export)
+/// Create a scanner from view key or seed phrase (WASM export)
+/// Automatically detects the input type by trying view key first, then seed phrase
 #[wasm_bindgen]
-pub fn create_wasm_scanner(scanner_type: &str, data: &str) -> Result<WasmScanner, JsValue> {
-    match scanner_type {
-        "seed_phrase" => WasmScanner::from_seed_phrase(data).map_err(|e| JsValue::from_str(&e)),
-        "view_key" => WasmScanner::from_view_key(data).map_err(|e| JsValue::from_str(&e)),
-        _ => Err(JsValue::from_str("Invalid scanner type. Use 'seed_phrase' or 'view_key'")),
-    }
+pub fn create_wasm_scanner(data: &str) -> Result<WasmScanner, JsValue> {
+    WasmScanner::from_str(data).map_err(|e| JsValue::from_str(&e))
 }
 
 /// Scan block data (WASM export)

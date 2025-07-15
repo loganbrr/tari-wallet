@@ -7,12 +7,14 @@
  * to scan blockchain data for wallet transactions.
  * 
  * Usage:
- *   node examples/wasm/scanner.js [seed_phrase|view_key] [data] [base_node_url]
+ *   node examples/wasm/scanner.js [data] [base_node_url]
  * 
  * Examples:
- *   node examples/wasm/scanner.js view_key
- *   node examples/wasm/scanner.js seed_phrase "your 24 word seed phrase here"
- *   node examples/wasm/scanner.js view_key "your_hex_key" "http://192.168.1.100:9000"
+ *   node examples/wasm/scanner.js "your_hex_view_key"
+ *   node examples/wasm/scanner.js "your 24 word seed phrase here"
+ *   node examples/wasm/scanner.js "your_hex_key" "http://192.168.1.100:9000"
+ * 
+ * Note: The scanner automatically detects whether the input is a view key or seed phrase.
  * 
  * Requirements:
  *   - Build the WASM package first: wasm-pack build --target nodejs --out-dir pkg --example wasm_scanner
@@ -246,24 +248,19 @@ class WasmScanner {
     }
 
     /**
-     * Create a scanner instance
+     * Create a scanner instance (automatically detects input type)
      */
-    createScanner(type = "view_key", data = null) {
+    createScanner(data) {
         try {
-            console.log(`\n🔧 Creating scanner with ${type}...`, data);
+            console.log(`\n🔧 Creating scanner (auto-detecting type)...`);
             
-            let scannerData;
-            if (type === "seed_phrase") {
-                scannerData = data ;
-                console.log("   Using seed phrase:", scannerData.substring(0, 20) + "...");
-            } else if (type === "view_key") {
-                scannerData = data;
-                console.log("   Using view key:", scannerData.substring(0, 20) + "...");
-            } else {
-                throw new Error("Invalid scanner type. Use 'seed_phrase' or 'view_key'");
+            if (!data) {
+                throw new Error("Scanner data is required");
             }
 
-            this.scanner = this.wasm.create_wasm_scanner(type, scannerData);
+            console.log("   Using data:", data.substring(0, 20) + "...");
+
+            this.scanner = this.wasm.create_wasm_scanner(data);
             console.log("✅ Scanner created successfully");
             
             return this.scanner;
@@ -472,17 +469,10 @@ class WasmScanner {
  */
 function parseArgs() {
     const args = process.argv.slice(2);
-    const scannerType = args[0] || "view_key";
-    const data = args[1] || null;
-    const baseNodeUrl = args[2] || "http://127.0.0.1:9000";
+    const data = args[0] || null;
+    const baseNodeUrl = args[1] || "http://127.0.0.1:9000";
 
-    if (!["seed_phrase", "view_key"].includes(scannerType)) {
-        console.error("❌ Invalid scanner type. Use 'seed_phrase' or 'view_key'");
-        console.error("Usage: node scanner.js [seed_phrase|view_key] [data] [base_node_url]");
-        process.exit(1);
-    }
-
-    return { scannerType, data, baseNodeUrl };
+    return { data, baseNodeUrl };
 }
 
 /**
@@ -492,7 +482,7 @@ async function main() {
     console.log("🌟 Tari WASM Scanner - Node.js Example");
     console.log("=======================================");
 
-    const { scannerType, data, baseNodeUrl } = parseArgs();
+    const { data, baseNodeUrl } = parseArgs();
     const wasmScanner = new WasmScanner(baseNodeUrl);
 
     try {
@@ -500,7 +490,7 @@ async function main() {
         await wasmScanner.init();
 
         // Create scanner
-        wasmScanner.createScanner(scannerType, data);
+        wasmScanner.createScanner(data);
 
         // Demonstrate real blockchain scanning (if base node is available)
         const fromHeight = 14500;
