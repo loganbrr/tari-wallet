@@ -12,6 +12,7 @@ use crate::data_structures::{
     payment_id::PaymentId,
     transaction::{TransactionStatus, TransactionDirection},
 };
+use crate::utils::number::format_number;
 
 /// A wallet transaction representing either a received output or spent input
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
@@ -298,15 +299,15 @@ impl WalletState {
         let spent_t = self.total_spent as f64 / 1_000_000.0;
         
         format!(
-            "[{}] {:.1}% {} Block {} | 💰 {:.6}T | ✅ {:.6}T | ❌ {:.6}T | {} TX",
+            "[{}] {:.1}% {} Block {} | 💰 {:.6}T | 📈 {:.6}T | 📉 {:.6}T | {} TX",
             bar, 
             progress_percent, 
             phase,
-            block_height,
+            format_number(block_height),
             balance_t,
             unspent_t, 
             spent_t,
-            self.transactions.len()
+            format_number(self.transactions.len())
         )
     }
 }

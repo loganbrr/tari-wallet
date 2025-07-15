@@ -12,6 +12,7 @@ pub mod extraction;
 pub mod key_management;
 pub mod scanning;
 pub mod wallet;
+pub mod utils;
 
 // Include generated GRPC code when the feature is enabled
 #[cfg(feature = "grpc")]

@@ -57,6 +57,7 @@ lazy_static = "1.4"
 
 # Parallel processing
 rayon = { version = "1.8", optional = true }
+num_cpus = "1.16"
 
 # Async support for scanning
 async-trait = "0.1"

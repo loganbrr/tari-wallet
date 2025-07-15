@@ -85,6 +85,7 @@ use lightweight_wallet_libs::{
         transaction::TransactionDirection,
         block::Block,
     },
+    utils::number::format_number,
 };
 #[cfg(feature = "grpc")]
 use tari_utilities::ByteArray;
@@ -94,6 +95,8 @@ use tokio::time::Instant;
 use tokio::signal;
 #[cfg(feature = "grpc")]
 use clap::Parser;
+#[cfg(feature = "grpc")]
+use num_cpus;
 
 
 /// Enhanced Tari Wallet Scanner CLI
@@ -138,7 +141,7 @@ struct CliArgs {
     quiet: bool,
 
     /// Output format
-    #[arg(long, default_value = "detailed", help = "Output format: detailed, summary, json")]
+    #[arg(long, default_value = "summary", help = "Output format: detailed, summary, json")]
     format: String,
 
     /// Enable detailed profiling output
@@ -355,7 +358,7 @@ fn handle_scan_error(
             true // Continue (skip this batch/block)
         },
         _ => {
-            println!("   🛑 Scan aborted by user at block {}", error_block_height);
+            println!("   🛑 Scan aborted by user at block {}", format_number(error_block_height));
             println!("\n💡 To resume from this point, run:");
             if has_specific_blocks {
                 let remaining_blocks_str: Vec<String> = remaining_blocks.iter().map(|b| b.to_string()).collect();
@@ -366,10 +369,10 @@ fn handle_scan_error(
                     // For large lists, show range instead
                     let first_block = remaining_blocks.first().unwrap_or(&error_block_height);
                     let last_block = remaining_blocks.last().unwrap_or(&to_block);
-                    println!("   cargo run --example scanner --features grpc -- --seed-phrase \"your seed phrase\" --from-block {} --to-block {}", first_block, last_block);
+                    println!("   cargo run --example scanner --features grpc -- --seed-phrase \"your seed phrase\" --from-block {} --to-block {}", format_number(*first_block), format_number(*last_block));
                 }
             } else {
-                println!("   cargo run --example scanner --features grpc -- --seed-phrase \"your seed phrase\" --from-block {} --to-block {}", error_block_height, to_block);
+                println!("   cargo run --example scanner --features grpc -- --seed-phrase \"your seed phrase\" --from-block {} --to-block {}", format_number(error_block_height), format_number(to_block));
             }
             false // Abort
         }
@@ -448,7 +451,7 @@ async fn scan_wallet_across_blocks_with_cancellation(
                     profile_data.add_grpc_time(grpc_duration);
                     if !config.quiet {
                         println!("\n⏱️  GRPC batch fetch: {:.3}s for {} blocks", 
-                            grpc_duration.as_secs_f64(), batch_heights.len());
+                            grpc_duration.as_secs_f64(), format_number(batch_heights.len()));
                     }
                 }
                 blocks
@@ -493,29 +496,48 @@ async fn scan_wallet_across_blocks_with_cancellation(
                 }
             };
             
-            // Time block processing
+            // Time block processing with detailed breakdown
             let block_start_time = Instant::now();
             
             // Process block using the Block struct
             let block = Block::from_block_info(block_info);
-            let scan_result = block.scan_for_wallet_activity(
-                &scan_context.view_key,
-                &scan_context.entropy,
-                &mut wallet_state,
-            );
+            
+            // Time output processing separately
+            let output_start_time = Instant::now();
+            let found_outputs = block.process_outputs(&scan_context.view_key, &scan_context.entropy, &mut wallet_state);
+            let output_duration = output_start_time.elapsed();
+            
+            // Time input processing separately
+            let input_start_time = Instant::now();
+            let spent_outputs = block.process_inputs(&mut wallet_state);
+            let input_duration = input_start_time.elapsed();
+            
+            let scan_result = match (found_outputs, spent_outputs) {
+                (Ok(found), Ok(spent)) => Ok((found, spent)),
+                (Err(e), _) | (_, Err(e)) => Err(e),
+            };
             
             let (_found_outputs, _spent_outputs) = match scan_result {
                 Ok(result) => {
                     let block_duration = block_start_time.elapsed();
                     if config.enable_profiling {
                         profile_data.add_block_processing_time(*block_height, block_duration);
-                        if !config.quiet && (result.0 > 0 || result.1 > 0 || block_duration.as_secs_f64() > 0.1) {
-                            println!("\n🎯 Block {}: {} outputs found, {} outputs spent (processed in {:.3}s)", 
-                                block_height, result.0, result.1, block_duration.as_secs_f64());
+                        if !config.quiet && (result.0 > 0 || result.1 > 0 || block_duration.as_secs_f64() > 0.05) {
+                            // let parallel_indicator = if cfg!(feature = "parallel") { "⚡" } else { "🔄" };
+                            // println!("\n🎯 Block {}: {} outputs found, {} outputs spent ({}s total)", 
+                            //     block_height, result.0, result.1, block_duration.as_secs_f64());
+                            // println!("   {} {} outputs in {:.3}s, {} inputs in {:.3}s (parallel: {})", 
+                            //     parallel_indicator,
+                            //     block.output_count(), 
+                            //     output_duration.as_secs_f64(),
+                            //     block.input_count(),
+                            //     input_duration.as_secs_f64(),
+                            //     cfg!(feature = "parallel")
+                            // );
                         }
                     } else if !config.quiet && (result.0 > 0 || result.1 > 0) {
-                        println!("\n🎯 Block {}: {} outputs found, {} outputs spent", 
-                            block_height, result.0, result.1);
+                            // println!("\n🎯 Block {}: {} outputs found, {} outputs spent", 
+                            //     block_height, result.0, result.1);
                     }
                     result
                 },
@@ -550,12 +572,12 @@ async fn scan_wallet_across_blocks_with_cancellation(
         if config.enable_profiling {
             profile_data.add_batch_time(batch_duration);
             if !config.quiet {
-                println!("\n⏱️  Batch {}: {:.3}s total ({} blocks, avg: {:.3}s per block)", 
-                    batch_index + 1, 
-                    batch_duration.as_secs_f64(),
-                    batch_heights.len(),
-                    batch_duration.as_secs_f64() / batch_heights.len() as f64
-                );
+                        println!("\n⏱️  Batch {}: {:.3}s total ({} blocks, avg: {:.3}s per block)", 
+            format_number(batch_index + 1), 
+            batch_duration.as_secs_f64(),
+            format_number(batch_heights.len()),
+            batch_duration.as_secs_f64() / batch_heights.len() as f64
+        );
             }
         }
 
@@ -599,16 +621,16 @@ async fn scan_wallet_across_blocks_with_cancellation(
 #[cfg(feature = "grpc")]
 fn display_scan_info(config: &ScanConfig, block_heights: &[u64], has_specific_blocks: bool) {
     if has_specific_blocks {
-        println!("🔍 Scanning {} specific blocks: {:?}", block_heights.len(), 
+        println!("🔍 Scanning {} specific blocks: {:?}", format_number(block_heights.len()), 
             if block_heights.len() <= 10 { 
-                block_heights.iter().map(|h| h.to_string()).collect::<Vec<_>>().join(", ")
+                block_heights.iter().map(|h| format_number(*h)).collect::<Vec<_>>().join(", ")
             } else {
-                format!("{}..{} and {} others", block_heights[0], block_heights.last().unwrap(), block_heights.len() - 2)
+                format!("{}..{} and {} others", format_number(block_heights[0]), format_number(*block_heights.last().unwrap()), format_number(block_heights.len() - 2))
             });
     } else {
         let block_range = config.to_block - config.from_block + 1;
         println!("🔍 Scanning blocks {} to {} ({} blocks total)...", 
-            config.from_block, config.to_block, block_range);
+            format_number(config.from_block), format_number(config.to_block), format_number(block_range));
     }
 
     // Warning about scanning limitations
@@ -636,13 +658,13 @@ fn display_wallet_activity(wallet_state: &WalletState, from_block: u64, to_block
     
     println!("🏦 WALLET ACTIVITY SUMMARY");
     println!("========================");
-    println!("Scan range: Block {} to {} ({} blocks)", from_block, to_block, to_block - from_block + 1);
+    println!("Scan range: Block {} to {} ({} blocks)", format_number(from_block), format_number(to_block), format_number(to_block - from_block + 1));
     
     let (inbound_count, outbound_count, _) = wallet_state.get_direction_counts();
-    println!("📥 Inbound:  {} transactions, {} μT ({:.6} T)", inbound_count, total_received, total_received as f64 / 1_000_000.0);
-    println!("📤 Outbound: {} transactions, {} μT ({:.6} T)", outbound_count, total_spent, total_spent as f64 / 1_000_000.0);
-    println!("💰 Current balance: {} μT ({:.6} T)", balance, balance as f64 / 1_000_000.0);
-    println!("📊 Total activity: {} transactions", total_count);
+    println!("📥 Inbound:  {} transactions, {} μT ({:.6} T)", format_number(inbound_count), format_number(total_received), total_received as f64 / 1_000_000.0);
+    println!("📤 Outbound: {} transactions, {} μT ({:.6} T)", format_number(outbound_count), format_number(total_spent), total_spent as f64 / 1_000_000.0);
+    println!("💰 Current balance: {} μT ({:.6} T)", format_number(balance), balance as f64 / 1_000_000.0);
+    println!("📊 Total activity: {} transactions", format_number(total_count));
     println!();
     
     if !wallet_state.transactions.is_empty() {
@@ -681,24 +703,24 @@ fn display_wallet_activity(wallet_state: &WalletState, from_block: u64, to_block
                         "UNSPENT".to_string()
                     };
                     
-                    println!("{}. {} Block {}, Output #{}: {} ({:.6} T) - {} [{}{}]", 
-                        original_index + 1,
-                        direction_symbol,
-                        tx.block_height,
-                        tx.output_index.unwrap_or(0),
-                        amount_display,
-                        tx.value as f64 / 1_000_000.0,
-                        status,
-                        tx.transaction_status,
-                        maturity_indicator
-                    );
+                    // println!("{}. {} Block {}, Output #{}: {} ({:.6} T) - {} [{}{}]", 
+                    //     original_index + 1,
+                    //     direction_symbol,
+                    //     tx.block_height,
+                    //     tx.output_index.unwrap_or(0),
+                    //     amount_display,
+                    //     tx.value as f64 / 1_000_000.0,
+                    //     status,
+                    //     tx.transaction_status,
+                    //     maturity_indicator
+                    // );
                 },
                 TransactionDirection::Outbound => {
                     println!("{}. {} Block {}, Input #{}: {} ({:.6} T) - SPENT [{}]", 
-                        original_index + 1,
+                        format_number(original_index + 1),
                         direction_symbol,
-                        tx.block_height,
-                        tx.input_index.unwrap_or(0),
+                        format_number(tx.block_height),
+                        format_number(tx.input_index.unwrap_or(0)),
                         amount_display,
                         tx.value as f64 / 1_000_000.0,
                         tx.transaction_status
@@ -706,9 +728,9 @@ fn display_wallet_activity(wallet_state: &WalletState, from_block: u64, to_block
                 },
                 TransactionDirection::Unknown => {
                     println!("{}. {} Block {}: {} ({:.6} T) - UNKNOWN [{}]", 
-                        original_index + 1,
+                        format_number(original_index + 1),
                         direction_symbol,
-                        tx.block_height,
+                        format_number(tx.block_height),
                         amount_display,
                         tx.value as f64 / 1_000_000.0,
                         tx.transaction_status
@@ -752,9 +774,9 @@ fn display_wallet_activity(wallet_state: &WalletState, from_block: u64, to_block
         
     println!("💰 BALANCE BREAKDOWN");
     println!("===================");
-    println!("Unspent outputs: {} ({:.6} T)", unspent_count, unspent_value as f64 / 1_000_000.0);
-    println!("Spent outputs: {} ({:.6} T)", spent_count, total_spent as f64 / 1_000_000.0);
-    println!("Total wallet activity: {} transactions", total_count);
+    println!("Unspent outputs: {} ({:.6} T)", format_number(unspent_count), unspent_value as f64 / 1_000_000.0);
+    println!("Spent outputs: {} ({:.6} T)", format_number(spent_count), total_spent as f64 / 1_000_000.0);
+    println!("Total wallet activity: {} transactions", format_number(total_count));
     
     // Show detailed transaction analysis
     let (inbound_count, outbound_count, unknown_count) = wallet_state.get_direction_counts();
@@ -769,10 +791,10 @@ fn display_wallet_activity(wallet_state: &WalletState, from_block: u64, to_block
         println!();
         println!("📊 TRANSACTION FLOW ANALYSIS");
         println!("============================");
-        println!("📥 Inbound:  {} transactions, {:.6} T total", inbound_count, total_inbound_value as f64 / 1_000_000.0);
-        println!("📤 Outbound: {} transactions, {:.6} T total", outbound_count, total_outbound_value as f64 / 1_000_000.0);
+        println!("📥 Inbound:  {} transactions, {:.6} T total", format_number(inbound_count), total_inbound_value as f64 / 1_000_000.0);
+        println!("📤 Outbound: {} transactions, {:.6} T total", format_number(outbound_count), total_outbound_value as f64 / 1_000_000.0);
         if unknown_count > 0 {
-            println!("❓ Unknown:  {} transactions", unknown_count);
+            println!("❓ Unknown:  {} transactions", format_number(unknown_count));
         }
         
         // Show transaction status breakdown
@@ -790,9 +812,9 @@ fn display_wallet_activity(wallet_state: &WalletState, from_block: u64, to_block
         println!("==============================");
         for (status, count) in status_counts {
             if status.is_coinbase() && coinbase_immature > 0 {
-                println!("{}: {} ({} immature)", status, count, coinbase_immature);
+                println!("{}: {} ({} immature)", status, format_number(count), format_number(coinbase_immature));
             } else {
-                println!("{}: {}", status, count);
+                println!("{}: {}", status, format_number(count));
             }
         }
         
@@ -880,7 +902,7 @@ async fn main() -> LightweightWalletResult<()> {
     // Get blockchain tip and determine scan range
     let tip_info = scanner.get_tip_info().await?;
     if !args.quiet {
-        println!("📊 Current blockchain tip: block {}", tip_info.best_block_height);
+        println!("📊 Current blockchain tip: block {}", format_number(tip_info.best_block_height));
     }
 
     let to_block = args.to_block.unwrap_or(tip_info.best_block_height);
@@ -992,18 +1014,18 @@ fn display_json_results(wallet_state: &WalletState) {
     let (total_received, total_spent, balance, unspent_count, spent_count) = wallet_state.get_summary();
     let (inbound_count, outbound_count, _) = wallet_state.get_direction_counts();
     
-    println!("{{");
+        println!("{{");
     println!("  \"summary\": {{");
-    println!("    \"total_transactions\": {},", wallet_state.transactions.len());
-    println!("    \"inbound_count\": {},", inbound_count);
-    println!("    \"outbound_count\": {},", outbound_count);
-    println!("    \"total_received\": {},", total_received);
-    println!("    \"total_spent\": {},", total_spent);
-    println!("    \"current_balance\": {},", balance);
-    println!("    \"unspent_outputs\": {},", unspent_count);
-    println!("    \"spent_outputs\": {}", spent_count);
+    println!("    \"total_transactions\": {},", format_number(wallet_state.transactions.len()));
+    println!("    \"inbound_count\": {},", format_number(inbound_count));
+    println!("    \"outbound_count\": {},", format_number(outbound_count));
+    println!("    \"total_received\": {},", format_number(total_received));
+    println!("    \"total_spent\": {},", format_number(total_spent));
+    println!("    \"current_balance\": {},", format_number(balance));
+    println!("    \"unspent_outputs\": {},", format_number(unspent_count));
+    println!("    \"spent_outputs\": {}", format_number(spent_count));
     println!("  }}");
-    println!("}}");
+    println!("}}"); 
 }
 
 /// Display summary results
@@ -1014,13 +1036,13 @@ fn display_summary_results(wallet_state: &WalletState, config: &ScanConfig) {
     
     println!("📊 WALLET SCAN SUMMARY");
     println!("=====================");
-    println!("Scan range: Block {} to {}", config.from_block, config.to_block);
-    println!("Total transactions: {}", wallet_state.transactions.len());
-    println!("Inbound: {} transactions ({:.6} T)", inbound_count, total_received as f64 / 1_000_000.0);
-    println!("Outbound: {} transactions ({:.6} T)", outbound_count, total_spent as f64 / 1_000_000.0);
+    println!("Scan range: Block {} to {}", format_number(config.from_block), format_number(config.to_block));
+    println!("Total transactions: {}", format_number(wallet_state.transactions.len()));
+    println!("Inbound: {} transactions ({:.6} T)", format_number(inbound_count), total_received as f64 / 1_000_000.0);
+    println!("Outbound: {} transactions ({:.6} T)", format_number(outbound_count), total_spent as f64 / 1_000_000.0);
     println!("Current balance: {:.6} T", balance as f64 / 1_000_000.0);
-    println!("Unspent outputs: {}", unspent_count);
-    println!("Spent outputs: {}", spent_count);
+    println!("Unspent outputs: {}", format_number(unspent_count));
+    println!("Spent outputs: {}", format_number(spent_count));
 }
 
 /// Performance profiling data
@@ -1105,7 +1127,7 @@ impl ProfileData {
             let max_grpc = self.grpc_call_times.iter().max().unwrap().as_secs_f64();
             let min_grpc = self.grpc_call_times.iter().min().unwrap().as_secs_f64();
             println!("GRPC calls: {} total, avg: {:.3}s, min: {:.3}s, max: {:.3}s", 
-                self.grpc_call_times.len(), avg_grpc, min_grpc, max_grpc);
+                format_number(self.grpc_call_times.len()), avg_grpc, min_grpc, max_grpc);
         }
 
         if !self.block_processing_times.is_empty() {
@@ -1113,7 +1135,7 @@ impl ProfileData {
             let max_processing = self.block_processing_times.iter().map(|(_, d)| d).max().unwrap().as_secs_f64();
             let min_processing = self.block_processing_times.iter().map(|(_, d)| d).min().unwrap().as_secs_f64();
             println!("Block processing: {} blocks, avg: {:.3}s, min: {:.3}s, max: {:.3}s", 
-                self.block_processing_times.len(), avg_processing, min_processing, max_processing);
+                format_number(self.block_processing_times.len()), avg_processing, min_processing, max_processing);
 
             // Show slowest blocks
             let mut sorted_blocks = self.block_processing_times.clone();
@@ -1121,7 +1143,7 @@ impl ProfileData {
             if sorted_blocks.len() > 5 {
                 println!("Slowest blocks:");
                 for (block_height, duration) in sorted_blocks.iter().take(5) {
-                    println!("  Block {}: {:.3}s", block_height, duration.as_secs_f64());
+                    println!("  Block {}: {:.3}s", format_number(*block_height), duration.as_secs_f64());
                 }
             }
         }
@@ -1131,7 +1153,7 @@ impl ProfileData {
             let max_batch = self.batch_processing_times.iter().max().unwrap().as_secs_f64();
             let min_batch = self.batch_processing_times.iter().min().unwrap().as_secs_f64();
             println!("Batch processing: {} batches, avg: {:.3}s, min: {:.3}s, max: {:.3}s", 
-                self.batch_processing_times.len(), avg_batch, min_batch, max_batch);
+                format_number(self.batch_processing_times.len()), avg_batch, min_batch, max_batch);
         }
 
         // Calculate overhead (time not accounted for by GRPC or processing)
@@ -1168,13 +1190,28 @@ impl ProfileData {
         if grpc_percentage > 60.0 {
             println!("🌐 GRPC calls are the main bottleneck ({:.1}% of time)", grpc_percentage);
             println!("   → Consider increasing --batch-size to reduce number of GRPC calls");
-            println!("   → Made {} GRPC calls total", self.grpc_call_times.len());
+            println!("   → Made {} GRPC calls total", format_number(self.grpc_call_times.len()));
             println!("   → Check network latency to the base node");
             println!("   → Consider using a local base node for faster access");
         } else if processing_percentage > 60.0 {
             println!("⚙️  Block processing is the main bottleneck ({:.1}% of time)", processing_percentage);
-            println!("   → Consider decreasing --batch-size for better parallelization");
-            println!("   → Cryptographic operations may be CPU-intensive");
+            
+            #[cfg(feature = "parallel")]
+            {
+                println!("   ⚡ Parallel processing is ENABLED - good!");
+                println!("   → Consider increasing --batch-size to give parallel workers more work");
+                println!("   → Ensure running on a multi-core CPU for maximum benefit");
+                println!("   → Large blocks with many outputs benefit most from parallelization");
+            }
+            
+            #[cfg(not(feature = "parallel"))]
+            {
+                println!("   🔄 Parallel processing is DISABLED");
+                println!("   → Compile with --features parallel for up to {}x speedup", format_number(num_cpus::get()));
+                println!("   → Example: cargo run --example scanner --features 'grpc,parallel'");
+                println!("   → Single-threaded crypto operations are CPU-intensive");
+            }
+            
             println!("   → Check if running on a fast CPU with good single-thread performance");
         } else {
             println!("⚖️  Balanced performance - no major bottlenecks detected");
