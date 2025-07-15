@@ -522,22 +522,6 @@ async fn scan_wallet_across_blocks_with_cancellation(
                     let block_duration = block_start_time.elapsed();
                     if config.enable_profiling {
                         profile_data.add_block_processing_time(*block_height, block_duration);
-                        if !config.quiet && (result.0 > 0 || result.1 > 0 || block_duration.as_secs_f64() > 0.05) {
-                            // let parallel_indicator = if cfg!(feature = "parallel") { "⚡" } else { "🔄" };
-                            // println!("\n🎯 Block {}: {} outputs found, {} outputs spent ({}s total)", 
-                            //     block_height, result.0, result.1, block_duration.as_secs_f64());
-                            // println!("   {} {} outputs in {:.3}s, {} inputs in {:.3}s (parallel: {})", 
-                            //     parallel_indicator,
-                            //     block.output_count(), 
-                            //     output_duration.as_secs_f64(),
-                            //     block.input_count(),
-                            //     input_duration.as_secs_f64(),
-                            //     cfg!(feature = "parallel")
-                            // );
-                        }
-                    } else if !config.quiet && (result.0 > 0 || result.1 > 0) {
-                            // println!("\n🎯 Block {}: {} outputs found, {} outputs spent", 
-                            //     block_height, result.0, result.1);
                     }
                     result
                 },
@@ -1192,23 +1176,6 @@ impl ProfileData {
             println!("   → Consider using a local base node for faster access");
         } else if processing_percentage > 60.0 {
             println!("⚙️  Block processing is the main bottleneck ({:.1}% of time)", processing_percentage);
-            
-            #[cfg(feature = "parallel")]
-            {
-                println!("   ⚡ Parallel processing is ENABLED - good!");
-                println!("   → Consider increasing --batch-size to give parallel workers more work");
-                println!("   → Ensure running on a multi-core CPU for maximum benefit");
-                println!("   → Large blocks with many outputs benefit most from parallelization");
-            }
-            
-            #[cfg(not(feature = "parallel"))]
-            {
-                println!("   🔄 Parallel processing is DISABLED");
-                println!("   → Compile with --features parallel for up to {}x speedup", format_number(num_cpus::get()));
-                println!("   → Example: cargo run --example scanner --features 'grpc,parallel'");
-                println!("   → Single-threaded crypto operations are CPU-intensive");
-            }
-            
             println!("   → Check if running on a fast CPU with good single-thread performance");
         } else {
             println!("⚖️  Balanced performance - no major bottlenecks detected");

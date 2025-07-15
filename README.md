@@ -72,7 +72,6 @@ lightweight_wallet_libs = { version = "0.1", features = ["wasm", "grpc"] }
 - `default`: Core wallet functionality
 - `wasm`: WASM compatibility and JavaScript bindings
 - `grpc`: GRPC blockchain scanning support
-- `parallel`: Parallel processing optimizations
 
 ## 🏗️ **Quick Start**
 
@@ -254,19 +253,19 @@ use lightweight_wallet_libs::wasm::*;
 
 Check out the [`examples/`](examples/) directory for complete working examples:
 
-- [`wallet_cli.rs`](examples/wallet_cli.rs) - Complete wallet CLI with address generation
+- [`wallet.rs`](examples/wallet.rs) - Complete wallet CLI with address generation
 - [`scanner.rs`](examples/scanner.rs) - Advanced blockchain scanner with comprehensive features
 
 Run examples:
 ```bash
 # Create new wallet with seed phrase
-cargo run --example wallet_cli new-wallet
+cargo run --example wallet new-wallet
 
 # Generate address from existing seed phrase
-cargo run --example wallet_cli new-address "your 24-word seed phrase here"
+cargo run --example wallet new-address "your 24-word seed phrase here"
 
 # Create wallet with payment ID and custom network
-cargo run --example wallet_cli new-wallet --network stagenet --payment-id "my-payment-123"
+cargo run --example wallet new-wallet --network stagenet --payment-id "my-payment-123"
 
 # Comprehensive blockchain scanning (requires running Tari base node)
 cargo run --example scanner --features grpc -- --seed-phrase "your seed phrase"
@@ -328,8 +327,8 @@ We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.
 
 ```bash
 # Clone the repository
-git clone https://github.com/tari-project/lightweight_wallet_libs.git
-cd lightweight_wallet_libs
+git clone https://github.com/Krakaw/tari-wallet.git
+cd tari-wallet
 
 # Run tests
 cargo test
@@ -364,27 +363,3 @@ wasm-pack test --node --features wasm
 ## 📄 **License**
 
 This project is licensed under the [BSD 3-Clause License](LICENSE).
-
-## 🆘 **Support**
-
-- 📖 [Documentation](https://docs.rs/lightweight_wallet_libs)
-- 💬 [Tari Discord](https://discord.gg/tari)
-- 🐛 [GitHub Issues](https://github.com/tari-project/lightweight_wallet_libs/issues)
-- 📧 [Tari Community](https://tari.com/community)
-
-## 🎯 **Roadmap**
-
-- [ ] Hardware wallet integration (Ledger, Trezor)
-- [ ] Additional language bindings (Python, JavaScript) 
-- [ ] Advanced stealth address features and multi-party protocols
-- [ ] Performance optimizations for mobile and WASM
-- [ ] Transaction building and broadcasting capabilities
-- [ ] Improved UTXO management and coin selection
-- [ ] Advanced scanning filters and indexing
-- [ ] Enhanced privacy features and mixing protocols
-
----
-
-**Made with ❤️ by the Tari Community**
-
-*Building the future of digital assets, one lightweight library at a time.*

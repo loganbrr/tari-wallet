@@ -19,11 +19,13 @@ use crate::{
         wallet_output::LightweightOutputType,
     },
     errors::LightweightWalletResult,
-    scanning::BlockInfo,
 };
 
+#[cfg(feature = "grpc")]
+use crate::scanning::BlockInfo;
+
 // Add rayon for parallel processing
-#[cfg(feature = "parallel")]
+#[cfg(feature = "grpc")]
 use rayon::prelude::*;
 
 /// A block with wallet-focused processing capabilities
@@ -55,7 +57,8 @@ struct OutputProcessingResult {
 }
 
 impl Block {
-    /// Create a new Block from BlockInfo
+    /// Create a new Block from BlockInfo (only available with grpc feature)
+    #[cfg(feature = "grpc")]
     pub fn from_block_info(block_info: BlockInfo) -> Self {
         Self {
             height: block_info.height,
@@ -97,7 +100,7 @@ impl Block {
         }
 
         // Process outputs in parallel when feature is enabled
-        #[cfg(feature = "parallel")]
+        #[cfg(feature = "grpc")]
         let results: Vec<OutputProcessingResult> = self.outputs
             .par_iter()
             .enumerate()
@@ -107,7 +110,7 @@ impl Block {
             .collect();
 
         // Fallback to sequential processing when parallel feature not enabled
-        #[cfg(not(feature = "parallel"))]
+        #[cfg(not(feature = "grpc"))]
         let results: Vec<OutputProcessingResult> = self.outputs
             .iter()
             .enumerate()
@@ -516,6 +519,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "grpc")]
     fn test_block_from_block_info() {
         let block_info = BlockInfo {
             height: 1000,

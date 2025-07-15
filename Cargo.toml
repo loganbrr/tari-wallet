@@ -2,16 +2,17 @@
 name = "lightweight_wallet_libs"
 version = "0.1.0"
 edition = "2021"
-authors = ["The Tari Project"]
+authors = ["Krakaw"]
 description = "Lightweight wallet libraries for Tari"
 license = "BSD-3-Clause"
-repository = "https://github.com/tari-project/tari"
+repository = "https://github.com/Krakaw/tari-wallet"
 keywords = ["tari", "wallet", "cryptocurrency", "blockchain"]
 categories = ["cryptography", "blockchain"]
 
 [dependencies]
 # Core dependencies
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 borsh = { version = "1.5.7", features = ["derive"] }
 thiserror = "1.0"
 zeroize = { version = "1.7", features = ["derive"] }
@@ -59,10 +60,10 @@ lazy_static = "1.4"
 rayon = { version = "1.8", optional = true }
 num_cpus = "1.16"
 
-# Async support for scanning
-async-trait = "0.1"
-tokio = { version = "1.0", features = ["full"] }
-tracing = "0.1"
+# Async support for scanning (optional for WASM compatibility)
+async-trait = { version = "0.1", optional = true }
+tokio = { version = "1.0", features = ["full"], optional = true }
+tracing = { version = "0.1", optional = true }
 
 # GRPC dependencies for blockchain scanning
 tonic = { version = "0.10", features = ["tls", "tls-roots", "prost"], optional = true }
@@ -71,11 +72,11 @@ prost = { version = "0.12", optional = true }
 # CLI argument parsing for examples
 clap = { version = "4.4", features = ["derive"], optional = true }
 
-# Added tracing-subscriber dependency
-tracing-subscriber = "0.3"
+# Added tracing-subscriber dependency (optional)
+tracing-subscriber = { version = "0.3", optional = true }
 
-# Async dependencies
-futures = "0.3"
+# Async dependencies (optional)
+futures = { version = "0.3", optional = true }
 
 [dev-dependencies]
 # Test dependencies
@@ -88,8 +89,11 @@ tonic-build = "0.10"
 [features]
 default = []
 wasm = ["getrandom/js"]
-parallel = ["rayon"]
-grpc = ["tonic", "prost", "clap"]
+grpc = ["rayon", "tonic", "prost", "clap", "async-trait", "tokio", "tracing", "tracing-subscriber", "futures"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.2", features = ["js"] } 
+
+
+[lib]
+crate-type = ["cdylib", "rlib"]

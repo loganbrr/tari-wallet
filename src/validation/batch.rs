@@ -163,7 +163,7 @@ pub fn validate_output_batch(
 }
 
 /// Validate a batch of transaction outputs with parallel processing (when available)
-#[cfg(feature = "parallel")]
+#[cfg(feature = "grpc")]
 pub fn validate_output_batch_parallel(
     outputs: &[LightweightTransactionOutput],
     options: &BatchValidationOptions,

@@ -20,7 +20,7 @@ pub use batch::{
     BatchValidationSummary,
 };
 
-#[cfg(feature = "parallel")]
+#[cfg(feature = "grpc")]
 pub use batch::validate_output_batch_parallel;
 
 pub use range_proofs::{

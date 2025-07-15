@@ -10,9 +10,12 @@ pub mod hex_utils;
 pub mod validation;
 pub mod extraction;
 pub mod key_management;
+#[cfg(feature = "grpc")]
 pub mod scanning;
 pub mod wallet;
 pub mod utils;
+#[cfg(target_arch = "wasm32")]
+pub mod wasm;
 
 // Include generated GRPC code when the feature is enabled
 #[cfg(feature = "grpc")]
@@ -25,5 +28,6 @@ pub use hex_utils::*;
 pub use validation::*;
 pub use extraction::*;
 pub use key_management::*;
+#[cfg(feature = "grpc")]
 pub use scanning::*;
 pub use wallet::*; 
