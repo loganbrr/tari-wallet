@@ -109,7 +109,7 @@ use clap::Parser;
 use lightweight_wallet_libs::{
     data_structures::{
         block::Block, payment_id::PaymentId, transaction::TransactionDirection,
-        transaction_output::LightweightTransactionOutput, types::PrivateKey,
+        transaction_output::LightweightTransactionOutput, types::{PrivateKey, CompressedCommitment},
         wallet_transaction::WalletState,
     },
     errors::LightweightWalletResult,
@@ -604,7 +604,9 @@ impl ScannerStorage {
         }
     }
 
-    /// Mark outputs as spent and update their spent_in_tx_id
+    /// Mark outputs as spent (DEPRECATED - spending is now handled automatically by wallet state)
+    /// This method is kept for compatibility but is no longer used in the main scanning flow.
+    /// Spending detection is handled by wallet_state.mark_output_spent() called from block.process_inputs()
     #[cfg(feature = "storage")]
     pub async fn mark_outputs_spent(&self, spent_outputs: &[(Vec<u8>, u64, usize)]) -> LightweightWalletResult<()> {
         if let Some(storage) = &self.database {
@@ -626,11 +628,12 @@ impl ScannerStorage {
         Ok(())
     }
 
-    /// Get storage statistics
+    /// Get storage statistics for the current wallet
     #[cfg(feature = "storage")]
     pub async fn get_statistics(&self) -> LightweightWalletResult<lightweight_wallet_libs::storage::StorageStats> {
         if let Some(storage) = &self.database {
-            storage.get_statistics().await
+            // Get wallet-specific statistics if we have a wallet_id
+            storage.get_wallet_statistics(self.wallet_id).await
         } else {
             // Return empty statistics for memory-only mode
             Ok(lightweight_wallet_libs::storage::StorageStats {
@@ -644,6 +647,7 @@ impl ScannerStorage {
                 current_balance: 0,
                 lowest_block: None,
                 highest_block: None,
+                latest_scanned_block: None,
             })
         }
     }
@@ -1621,89 +1625,113 @@ async fn scan_wallet_across_blocks_with_cancellation(
                         profile_data.add_block_processing_time(*block_height, block_duration);
                     }
 
-                    // Track spent outputs for database updates
-                    #[cfg(feature = "storage")]
-                    if storage_backend.wallet_id.is_some() && result.1 > 0 {
-                        // Collect spent output commitments from this block
-                        let spent_commitments: Vec<(Vec<u8>, u64, usize)> = block.inputs
-                            .iter()
-                            .enumerate()
-                            .map(|(input_index, input)| {
-                                (input.commitment.to_vec(), *block_height, input_index)
-                            })
-                            .collect();
-
-                        // Update spent outputs in database
-                        if let Err(e) = storage_backend.mark_outputs_spent(&spent_commitments).await {
-                            if !config.quiet {
-                                println!("\n⚠️  Warning: Failed to update spent outputs in database for block {}: {}", 
-                                    format_number(*block_height), e);
-                            }
-                        }
-                    }
+                    // Note: Spent output tracking is handled automatically by wallet_state.mark_output_spent()
+                    // called from block.process_inputs() - and we also update the database below
 
                     // Save transactions to storage backend if using database
                     #[cfg(feature = "storage")]
                     if storage_backend.wallet_id.is_some() {
-                        // Get new transactions from this block height
-                        let block_transactions: Vec<_> = wallet_state
-                            .transactions
-                            .iter()
-                            .filter(|tx| tx.block_height == *block_height)
-                            .cloned()
-                            .collect();
-
-                        if !block_transactions.is_empty() {
-                            // Save traditional transaction data
-                            if let Err(e) = storage_backend
-                                .save_transactions(&block_transactions)
-                                .await
-                            {
-                                if !config.quiet {
-                                    println!("\n⚠️  Warning: Failed to save {} transactions from block {} to database: {}", 
-                                        format_number(block_transactions.len()), format_number(*block_height), e);
-                                }
-                            }
-
-                            // Extract and save UTXO data for wallet outputs (works for both seed phrase and view-key modes)
-                            match extract_utxo_outputs_from_wallet_state(
-                                &wallet_state,
-                                scan_context,
-                                storage_backend.wallet_id.unwrap(),
-                                &block.outputs,
-                                *block_height,
-                            ) {
-                                Ok(utxo_outputs) => {
-                                    if !utxo_outputs.is_empty() {
-                                        if let Err(e) = storage_backend.save_outputs(&utxo_outputs).await {
-                                            if !config.quiet {
-                                                println!("\n⚠️  Warning: Failed to save {} UTXO outputs from block {} to database: {}", 
-                                                    format_number(utxo_outputs.len()), format_number(*block_height), e);
-                                            }
-                                        }
-                                    }
-                                },
-                                Err(e) => {
+                        // Mark any transactions as spent in the database that were marked as spent in this block
+                        for (input_index, input) in block.inputs.iter().enumerate() {
+                            let input_commitment = CompressedCommitment::new(input.commitment);
+                            if let Some(storage) = &storage_backend.database {
+                                if let Err(e) = storage.mark_transaction_spent(
+                                    &input_commitment,
+                                    *block_height,
+                                    input_index,
+                                ).await {
                                     if !config.quiet {
-                                        println!(
-                                            "\n⚠️  Warning: Failed to extract UTXO data from block {}: {}",
-                                            format_number(*block_height), e
-                                        );
+                                        println!("\n⚠️  Warning: Failed to mark transaction as spent in database for commitment {}: {}", 
+                                            hex::encode(&input_commitment.as_bytes()[..8]), e);
                                     }
                                 }
                             }
                         }
 
-                        // Update wallet's latest scanned block
-                        // Only update once every 100 blocks
-                        if *block_height % 100 == 0 {
+                        // Save ALL accumulated transactions frequently (using INSERT OR REPLACE to handle duplicates)
+                        // This ensures no transactions are lost if individual block saves fail
+                        // Save every block to ensure data integrity (INSERT OR REPLACE handles duplicates efficiently)
+                        let should_save_transactions = true;
+
+                        if should_save_transactions {
+                            let all_transactions: Vec<_> = wallet_state
+                                .transactions
+                                .iter()
+                                .cloned()
+                                .collect();
+
+                        if !all_transactions.is_empty() {
+                            // Save transaction data (includes both inbound and outbound transactions)
                             if let Err(e) = storage_backend
-                                .update_wallet_scanned_block(*block_height)
+                                .save_transactions(&all_transactions)
                                 .await
                             {
                                 if !config.quiet {
-                                    println!("\n⚠️  Warning: Failed to update wallet scanned block to {}: {}", 
-                                    format_number(*block_height), e);
+                                    println!("\n⚠️  Warning: Failed to save {} accumulated transactions to database: {}", 
+                                        format_number(all_transactions.len()), e);
+                                }
+                            } else {
+                                // Validate that we're saving both inbound and outbound transactions correctly
+                                let inbound_count = all_transactions.iter().filter(|tx| tx.transaction_direction == TransactionDirection::Inbound).count();
+                                let outbound_count = all_transactions.iter().filter(|tx| tx.transaction_direction == TransactionDirection::Outbound).count();
+                                
+                                if !config.quiet && config.enable_profiling {
+                                    println!("\n💾 Saved {} total transactions to database ({} inbound, {} outbound)", 
+                                        format_number(all_transactions.len()), 
+                                        format_number(inbound_count), format_number(outbound_count));
+                                }
+                                
+                                // Verify that outbound transactions have proper spending details
+                                for tx in &all_transactions {
+                                    if tx.transaction_direction == TransactionDirection::Outbound {
+                                        if tx.input_index.is_none() {
+                                            if !config.quiet {
+                                                println!("\n⚠️  Warning: Outbound transaction missing input_index");
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        } // Close the should_save_transactions if block
+
+                        // Extract and save UTXO data for wallet outputs (works for both seed phrase and view-key modes)
+                        match extract_utxo_outputs_from_wallet_state(
+                            &wallet_state,
+                            scan_context,
+                            storage_backend.wallet_id.unwrap(),
+                            &block.outputs,
+                            *block_height,
+                        ) {
+                            Ok(utxo_outputs) => {
+                                if !utxo_outputs.is_empty() {
+                                    if let Err(e) = storage_backend.save_outputs(&utxo_outputs).await {
+                                        if !config.quiet {
+                                            println!("\n⚠️  Warning: Failed to save {} UTXO outputs from block {} to database: {}", 
+                                                format_number(utxo_outputs.len()), format_number(*block_height), e);
+                                        }
+                                    } else if !config.quiet && config.enable_profiling {
+                                        let unspent_utxos = utxo_outputs.iter().filter(|o| o.status == (OutputStatus::Unspent as u32)).count();
+                                        let spent_utxos = utxo_outputs.iter().filter(|o| o.status == (OutputStatus::Spent as u32)).count();
+                                        println!("\n🔗 Saved {} UTXO outputs for block {} ({} unspent, {} spent)", 
+                                            format_number(utxo_outputs.len()), format_number(*block_height),
+                                            format_number(unspent_utxos), format_number(spent_utxos));
+                                            
+                                        // Verify that all UTXOs have proper spending keys (or placeholders for view-key mode)
+                                        for utxo in &utxo_outputs {
+                                            if utxo.spending_key.is_empty() {
+                                                println!("⚠️  Warning: UTXO missing spending key for commitment: {}", hex::encode(&utxo.commitment[..8]));
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            Err(e) => {
+                                if !config.quiet {
+                                    println!(
+                                        "\n⚠️  Warning: Failed to extract UTXO data from block {}: {}",
+                                        format_number(*block_height), e
+                                    );
                                 }
                             }
                         }
@@ -1760,12 +1788,14 @@ async fn scan_wallet_across_blocks_with_cancellation(
             }
         }
 
-        // Write the final block height from this batch to the database
+        // Update wallet scanned block at the end of each batch (for progress tracking)
         #[cfg(feature = "storage")]
         if storage_backend.wallet_id.is_some() {
             if let Some(last_block_height) = batch_heights.last() {
                 if let Err(e) = storage_backend.update_wallet_scanned_block(*last_block_height).await {
-                    println!("\n⚠️  Warning: Failed to update wallet scanned block to {}: {}", format_number(*last_block_height), e);
+                    if !config.quiet {
+                        println!("\n⚠️  Warning: Failed to update wallet scanned block to {}: {}", format_number(*last_block_height), e);
+                    }
                 }
             }
         }
@@ -1790,6 +1820,20 @@ async fn scan_wallet_across_blocks_with_cancellation(
 
     // Record total scan time
     profile_data.total_scan_time = scan_start_time.elapsed();
+
+    // Final wallet scanned block update (ensure highest processed block is recorded)
+    #[cfg(feature = "storage")]
+    if storage_backend.wallet_id.is_some() {
+        if let Some(highest_block) = block_heights.last() {
+            if let Err(e) = storage_backend.update_wallet_scanned_block(*highest_block).await {
+                if !config.quiet {
+                    println!("\n⚠️  Warning: Failed to final update wallet scanned block to {}: {}", format_number(*highest_block), e);
+                }
+            } else if !config.quiet && config.enable_profiling {
+                println!("\n💾 Final wallet scanned block updated to: {}", format_number(*highest_block));
+            }
+        }
+    }
 
     if !config.quiet {
         // Ensure final progress bar shows 100%
@@ -2414,10 +2458,54 @@ async fn main() -> LightweightWalletResult<()> {
                 profile_data.display_recommendations(config.quiet);
             }
 
-            // Display storage completion info
-            if !args.quiet {
-                storage_backend.display_completion_info(&config).await?;
+                // Display storage completion info and verify data integrity
+    if !args.quiet {
+        storage_backend.display_completion_info(&config).await?;
+        
+        // Verify that transaction flow data was persisted correctly
+        #[cfg(feature = "storage")]
+        if storage_backend.wallet_id.is_some() {
+            let stats = storage_backend.get_statistics().await?;
+            let (in_memory_received, in_memory_spent, in_memory_balance, _, _) = wallet_state.get_summary();
+            
+            // Compare in-memory wallet state with database statistics
+            if stats.total_received != in_memory_received {
+                println!("⚠️  Warning: Database total received ({}) doesn't match in-memory state ({})", 
+                    format_number(stats.total_received), format_number(in_memory_received));
             }
+            if stats.total_spent != in_memory_spent {
+                println!("⚠️  Warning: Database total spent ({}) doesn't match in-memory state ({})", 
+                    format_number(stats.total_spent), format_number(in_memory_spent));
+            }
+            // Compare balances (handling signed vs unsigned)
+            let db_balance_signed = stats.current_balance as i64;
+            if db_balance_signed != in_memory_balance {
+                println!("⚠️  Warning: Database balance ({}) doesn't match in-memory state ({})", 
+                    format_number(db_balance_signed), format_number(in_memory_balance));
+            }
+            
+            // Verify transaction counts
+            let (inbound_count, outbound_count, _) = wallet_state.get_direction_counts();
+            if stats.inbound_count != inbound_count {
+                println!("⚠️  Warning: Database inbound count ({}) doesn't match in-memory state ({})", 
+                    format_number(stats.inbound_count), format_number(inbound_count));
+            }
+            if stats.outbound_count != outbound_count {
+                println!("⚠️  Warning: Database outbound count ({}) doesn't match in-memory state ({})", 
+                    format_number(stats.outbound_count), format_number(outbound_count));
+            }
+            
+            // If all checks pass, confirm data integrity
+            let db_balance_signed = stats.current_balance as i64;
+            if stats.total_received == in_memory_received && 
+               stats.total_spent == in_memory_spent && 
+               db_balance_signed == in_memory_balance &&
+               stats.inbound_count == inbound_count && 
+               stats.outbound_count == outbound_count {
+                println!("✅ Transaction flow data integrity verified - all data persisted correctly");
+            }
+        }
+    }
         }
         Some(Ok(ScanResult::Interrupted(wallet_state, profile_data))) => {
             if !args.quiet {

@@ -371,6 +371,8 @@ pub struct StorageStats {
     pub highest_block: Option<u64>,
     /// Lowest block height processed
     pub lowest_block: Option<u64>,
+    /// Latest scanned block
+    pub latest_scanned_block: Option<u64>,
 }
 
 /// Trait for wallet transaction storage backends
@@ -438,6 +440,9 @@ pub trait WalletStorage: Send + Sync {
 
     /// Get storage statistics
     async fn get_statistics(&self) -> LightweightWalletResult<StorageStats>;
+
+    /// Get storage statistics for a specific wallet
+    async fn get_wallet_statistics(&self, wallet_id: Option<u32>) -> LightweightWalletResult<StorageStats>;
 
     /// Get transactions by block height range
     async fn get_transactions_by_block_range(

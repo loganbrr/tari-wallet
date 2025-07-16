@@ -84,8 +84,8 @@ impl SqliteStorage {
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 
-                -- Unique constraint on wallet_id + commitment_hex (same commitment can exist for different wallets)
-                UNIQUE(wallet_id, commitment_hex)
+                -- Unique constraint on wallet_id + commitment_hex + direction (allows both inbound and outbound for same commitment)
+                UNIQUE(wallet_id, commitment_hex, transaction_direction)
             );
 
             -- UTXO Outputs table (NEW) for transaction creation
@@ -785,22 +785,53 @@ impl WalletStorage for SqliteStorage {
     }
 
     async fn get_statistics(&self) -> LightweightWalletResult<StorageStats> {
-        self.connection.call(|conn| {
-            let mut stmt = conn.prepare(r#"
-                SELECT 
-                    COUNT(*) as total_transactions,
-                    COALESCE(SUM(CASE WHEN transaction_direction = 0 THEN 1 ELSE 0 END), 0) as inbound_count,
-                    COALESCE(SUM(CASE WHEN transaction_direction = 1 THEN 1 ELSE 0 END), 0) as outbound_count,
-                    COALESCE(SUM(CASE WHEN is_spent = FALSE AND transaction_direction = 0 THEN 1 ELSE 0 END), 0) as unspent_count,
-                    COALESCE(SUM(CASE WHEN is_spent = TRUE AND transaction_direction = 0 THEN 1 ELSE 0 END), 0) as spent_count,
-                    COALESCE(SUM(CASE WHEN transaction_direction = 0 THEN value ELSE 0 END), 0) as total_received,
-                    COALESCE(SUM(CASE WHEN transaction_direction = 1 THEN value ELSE 0 END), 0) as total_spent,
-                    MAX(block_height) as highest_block,
-                    MIN(block_height) as lowest_block
-                FROM wallet_transactions
-            "#)?;
+        self.get_wallet_statistics(None).await
+    }
 
-            let row = stmt.query_row([], |row| {
+    /// Get statistics for a specific wallet, or global stats if wallet_id is None
+    async fn get_wallet_statistics(&self, wallet_id: Option<u32>) -> LightweightWalletResult<StorageStats> {
+        self.connection.call(move |conn| {
+            let (query, params) = if let Some(wallet_id) = wallet_id {
+                (r#"
+                    SELECT 
+                        COUNT(*) as total_transactions,
+                        COALESCE(SUM(CASE WHEN transaction_direction = 0 THEN 1 ELSE 0 END), 0) as inbound_count,
+                        COALESCE(SUM(CASE WHEN transaction_direction = 1 THEN 1 ELSE 0 END), 0) as outbound_count,
+                        COALESCE(SUM(CASE WHEN is_spent = FALSE AND transaction_direction = 0 THEN 1 ELSE 0 END), 0) as unspent_count,
+                        COALESCE(SUM(CASE WHEN is_spent = TRUE AND transaction_direction = 0 THEN 1 ELSE 0 END), 0) as spent_count,
+                        COALESCE(SUM(CASE WHEN transaction_direction = 0 THEN value ELSE 0 END), 0) as total_received,
+                        COALESCE(SUM(CASE WHEN transaction_direction = 1 THEN value ELSE 0 END), 0) as total_spent,
+                        MAX(block_height) as highest_block,
+                        MIN(block_height) as lowest_block,
+                        wallets.latest_scanned_block
+                    FROM wallet_transactions
+                    LEFT JOIN wallets ON wallet_transactions.wallet_id = wallets.id
+                    WHERE wallet_id = ?
+                "#, vec![wallet_id as i64])
+            } else {
+                (r#"
+                    SELECT 
+                        COUNT(*) as total_transactions,
+                        COALESCE(SUM(CASE WHEN transaction_direction = 0 THEN 1 ELSE 0 END), 0) as inbound_count,
+                        COALESCE(SUM(CASE WHEN transaction_direction = 1 THEN 1 ELSE 0 END), 0) as outbound_count,
+                        COALESCE(SUM(CASE WHEN is_spent = FALSE AND transaction_direction = 0 THEN 1 ELSE 0 END), 0) as unspent_count,
+                        COALESCE(SUM(CASE WHEN is_spent = TRUE AND transaction_direction = 0 THEN 1 ELSE 0 END), 0) as spent_count,
+                        COALESCE(SUM(CASE WHEN transaction_direction = 0 THEN value ELSE 0 END), 0) as total_received,
+                        COALESCE(SUM(CASE WHEN transaction_direction = 1 THEN value ELSE 0 END), 0) as total_spent,
+                        MAX(block_height) as highest_block,
+                        MIN(block_height) as lowest_block,
+                        wallets.latest_scanned_block
+                    FROM wallet_transactions
+                    LEFT JOIN wallets ON wallet_transactions.wallet_id = wallets.id
+                "#, vec![])
+            };
+
+            let mut stmt = conn.prepare(query)?;
+            let param_refs: Vec<&dyn rusqlite::ToSql> = params.iter()
+                .map(|p| p as &dyn rusqlite::ToSql)
+                .collect();
+
+            let row = stmt.query_row(&param_refs[..], |row| {
                 let total_received: i64 = row.get("total_received")?;
                 let total_spent: i64 = row.get("total_spent")?;
                 
@@ -815,6 +846,7 @@ impl WalletStorage for SqliteStorage {
                     current_balance: (total_received - total_spent) as i64,
                     highest_block: row.get::<_, Option<i64>>("highest_block")?.map(|h| h as u64),
                     lowest_block: row.get::<_, Option<i64>>("lowest_block")?.map(|h| h as u64),
+                    latest_scanned_block: row.get::<_, Option<i64>>("latest_scanned_block")?.map(|h| h as u64),
                 })
             })?;
 
