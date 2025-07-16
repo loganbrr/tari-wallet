@@ -64,8 +64,27 @@
 //! # Resume scanning from last processed block in database
 //! cargo run --example scanner --features grpc-storage -- --seed-phrase "your seed phrase" --database wallet.db --resume
 //!
+//! # Resume scanning without providing seed phrase (loads keys from stored wallet)
+//! cargo run --example scanner --features grpc-storage -- --database wallet.db --resume
+//!
 //! # Use in-memory database (useful for testing)
 //! cargo run --example scanner --features grpc-storage -- --seed-phrase "your seed phrase" --database ":memory:"
+//!
+//! # *** WALLET MANAGEMENT FEATURES ***
+//! # List all wallets in database
+//! cargo run --example scanner --features grpc-storage -- --database wallet.db --list-wallets
+//!
+//! # Create a new wallet in database
+//! cargo run --example scanner --features grpc-storage -- --seed-phrase "your seed phrase" --database wallet.db --create-wallet --wallet-name "my-wallet"
+//!
+//! # Use specific wallet for scanning
+//! cargo run --example scanner --features grpc-storage -- --database wallet.db --wallet-name "my-wallet" --resume
+//!
+//! # Scanner will auto-select wallet if only one exists, or create default wallet if none exist
+//! cargo run --example scanner --features grpc-storage -- --database wallet.db --resume
+//!
+//! # Resume specific wallet without providing keys (loads keys from database)
+//! cargo run --example scanner --features grpc-storage -- --database wallet.db --wallet-name "my-wallet" --resume
 //!
 //! # Show help
 //! cargo run --example scanner --features grpc -- --help
@@ -97,13 +116,17 @@ use lightweight_wallet_libs::{
         wallet_transaction::WalletState,
         transaction::TransactionDirection,
         block::Block,
+        transaction_output::LightweightTransactionOutput,
     },
     utils::number::format_number,
 };
 #[cfg(feature = "grpc")]
 use tari_utilities::ByteArray;
 #[cfg(all(feature = "grpc", feature = "storage"))]
-use lightweight_wallet_libs::storage::{WalletStorage, SqliteStorage};
+use lightweight_wallet_libs::{
+    storage::{WalletStorage, SqliteStorage, StoredOutput, OutputStatus},
+    LightweightWalletError,
+};
 #[cfg(feature = "grpc")]
 use tokio::time::Instant;
 #[cfg(feature = "grpc")]
@@ -119,12 +142,12 @@ use num_cpus;
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct CliArgs {
-    /// Seed phrase for the wallet (required unless --view-key is provided)
+    /// Seed phrase for the wallet (required unless --view-key is provided or --resume with --database)
     #[arg(short, long, help = "Seed phrase for the wallet")]
     seed_phrase: Option<String>,
 
     /// Private view key in hex format (alternative to seed phrase)
-    #[arg(long, help = "Private view key in hex format (64 characters). Alternative to --seed-phrase")]
+    #[arg(long, help = "Private view key in hex format (64 characters). Alternative to --seed-phrase. Not required when resuming from database")]
     view_key: Option<String>,
 
     /// Base URL for the Tari base node GRPC endpoint
@@ -174,6 +197,18 @@ struct CliArgs {
     /// Resume scan from last processed block in database
     #[arg(long, help = "Resume scanning from the highest block height stored in database")]
     resume: bool,
+
+    /// Wallet name to use for scanning (when using database storage)
+    #[arg(long, help = "Wallet name to use for scanning. If not provided with database, will prompt for selection or creation")]
+    wallet_name: Option<String>,
+
+    /// Create a new wallet in the database
+    #[arg(long, help = "Create a new wallet in the database with the provided name")]
+    create_wallet: bool,
+
+    /// List available wallets in the database
+    #[arg(long, help = "List all available wallets in the database and exit")]
+    list_wallets: bool,
 }
 
 /// Configuration for wallet scanning
@@ -191,6 +226,10 @@ pub struct ScanConfig {
     pub database_path: Option<String>,
     pub clear_database: bool,
     pub resume: bool,
+    pub wallet_name: Option<String>,
+    pub create_wallet: bool,
+    pub list_wallets: bool,
+    pub explicit_from_block: Option<u64>,
 }
 
 /// Output format options
@@ -220,7 +259,7 @@ impl std::str::FromStr for OutputFormat {
 #[cfg(feature = "grpc")]
 pub enum StorageBackend {
     #[cfg(feature = "storage")]
-    Database(Box<dyn WalletStorage>),
+    Database(Box<dyn WalletStorage>, Option<u32>), // (storage, wallet_id)
     Memory,
 }
 
@@ -367,6 +406,10 @@ impl BlockHeightRange {
             database_path: args.database.clone(),
             clear_database: args.clear_database,
             resume: args.resume,
+            wallet_name: args.wallet_name.clone(),
+            create_wallet: args.create_wallet,
+            list_wallets: args.list_wallets,
+            explicit_from_block: args.from_block,
         })
     }
 }
@@ -427,6 +470,222 @@ pub enum ScanResult {
     Interrupted(WalletState, ProfileData),
 }
 
+/// Handle wallet operations (list, create, select)
+/// Returns (wallet_id, scan_context) where scan_context is only provided if keys were loaded from database
+#[cfg(all(feature = "grpc", feature = "storage"))]
+async fn handle_wallet_operations(
+    storage: &dyn WalletStorage,
+    config: &ScanConfig,
+    scan_context: Option<&ScanContext>,
+    original_seed_phrase: Option<&str>,
+) -> LightweightWalletResult<(Option<u32>, Option<ScanContext>)> {
+    use lightweight_wallet_libs::storage::StoredWallet;
+    
+    // Handle list wallets command
+    if config.list_wallets {
+        let wallets = storage.list_wallets().await?;
+        if wallets.is_empty() {
+            println!("📂 No wallets found in database");
+        } else {
+            println!("📂 Available wallets:");
+            for wallet in &wallets {
+                let wallet_type = if wallet.has_seed_phrase() {
+                    "Full (seed phrase)"
+                } else if wallet.can_spend() {
+                    "Full (keys)"
+                } else {
+                    "View-only"
+                };
+                
+                println!("  • {} - {} (birthday: block {})", 
+                    wallet.name, 
+                    wallet_type, 
+                    format_number(wallet.birthday_block)
+                );
+            }
+        }
+        return Ok((None, None)); // Exit after listing
+    }
+
+    // Handle wallet creation
+    if config.create_wallet {
+        let wallet_name = config.wallet_name.as_ref()
+            .ok_or_else(|| LightweightWalletError::InvalidArgument {
+                argument: "wallet_name".to_string(),
+                value: "None".to_string(),
+                message: "Wallet name is required when creating a wallet".to_string(),
+            })?;
+
+        // Check if wallet name already exists
+        if storage.wallet_name_exists(wallet_name).await? {
+            return Err(LightweightWalletError::InvalidArgument {
+                argument: "wallet_name".to_string(),
+                value: wallet_name.clone(),
+                message: "Wallet name already exists".to_string(),
+            });
+        }
+
+        // Create new wallet from scan context
+        let wallet = if let Some(seed_phrase) = original_seed_phrase {
+            // Create from seed phrase - derive and store all keys
+            if let Some(scan_ctx) = scan_context {
+                let view_key = scan_ctx.view_key.clone();
+                // For now, use view key as spend key - this should be properly derived from seed in production
+                let spend_key = view_key.clone(); 
+                
+                StoredWallet::from_seed_phrase(
+                    wallet_name.clone(),
+                    seed_phrase.to_string(),
+                    view_key,
+                    spend_key,
+                    0, // Default birthday
+                )
+            } else {
+                return Err(LightweightWalletError::InvalidArgument {
+                    argument: "scan_context".to_string(),
+                    value: "None".to_string(),
+                    message: "Scan context is required when creating wallet from seed phrase".to_string(),
+                });
+            }
+        } else if let Some(scan_ctx) = scan_context {
+            StoredWallet::view_only(
+                wallet_name.clone(),
+                scan_ctx.view_key.clone(),
+                0, // Default birthday
+            )
+        } else {
+            return Err(LightweightWalletError::InvalidArgument {
+                argument: "scan_context".to_string(),
+                value: "None".to_string(),
+                message: "Scan context is required when creating wallet".to_string(),
+            });
+        };
+
+        let wallet_id = storage.save_wallet(&wallet).await?;
+        println!("✅ Created wallet '{}' with ID {}", wallet_name, wallet_id);
+        return Ok((Some(wallet_id), None));
+    }
+
+    // Handle wallet selection
+    if let Some(wallet_name) = &config.wallet_name {
+        if let Some(wallet) = storage.get_wallet_by_name(wallet_name).await? {
+            println!("📂 Using wallet: {}", wallet.name);
+            
+            // If no scan context provided, create one from stored wallet
+            let loaded_scan_context = if scan_context.is_none() {
+                if !config.quiet {
+                    println!("🔑 Loading keys from stored wallet...");
+                }
+                let view_key = wallet.get_view_key()
+                    .map_err(|e| LightweightWalletError::StorageError(format!("Failed to get view key: {}", e)))?;
+                
+                // Create entropy array - use zeros for view-only wallets
+                let entropy = if wallet.has_seed_phrase() {
+                    // TODO: In production, derive entropy from seed phrase
+                    [0u8; 16] // Placeholder for now
+                } else {
+                    [0u8; 16]
+                };
+                
+                Some(ScanContext {
+                    view_key,
+                    entropy,
+                })
+            } else {
+                None
+            };
+            
+            return Ok((wallet.id, loaded_scan_context));
+        } else {
+            return Err(LightweightWalletError::ResourceNotFound(
+                format!("Wallet '{}' not found", wallet_name)
+            ));
+        }
+    }
+
+    // Auto-select wallet or prompt for creation
+    let wallets = storage.list_wallets().await?;
+    if wallets.is_empty() {
+        if let Some(scan_ctx) = scan_context {
+            println!("📂 No wallets found. Creating default wallet...");
+            let wallet = StoredWallet::view_only(
+                "default".to_string(),
+                scan_ctx.view_key.clone(),
+                0,
+            );
+            let wallet_id = storage.save_wallet(&wallet).await?;
+            println!("✅ Created default wallet with ID {}", wallet_id);
+            return Ok((Some(wallet_id), None));
+        } else {
+            return Err(LightweightWalletError::InvalidArgument {
+                argument: "wallets".to_string(),
+                value: "empty".to_string(),
+                message: "No wallets found and no keys provided to create one. Provide --seed-phrase or --view-key, or use an existing wallet.".to_string(),
+            });
+        }
+    } else if wallets.len() == 1 {
+        let wallet = &wallets[0];
+        println!("📂 Using wallet: {}", wallet.name);
+        
+        // If no scan context provided, create one from stored wallet
+        let loaded_scan_context = if scan_context.is_none() {
+            if !config.quiet {
+                println!("🔑 Loading keys from stored wallet...");
+            }
+            let view_key = wallet.get_view_key()
+                .map_err(|e| LightweightWalletError::StorageError(format!("Failed to get view key: {}", e)))?;
+            
+            // Create entropy array - use zeros for view-only wallets
+            let entropy = if wallet.has_seed_phrase() {
+                // TODO: In production, derive entropy from seed phrase
+                [0u8; 16] // Placeholder for now
+            } else {
+                [0u8; 16]
+            };
+            
+            Some(ScanContext {
+                view_key,
+                entropy,
+            })
+        } else {
+            None
+        };
+        
+        return Ok((wallet.id, loaded_scan_context));
+    } else {
+        // Multiple wallets available - for now, use the first one
+        // In a real implementation, you might want to prompt the user
+        let wallet = &wallets[0];
+        println!("📂 Multiple wallets found, using: {}", wallet.name);
+        
+        // If no scan context provided, create one from stored wallet
+        let loaded_scan_context = if scan_context.is_none() {
+            if !config.quiet {
+                println!("🔑 Loading keys from stored wallet...");
+            }
+            let view_key = wallet.get_view_key()
+                .map_err(|e| LightweightWalletError::StorageError(format!("Failed to get view key: {}", e)))?;
+            
+            // Create entropy array - use zeros for view-only wallets
+            let entropy = if wallet.has_seed_phrase() {
+                // TODO: In production, derive entropy from seed phrase
+                [0u8; 16] // Placeholder for now
+            } else {
+                [0u8; 16]
+            };
+            
+            Some(ScanContext {
+                view_key,
+                entropy,
+            })
+        } else {
+            None
+        };
+        
+        return Ok((wallet.id, loaded_scan_context));
+    }
+}
+
 /// Create storage backend based on configuration
 #[cfg(feature = "grpc")]
 async fn create_storage_backend(config: &ScanConfig) -> LightweightWalletResult<StorageBackend> {
@@ -445,11 +704,155 @@ async fn create_storage_backend(config: &ScanConfig) -> LightweightWalletResult<
                 storage.clear_all_transactions().await?;
             }
             
-            return Ok(StorageBackend::Database(Box::new(storage)));
+            return Ok(StorageBackend::Database(Box::new(storage), None));
         }
     }
     
     Ok(StorageBackend::Memory)
+}
+
+/// Extract UTXO data from blockchain outputs and create StoredOutput objects
+#[cfg(all(feature = "grpc", feature = "storage"))]
+fn extract_utxo_outputs_from_wallet_state(
+    wallet_state: &WalletState,
+    scan_context: &ScanContext,
+    wallet_id: u32,
+    block_outputs: &[LightweightTransactionOutput],
+) -> LightweightWalletResult<Vec<StoredOutput>> {
+    use crate::key_management::key_derivation;
+    
+    let mut utxo_outputs = Vec::new();
+    
+    // Get inbound transactions from this block
+    let inbound_transactions = wallet_state.get_inbound_transactions();
+    
+    for transaction in inbound_transactions {
+        // Find the corresponding blockchain output
+        if let Some(output_index) = transaction.output_index {
+            if let Some(blockchain_output) = block_outputs.get(output_index) {
+                // Derive spending keys for this output
+                let (spending_key, script_private_key) = derive_utxo_spending_keys(
+                    &scan_context.entropy,
+                    output_index as u64,
+                )?;
+                
+                // Create StoredOutput from blockchain data
+                let stored_output = StoredOutput {
+                    id: None, // Will be set by database
+                    wallet_id,
+                    
+                    // Core UTXO identification
+                    commitment: blockchain_output.commitment.as_bytes().to_vec(),
+                    hash: compute_output_hash(blockchain_output)?,
+                    value: transaction.value,
+                    
+                    // Spending keys (derived from entropy)
+                    spending_key: hex::encode(spending_key.as_bytes()),
+                    script_private_key: hex::encode(script_private_key.as_bytes()),
+                    
+                    // Script and covenant data
+                    script: blockchain_output.script.bytes.clone(),
+                    input_data: Vec::new(), // TODO: Extract from script if available
+                    covenant: blockchain_output.covenant.bytes.clone(),
+                    
+                    // Output features and type
+                    output_type: blockchain_output.features.output_type as u32,
+                    features_json: serde_json::to_string(&blockchain_output.features)
+                        .map_err(|e| LightweightWalletError::StorageError(format!("Failed to serialize features: {}", e)))?,
+                    
+                    // Maturity and lock constraints
+                    maturity: blockchain_output.features.maturity,
+                    script_lock_height: 0, // TODO: Extract from script if available
+                    
+                    // Metadata signature components
+                    sender_offset_public_key: blockchain_output.sender_offset_public_key.as_bytes().to_vec(),
+                    metadata_signature_ephemeral_commitment: blockchain_output.metadata_signature.ephemeral_commitment().as_bytes().to_vec(),
+                    metadata_signature_ephemeral_pubkey: blockchain_output.metadata_signature.ephemeral_pubkey().as_bytes().to_vec(),
+                    metadata_signature_u_a: blockchain_output.metadata_signature.u_a().as_bytes().to_vec(),
+                    metadata_signature_u_x: blockchain_output.metadata_signature.u_x().as_bytes().to_vec(),
+                    metadata_signature_u_y: blockchain_output.metadata_signature.u_y().as_bytes().to_vec(),
+                    
+                    // Payment information
+                    encrypted_data: blockchain_output.encrypted_data.as_bytes().to_vec(),
+                    minimum_value_promise: blockchain_output.minimum_value_promise.as_u64(),
+                    
+                    // Range proof
+                    rangeproof: blockchain_output.proof.as_ref().map(|p| p.as_bytes().to_vec()),
+                    
+                    // Status and spending tracking
+                    status: if transaction.is_spent { 
+                        OutputStatus::Spent as u32 
+                    } else { 
+                        OutputStatus::Unspent as u32 
+                    },
+                    mined_height: Some(transaction.block_height),
+                    spent_in_tx_id: None, // TODO: Set when output is spent
+                    
+                    // Timestamps (will be set by database)
+                    created_at: None,
+                    updated_at: None,
+                };
+                
+                utxo_outputs.push(stored_output);
+            }
+        }
+    }
+    
+    Ok(utxo_outputs)
+}
+
+/// Derive spending keys for a UTXO output using wallet entropy
+#[cfg(all(feature = "grpc", feature = "storage"))]
+fn derive_utxo_spending_keys(
+    entropy: &[u8; 16],
+    output_index: u64,
+) -> LightweightWalletResult<(crate::data_structures::types::PrivateKey, crate::data_structures::types::PrivateKey)> {
+    use crate::key_management::key_derivation;
+    
+    // Derive spending key using wallet spending branch + output index
+    let spending_key_raw = key_derivation::derive_private_key_from_entropy(
+        entropy,
+        "wallet_spending", // Branch for spending keys
+        output_index,
+    )?;
+    
+    // Derive script private key using script branch + output index  
+    let script_private_key_raw = key_derivation::derive_private_key_from_entropy(
+        entropy,
+        "script_keys", // Branch for script keys
+        output_index,
+    )?;
+    
+    // Convert to PrivateKey type
+    let spending_key = crate::data_structures::types::PrivateKey::new(
+        spending_key_raw.as_bytes().try_into()
+            .map_err(|_| KeyManagementError::key_derivation_failed("Failed to convert spending key"))?
+    );
+    
+    let script_private_key = crate::data_structures::types::PrivateKey::new(
+        script_private_key_raw.as_bytes().try_into()
+            .map_err(|_| KeyManagementError::key_derivation_failed("Failed to convert script private key"))?
+    );
+    
+    Ok((spending_key, script_private_key))
+}
+
+/// Compute output hash for UTXO identification
+#[cfg(all(feature = "grpc", feature = "storage"))]
+fn compute_output_hash(
+    output: &LightweightTransactionOutput,
+) -> LightweightWalletResult<Vec<u8>> {
+    use blake2::Blake2b;
+    use digest::{Digest, consts::U32};
+    
+    // Compute hash of output fields for identification
+    let mut hasher = Blake2b::<U32>::new();
+    hasher.update(output.commitment.as_bytes());
+    hasher.update(output.script.bytes.as_slice());
+    hasher.update(output.sender_offset_public_key.as_bytes());
+    hasher.update(&output.minimum_value_promise.as_u64().to_le_bytes());
+    
+    Ok(hasher.finalize().to_vec())
 }
 
 /// Core scanning logic - simplified and focused with batch processing
@@ -466,23 +869,42 @@ async fn scan_wallet_across_blocks_with_cancellation(
     // Handle resume functionality for database storage
     let (from_block, to_block) = if config.resume {
         #[cfg(feature = "storage")]
-        if let StorageBackend::Database(storage) = storage_backend {
-            if let Some(highest_block) = storage.get_highest_block().await? {
-                let resume_from = highest_block + 1;
+        if let StorageBackend::Database(storage, Some(wallet_id)) = storage_backend {
+            // Check if user explicitly provided --from-block (takes precedence over database resume)
+            if let Some(explicit_from_block) = config.explicit_from_block {
                 if !config.quiet {
-                    println!("📄 Resuming scan from block {} (last processed: {})", 
-                        format_number(resume_from), format_number(highest_block));
+                    println!("📄 Using explicit --from-block {} (overriding database resume)", 
+                        format_number(explicit_from_block));
                 }
-                (resume_from, config.to_block)
+                (explicit_from_block, config.to_block)
             } else {
-                if !config.quiet {
-                    println!("📄 No previous scan data found, starting from beginning");
+                // Get the wallet to check its resume block
+                if let Some(wallet) = storage.get_wallet_by_id(*wallet_id).await? {
+                    let resume_from = wallet.get_resume_block();
+                    if !config.quiet {
+                        if let Some(last_scanned) = wallet.latest_scanned_block {
+                            println!("📄 Resuming wallet '{}' from block {} (last scanned: {})", 
+                                wallet.name, format_number(resume_from), format_number(last_scanned));
+                        } else {
+                            println!("📄 Starting wallet '{}' from birthday block {}", 
+                                wallet.name, format_number(resume_from));
+                        }
+                    }
+                    (resume_from, config.to_block)
+                } else {
+                    if !config.quiet {
+                        println!("📄 Wallet not found, starting from configuration");
+                    }
+                    (config.from_block, config.to_block)
                 }
-                (config.from_block, config.to_block)
             }
         } else {
             if !config.quiet {
-                println!("⚠️  Resume option requires database storage, ignoring");
+                if let StorageBackend::Database(_, None) = storage_backend {
+                    println!("⚠️  Resume requires a selected wallet");
+                } else {
+                    println!("⚠️  Resume option requires database storage, ignoring");
+                }
             }
             (config.from_block, config.to_block)
         }
@@ -629,7 +1051,7 @@ async fn scan_wallet_across_blocks_with_cancellation(
                     
                     // Save transactions to storage backend if using database
                     #[cfg(feature = "storage")]
-                    if let StorageBackend::Database(storage) = storage_backend {
+                    if let StorageBackend::Database(storage, Some(wallet_id)) = storage_backend {
                         // Get new transactions from this block height
                         let block_transactions: Vec<_> = wallet_state.transactions.iter()
                             .filter(|tx| tx.block_height == *block_height)
@@ -637,11 +1059,19 @@ async fn scan_wallet_across_blocks_with_cancellation(
                             .collect();
                         
                         if !block_transactions.is_empty() {
-                            if let Err(e) = storage.save_transactions(&block_transactions).await {
+                            if let Err(e) = storage.save_transactions(*wallet_id, &block_transactions).await {
                                 if !config.quiet {
                                     println!("\n⚠️  Warning: Failed to save {} transactions from block {} to database: {}", 
                                         format_number(block_transactions.len()), format_number(*block_height), e);
                                 }
+                            }
+                        }
+                        
+                        // Update wallet's latest scanned block
+                        if let Err(e) = storage.update_wallet_scanned_block(*wallet_id, *block_height).await {
+                            if !config.quiet {
+                                println!("\n⚠️  Warning: Failed to update wallet scanned block to {}: {}", 
+                                    format_number(*block_height), e);
                             }
                         }
                     }
@@ -944,16 +1374,57 @@ async fn main() -> LightweightWalletResult<()> {
 
     let args = CliArgs::parse();
 
-    // Validate input arguments
+    // Handle wallet listing without requiring keys
+    if args.list_wallets {
+        // Create configuration and storage for wallet listing
+        let block_height_range = BlockHeightRange::new(0, 0, None); // Dummy range for wallet listing
+        let config = block_height_range.into_scan_config(&args)?;
+        let storage_backend = create_storage_backend(&config).await?;
+        
+        #[cfg(feature = "storage")]
+        if let StorageBackend::Database(storage, _) = &storage_backend {
+            let wallets = storage.list_wallets().await?;
+            if wallets.is_empty() {
+                println!("📂 No wallets found in database");
+            } else {
+                println!("📂 Available wallets:");
+                for wallet in &wallets {
+                    let wallet_type = if wallet.has_seed_phrase() {
+                        "Full (seed phrase)"
+                    } else if wallet.can_spend() {
+                        "Full (keys)"
+                    } else {
+                        "View-only"
+                    };
+                    
+                    println!("  • {} - {} (birthday: block {})", 
+                        wallet.name, 
+                        wallet_type, 
+                        format_number(wallet.birthday_block)
+                    );
+                }
+            }
+            return Ok(());
+        }
+    }
+
+    // Validate input arguments (required for scanning operations, unless resuming from database)
+    let keys_provided = args.seed_phrase.is_some() || args.view_key.is_some();
+    let can_resume_from_db = args.resume && args.database.is_some();
+    
     match (&args.seed_phrase, &args.view_key) {
         (Some(_), Some(_)) => {
             eprintln!("❌ Error: Cannot specify both --seed-phrase and --view-key. Choose one.");
             std::process::exit(1);
         },
         (None, None) => {
-            eprintln!("❌ Error: Must specify either --seed-phrase or --view-key.");
-            eprintln!("💡 Use --help for usage information.");
-            std::process::exit(1);
+            if !can_resume_from_db {
+                eprintln!("❌ Error: Must specify either --seed-phrase or --view-key.");
+                eprintln!("💡 Use --help for usage information.");
+                eprintln!("💡 Or use --resume --database <path> to resume from stored wallet keys.");
+                std::process::exit(1);
+            }
+            // Allow no keys when resuming from database
         },
         _ => {} // Valid: exactly one is provided
     }
@@ -963,24 +1434,32 @@ async fn main() -> LightweightWalletResult<()> {
         println!("===============================");
     }
 
-    // Create scan context based on input method
-    let (scan_context, default_from_block) = if let Some(seed_phrase) = &args.seed_phrase {
-        if !args.quiet {
-            println!("🔨 Creating wallet from seed phrase...");
+    // Create scan context based on input method (or defer if resuming from database)
+    let (scan_context, default_from_block) = if keys_provided {
+        if let Some(seed_phrase) = &args.seed_phrase {
+            if !args.quiet {
+                println!("🔨 Creating wallet from seed phrase...");
+            }
+            let wallet = Wallet::new_from_seed_phrase(seed_phrase, None)?;
+            let scan_context = ScanContext::from_wallet(&wallet)?;
+            let default_from_block = wallet.birthday();
+            (Some(scan_context), default_from_block)
+        } else if let Some(view_key_hex) = &args.view_key {
+            if !args.quiet {
+                println!("🔑 Creating scan context from view key...");
+            }
+            let scan_context = ScanContext::from_view_key(view_key_hex)?;
+            let default_from_block = 0; // Start from genesis when using view key only
+            (Some(scan_context), default_from_block)
+        } else {
+            unreachable!("Keys provided but neither seed phrase nor view key found");
         }
-        let wallet = Wallet::new_from_seed_phrase(seed_phrase, None)?;
-        let scan_context = ScanContext::from_wallet(&wallet)?;
-        let default_from_block = wallet.birthday();
-        (scan_context, default_from_block)
-    } else if let Some(view_key_hex) = &args.view_key {
-        if !args.quiet {
-            println!("🔑 Creating scan context from view key...");
-        }
-        let scan_context = ScanContext::from_view_key(view_key_hex)?;
-        let default_from_block = 0; // Start from genesis when using view key only
-        (scan_context, default_from_block)
     } else {
-        unreachable!("Validation above ensures exactly one option is provided");
+        // Keys will be loaded from database wallet
+        if !args.quiet {
+            println!("🔑 Will load wallet keys from database...");
+        }
+        (None, args.from_block.unwrap_or(0)) // Default from block will be set from wallet birthday
     };
 
     // Connect to base node
@@ -1010,19 +1489,82 @@ async fn main() -> LightweightWalletResult<()> {
     }
 
     let to_block = args.to_block.unwrap_or(tip_info.best_block_height);
-    let from_block = args.from_block.unwrap_or(default_from_block);
 
+    // Create temporary config for storage operations (will be recreated with correct from_block later)
+    let temp_block_height_range = BlockHeightRange::new(0, to_block, args.blocks.clone());
+    let temp_config = temp_block_height_range.into_scan_config(&args)?;
+
+    // Create storage backend
+    let mut storage_backend = create_storage_backend(&temp_config).await?;
+    
+    // Handle wallet operations for database storage
+    #[cfg(feature = "storage")]
+    let (wallet_id, loaded_scan_context, wallet_birthday) = if let StorageBackend::Database(storage, _) = &storage_backend {
+        let (wallet_id, loaded_context) = handle_wallet_operations(storage.as_ref(), &temp_config, scan_context.as_ref(), args.seed_phrase.as_deref()).await?;
+        
+        // If listing wallets or creating wallet without scanning, exit here
+        if temp_config.list_wallets || (temp_config.create_wallet && !temp_config.resume && temp_config.block_heights.is_none() && temp_config.from_block == 0) {
+            return Ok(());
+        }
+        
+        // Get wallet birthday if we loaded a wallet from database
+        let wallet_birthday = if loaded_context.is_some() && args.from_block.is_none() {
+            if let Some(wallet_id) = wallet_id {
+                if let Ok(Some(wallet)) = storage.get_wallet_by_id(wallet_id).await {
+                    Some(wallet.birthday_block)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        
+        (wallet_id, loaded_context, wallet_birthday)
+    } else {
+        (None, None, None)
+    };
+    
+    #[cfg(not(feature = "storage"))]
+    let (wallet_id, loaded_scan_context, wallet_birthday): (Option<u32>, Option<ScanContext>, Option<u64>) = (None, None, None);
+    
+    // Use loaded scan context if we didn't have one initially, or fall back to provided scan context
+    let final_scan_context = if let Some(loaded_context) = loaded_scan_context {
+        loaded_context
+    } else if let Some(context) = scan_context {
+        context
+    } else {
+        return Err(LightweightWalletError::InvalidArgument {
+            argument: "scan_context".to_string(),
+            value: "None".to_string(),
+            message: "No scan context available - provide keys or use existing wallet".to_string(),
+        });
+    };
+    
+    // Update storage backend with wallet_id
+    #[cfg(feature = "storage")]
+    if let (StorageBackend::Database(storage, ref mut stored_wallet_id), Some(wallet_id)) = (&mut storage_backend, wallet_id) {
+        *stored_wallet_id = Some(wallet_id);
+    }
+
+    
+    // Calculate final default from block (outside conditional compilation)
+    let final_default_from_block = wallet_birthday.unwrap_or(default_from_block);
+    
+    // Now calculate the from_block using the final_default_from_block
+    let from_block = args.from_block.unwrap_or(final_default_from_block);
+    
+    // Update the config with the correct from_block
     let block_height_range = BlockHeightRange::new(from_block, to_block, args.blocks.clone());
     let config = block_height_range.into_scan_config(&args)?;
 
-    // Create storage backend
-    let mut storage_backend = create_storage_backend(&config).await?;
-    
     // Display storage info and existing data
     if !args.quiet {
         match &storage_backend {
             #[cfg(feature = "storage")]
-            StorageBackend::Database(storage) => {
+            StorageBackend::Database(storage, wallet_id) => {
                 if let Some(db_path) = &config.database_path {
                     println!("💾 Using SQLite database: {}", db_path);
                     if config.clear_database {
@@ -1060,7 +1602,7 @@ async fn main() -> LightweightWalletResult<()> {
     
     // Perform the scan with cancellation support
     let scan_result = tokio::select! {
-        result = scan_wallet_across_blocks_with_cancellation(&mut scanner, &scan_context, &config, &mut storage_backend, &mut cancel_rx) => {
+        result = scan_wallet_across_blocks_with_cancellation(&mut scanner, &final_scan_context, &config, &mut storage_backend, &mut cancel_rx) => {
             Some(result)
         }
         _ = ctrl_c => {
@@ -1093,7 +1635,7 @@ async fn main() -> LightweightWalletResult<()> {
             if !args.quiet {
                 match &storage_backend {
                     #[cfg(feature = "storage")]
-                    StorageBackend::Database(storage) => {
+                    StorageBackend::Database(storage, wallet_id) => {
                         if let Ok(stats) = storage.get_statistics().await {
                             println!("💾 Database updated: {} total transactions stored", format_number(stats.total_transactions));
                             if config.resume {

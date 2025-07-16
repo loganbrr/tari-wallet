@@ -7,14 +7,11 @@ use blake2::Blake2b;
 use digest::consts::U64;
 use tari_crypto::{
     hash_domain,
-    hashing::{DomainSeparatedHash, DomainSeparatedHasher},
-    keys::{SecretKey as SKtrait, PublicKey},
-    ristretto::{RistrettoSecretKey, RistrettoPublicKey},
+    hashing::{ DomainSeparatedHasher},
 };
-use tari_utilities::ByteArray;
 
 use crate::data_structures::types::{CompressedPublicKey, PrivateKey};
-use crate::errors::{LightweightWalletError, LightweightWalletResult};
+use crate::errors::{ LightweightWalletResult};
 
 // Domain separators for stealth address operations
 hash_domain!(

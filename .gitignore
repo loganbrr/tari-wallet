@@ -3,3 +3,4 @@ target
 .code
 .vscode
 /REFERENCE_*
+*.db

@@ -804,11 +804,5 @@ mod tests {
     }
 }
 
-// Re-export commonly used types and functions
-pub use corruption_detection::*;
-pub use encrypted_data_decryption::*;
-pub use payment_id_extraction::*;
-pub use range_proof_extraction::*;
-pub use special_output_handling::*;
 pub use stealth_address_key_recovery::*;
 pub use wallet_output_reconstruction::*; 
