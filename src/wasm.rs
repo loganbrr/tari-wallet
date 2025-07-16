@@ -1,16 +1,19 @@
 use wasm_bindgen::prelude::*;
 use serde::{Deserialize, Serialize};
 use tari_utilities::ByteArray;
+use web_sys::console;
 
 use crate::{
     data_structures::{
-        types::PrivateKey,
+        types::{PrivateKey, CompressedCommitment, CompressedPublicKey, MicroMinotari},
         payment_id::PaymentId,
         wallet_transaction::WalletState,
         transaction::TransactionDirection,
         block::Block,
         transaction_output::LightweightTransactionOutput,
         transaction_input::TransactionInput,
+        encrypted_data::EncryptedData,
+        wallet_output::{LightweightOutputFeatures, LightweightScript, LightweightSignature, LightweightCovenant},
     },
     key_management::{
         key_derivation,
@@ -28,17 +31,6 @@ pub fn derive_public_key_hex(master_key: &[u8]) -> Result<String, JsValue> {
     Ok(hex::encode(master_key))
 }
 
-/// Simple BlockInfo struct for WASM (no async dependencies)
-#[derive(Debug, Clone)]
-pub struct BlockInfo {
-    pub height: u64,
-    pub hash: Vec<u8>,
-    pub timestamp: u64,
-    pub outputs: Vec<LightweightTransactionOutput>,
-    pub inputs: Vec<TransactionInput>, // Use proper TransactionInput
-    pub kernels: Vec<u8>, // Simplified for WASM
-}
-
 /// WASM-compatible wallet scanner
 #[wasm_bindgen]
 pub struct WasmScanner {
@@ -47,7 +39,32 @@ pub struct WasmScanner {
     wallet_state: WalletState,
 }
 
-/// Block data structure for JSON serialization
+/// HTTP API block response structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpBlockResponse {
+    pub blocks: Vec<HttpBlockData>,
+    pub has_next_page: bool,
+}
+
+/// HTTP API block data structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpBlockData {
+    pub header_hash: Vec<u8>,
+    pub height: u64,
+    pub outputs: Vec<HttpOutputData>,
+    pub mined_timestamp: u64,
+}
+
+/// HTTP API output data structure (minimal format)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpOutputData {
+    pub output_hash: Vec<u8>,
+    pub commitment: Vec<u8>,
+    pub encrypted_data: Vec<u8>,
+    pub sender_offset_public_key: Vec<u8>,
+}
+
+/// Legacy block data structure for backward compatibility
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlockData {
     pub height: u64,
@@ -57,7 +74,7 @@ pub struct BlockData {
     pub inputs: Vec<InputData>,
 }
 
-/// Output data structure
+/// Legacy output data structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutputData {
     pub commitment: String,
@@ -70,7 +87,7 @@ pub struct OutputData {
     pub covenant: Option<String>,
 }
 
-/// Input data structure (simplified)
+/// Legacy input data structure (simplified)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InputData {
     pub commitment: String,
@@ -192,11 +209,397 @@ impl WasmScanner {
         })
     }
 
-    /// Process block data
+    /// Process HTTP block response - NEW METHOD for HTTP API format
+    pub fn process_http_blocks(&mut self, http_response_json: &str) -> ScanResult {
+        // Parse HTTP response
+        let http_response: HttpBlockResponse = match serde_json::from_str(http_response_json) {
+            Ok(response) => response,
+            Err(e) => {
+                return ScanResult {
+                    total_outputs: 0,
+                    total_spent: 0,
+                    total_value: 0,
+                    current_balance: 0,
+                    blocks_processed: 0,
+                    transactions: Vec::new(),
+                    success: false,
+                    error: Some(format!("Failed to parse HTTP response: {}", e)),
+                };
+            }
+        };
+
+        let mut _total_found_outputs = 0;
+        let mut _total_spent_outputs = 0;
+        let mut blocks_processed = 0;
+        let mut batch_transactions = Vec::new();
+
+        // Track initial transaction count to identify new transactions
+        let _initial_transaction_count = self.wallet_state.transactions.len();
+
+        // Process each block and collect block-specific transactions
+        for http_block in http_response.blocks {
+            let block_start_tx_count = self.wallet_state.transactions.len();
+            
+            match self.process_single_http_block(&http_block) {
+                Ok((found_outputs, spent_outputs)) => {
+                    _total_found_outputs += found_outputs;
+                    _total_spent_outputs += spent_outputs;
+                    blocks_processed += 1;
+
+                    // Get transactions added in this block
+                    let block_transactions: Vec<TransactionSummary> = self.wallet_state.transactions
+                        .iter()
+                        .skip(block_start_tx_count)
+                        .map(|tx| {
+                            TransactionSummary {
+                                block_height: tx.block_height,
+                                value: tx.value,
+                                direction: match tx.transaction_direction {
+                                    TransactionDirection::Inbound => "inbound".to_string(),
+                                    TransactionDirection::Outbound => "outbound".to_string(),
+                                    TransactionDirection::Unknown => "unknown".to_string(),
+                                },
+                                status: format!("{:?}", tx.transaction_status),
+                                is_spent: tx.is_spent,
+                                payment_id: match &tx.payment_id {
+                                    PaymentId::Empty => None,
+                                    _ => Some(tx.payment_id.user_data_as_string()),
+                                },
+                            }
+                        }).collect();
+
+                    batch_transactions.extend(block_transactions);
+                }
+                Err(e) => {
+                    return ScanResult {
+                        total_outputs: 0,
+                        total_spent: 0,
+                        total_value: 0,
+                        current_balance: 0,
+                        blocks_processed,
+                        transactions: batch_transactions,
+                        success: false,
+                        error: Some(format!("Failed to process block {}: {}", http_block.height, e)),
+                    };
+                }
+            }
+        }
+
+        // Create result with all transactions found in this batch
+        let (total_received, _total_spent, balance, unspent_count, spent_count) = self.wallet_state.get_summary();
+        
+        ScanResult {
+            total_outputs: unspent_count as u64,
+            total_spent: spent_count as u64,
+            total_value: total_received,
+            current_balance: balance as u64,
+            blocks_processed: blocks_processed as u64,
+            transactions: batch_transactions,
+            success: true,
+            error: None,
+        }
+    }
+
+    /// Process single HTTP block using the EXACT same process as scanner.rs
+    /// 
+    /// This method converts HTTP block data to the Block struct and uses the same
+    /// `process_outputs()` method. For inputs, it extracts spending information from
+    /// payment IDs since HTTP API doesn't provide actual input data.
+    fn process_single_http_block(&mut self, http_block: &HttpBlockData) -> Result<(usize, usize), String> {
+        // Convert HTTP outputs to LightweightTransactionOutput (same as scanner.rs expects)
+        let outputs = self.convert_http_outputs_to_lightweight(&http_block.outputs)?;
+        
+        // Extract synthetic inputs from payment IDs (HTTP API limitation workaround)
+        let synthetic_inputs = self.extract_synthetic_inputs_from_payment_ids(&outputs, http_block.height)?;
+
+        // Create Block using the same constructor as scanner.rs
+        let block = Block::new(
+            http_block.height,
+            http_block.header_hash.clone(),
+            http_block.mined_timestamp,
+            outputs,
+            synthetic_inputs,
+        );
+
+        // Use the EXACT same processing methods as scanner.rs
+        let found_outputs = block.process_outputs(
+            &self.view_key,
+            &self.entropy,
+            &mut self.wallet_state,
+        ).map_err(|e| format!("Failed to process outputs: {}", e))?;
+
+        let spent_outputs = block.process_inputs(&mut self.wallet_state)
+            .map_err(|e| format!("Failed to process inputs: {}", e))?;
+
+        Ok((found_outputs, spent_outputs))
+    }
+
+    /// Extract synthetic transaction inputs from payment IDs containing sent_output_hashes
+    /// 
+    /// Since HTTP API doesn't provide input data, we extract spending information from
+    /// the payment IDs of outputs we can decrypt. This allows us to detect outbound transactions.
+    fn extract_synthetic_inputs_from_payment_ids(
+        &self,
+        outputs: &[LightweightTransactionOutput],
+        block_height: u64,
+    ) -> Result<Vec<TransactionInput>, String> {
+        use crate::data_structures::{
+            encrypted_data::EncryptedData,
+            transaction_input::{TransactionInput, LightweightExecutionStack},
+            types::{CompressedPublicKey, MicroMinotari},
+        };
+
+        let mut synthetic_inputs = Vec::new();
+        let mut debug_stats = (0, 0, 0, 0, 0); // (total_outputs, with_encrypted_data, decrypted_successfully, with_payment_ids, with_sent_hashes)
+
+
+        // Try to decrypt each output to extract payment IDs
+        for (output_index, output) in outputs.iter().enumerate() {
+            debug_stats.0 += 1; // total_outputs
+            
+            if output.encrypted_data.as_bytes().is_empty() {
+                continue;
+            }
+            debug_stats.1 += 1; // with_encrypted_data
+
+
+            // Try to decrypt with our view key to get the payment ID
+            if let Ok((value, _mask, payment_id)) = EncryptedData::decrypt_data(
+                &self.view_key,
+                &output.commitment,
+                &output.encrypted_data,
+            ) {
+                debug_stats.2 += 1; // decrypted_successfully
+                console::log_1(&format!("  ✅ Regular decryption successful! Value: {} μT {}", value.as_u64(), hex::encode(output.hash())).into());
+                
+                // Log detailed PaymentID information
+                self.log_payment_id_details(&payment_id, block_height, output_index, "regular");
+                
+                debug_stats.3 += 1; // with_payment_ids
+                
+                // Extract sent_output_hashes from TransactionInfo payment IDs
+                if let Some(sent_hashes) = payment_id.get_sent_hashes() {
+                    if !sent_hashes.is_empty() {
+                        debug_stats.4 += 1; // with_sent_hashes
+                        
+                        for (hash_index, sent_hash) in sent_hashes.iter().enumerate() {
+                            let commitment_hex = hex::encode(sent_hash.as_bytes());
+                            console::log_1(&format!("    Hash {}: {}", hash_index, commitment_hex).into());
+                            
+                            // Create a synthetic TransactionInput from the sent output hash
+                            let synthetic_input = TransactionInput::new(
+                                1, // version
+                                0, // features
+                                *sent_hash.as_bytes(), // commitment from hash
+                                [0u8; 64], // script_signature (not available)
+                                CompressedPublicKey::new([0u8; 32]), // sender_offset_public_key (not available)
+                                Vec::new(), // covenant (not available)
+                                LightweightExecutionStack::new(), // input_data (not available)
+                                *sent_hash.as_bytes(), // output_hash
+                                0, // output_features (not available)
+                                [0u8; 64], // output_metadata_signature (not available)
+                                0, // maturity (not available)
+                                MicroMinotari::from(0u64), // value (not available)
+                            );
+
+                            synthetic_inputs.push(synthetic_input);
+                        }
+                    } 
+                }
+            }
+            // Also try one-sided decryption if sender offset key is available
+            else if !output.sender_offset_public_key.as_bytes().iter().all(|&b| b == 0) {
+                    
+                if let Ok((value, _mask, payment_id)) = EncryptedData::decrypt_one_sided_data(
+                    &self.view_key,
+                    &output.commitment,
+                    &output.sender_offset_public_key,
+                    &output.encrypted_data,
+                ) {
+                    debug_stats.2 += 1; // decrypted_successfully
+                    
+                    // Log detailed PaymentID information
+                    self.log_payment_id_details(&payment_id, block_height, output_index, "one-sided");
+                    
+                    debug_stats.3 += 1; // with_payment_ids
+                    
+                    // Extract sent_output_hashes from TransactionInfo payment IDs
+                    if let Some(sent_hashes) = payment_id.get_sent_hashes() {
+                        if !sent_hashes.is_empty() {
+                            debug_stats.4 += 1; // with_sent_hashes
+                            
+                            for (hash_index, sent_hash) in sent_hashes.iter().enumerate() {
+                                let commitment_hex = hex::encode(sent_hash.as_bytes());
+                                
+                                // Create a synthetic TransactionInput from the sent output hash
+                                let synthetic_input = TransactionInput::new(
+                                    1, // version
+                                    0, // features
+                                    *sent_hash.as_bytes(), // commitment from hash
+                                    [0u8; 64], // script_signature (not available)
+                                    CompressedPublicKey::new([0u8; 32]), // sender_offset_public_key (not available)
+                                    Vec::new(), // covenant (not available)
+                                    LightweightExecutionStack::new(), // input_data (not available)
+                                    *sent_hash.as_bytes(), // output_hash
+                                    0, // output_features (not available)
+                                    [0u8; 64], // output_metadata_signature (not available)
+                                    0, // maturity (not available)
+                                    MicroMinotari::from(0u64), // value (not available)
+                                );
+
+                                synthetic_inputs.push(synthetic_input);
+                            }
+                        } 
+                    } 
+                } 
+            }
+        }
+
+        Ok(synthetic_inputs)
+    }
+
+    /// Log detailed information about a PaymentID
+    fn log_payment_id_details(&self, payment_id: &PaymentId, block_height: u64, output_index: usize, decrypt_method: &str) {
+        console::log_1(&format!("  💳 PaymentID Details ({})", decrypt_method).into());
+        
+        // Log the discriminant (variant type)
+        let discriminant = std::mem::discriminant(payment_id);
+        console::log_1(&format!("    Variant discriminant: {:?}", discriminant).into());
+        
+        // Log the raw bytes
+        let payment_id_bytes = payment_id.to_bytes();
+        console::log_1(&format!("    Raw bytes ({} total): {}", payment_id_bytes.len(), hex::encode(&payment_id_bytes)).into());
+        
+        // Parse first byte for tag if present
+        if !payment_id_bytes.is_empty() {
+            console::log_1(&format!("    First byte (tag): 0x{:02x} ({})", payment_id_bytes[0], payment_id_bytes[0]).into());
+        }
+        
+        // Log detailed structure based on variant
+        match payment_id {
+            PaymentId::Empty => {
+                console::log_1(&format!("    Type: Empty").into());
+            },
+            PaymentId::U256(value) => {
+                console::log_1(&format!("    Type: U256").into());
+                console::log_1(&format!("    Value: {}", value).into());
+            },
+            PaymentId::Open { user_data, tx_type } => {
+                console::log_1(&format!("    Type: Open").into());
+                console::log_1(&format!("    TxType: {:?}", tx_type).into());
+                console::log_1(&format!("    User data ({} bytes): {}", user_data.len(), hex::encode(user_data)).into());
+                if let Ok(utf8_str) = std::str::from_utf8(user_data) {
+                    console::log_1(&format!("    User data (UTF-8): \"{}\"", utf8_str).into());
+                }
+            },
+            PaymentId::AddressAndData { 
+                sender_address, 
+                sender_one_sided, 
+                fee, 
+                tx_type, 
+                user_data 
+            } => {
+                console::log_1(&format!("    Type: AddressAndData").into());
+                console::log_1(&format!("    Sender address: {}", sender_address.to_base58()).into());
+                console::log_1(&format!("    Sender one-sided: {}", sender_one_sided).into());
+                console::log_1(&format!("    Fee: {} μT", fee.as_u64()).into());
+                console::log_1(&format!("    TxType: {:?}", tx_type).into());
+                console::log_1(&format!("    User data ({} bytes): {}", user_data.len(), hex::encode(user_data)).into());
+                if let Ok(utf8_str) = std::str::from_utf8(user_data) {
+                    console::log_1(&format!("    User data (UTF-8): \"{}\"", utf8_str).into());
+                }
+            },
+            PaymentId::TransactionInfo { 
+                recipient_address, 
+                sender_one_sided, 
+                amount, 
+                fee, 
+                tx_type, 
+                sent_output_hashes, 
+                user_data 
+            } => {
+                console::log_1(&format!("    Type: TransactionInfo").into());
+                console::log_1(&format!("    Recipient address: {}", recipient_address.to_base58()).into());
+                console::log_1(&format!("    Sender one-sided: {}", sender_one_sided).into());
+                console::log_1(&format!("    Amount: {} μT", amount.as_u64()).into());
+                console::log_1(&format!("    Fee: {} μT", fee.as_u64()).into());
+                console::log_1(&format!("    TxType: {:?}", tx_type).into());
+                console::log_1(&format!("    User data ({} bytes): {}", user_data.len(), hex::encode(user_data)).into());
+                if let Ok(utf8_str) = std::str::from_utf8(user_data) {
+                    console::log_1(&format!("    User data (UTF-8): \"{}\"", utf8_str).into());
+                }
+                console::log_1(&format!("    🎯 SENT OUTPUT HASHES: {} items", sent_output_hashes.len()).into());
+                for (i, hash) in sent_output_hashes.iter().enumerate() {
+                    console::log_1(&format!("      Hash {}: {}", i, hex::encode(hash.as_bytes())).into());
+                }
+                
+                // Check if this looks like a V1 vs V2 format
+                if sent_output_hashes.is_empty() {
+                    console::log_1(&format!("    ⚠️ WARNING: TransactionInfo has empty sent_output_hashes (likely V1 format)").into());
+                }
+            },
+            PaymentId::Raw(bytes) => {
+                console::log_1(&format!("    Type: Raw").into());
+                console::log_1(&format!("    Raw bytes ({} total): {}", bytes.len(), hex::encode(bytes)).into());
+            },
+        }
+        
+        // Log the display representation
+        console::log_1(&format!("    Display: {}", payment_id).into());
+    }
+
+    /// Convert HTTP output data to LightweightTransactionOutput (minimal viable format)
+    fn convert_http_outputs_to_lightweight(&self, http_outputs: &[HttpOutputData]) -> Result<Vec<LightweightTransactionOutput>, String> {
+        let mut outputs = Vec::new();
+
+        for http_output in http_outputs {
+            // Parse commitment
+            if http_output.commitment.len() != 32 {
+                return Err("Invalid commitment length, expected 32 bytes".to_string());
+            }
+            let commitment = CompressedCommitment::new(
+                http_output.commitment.clone().try_into()
+                    .map_err(|_| "Failed to convert commitment")?
+            );
+
+            // Parse sender offset public key
+            if http_output.sender_offset_public_key.len() != 32 {
+                return Err("Invalid sender offset public key length, expected 32 bytes".to_string());
+            }
+            let sender_offset_public_key = CompressedPublicKey::new(
+                http_output.sender_offset_public_key.clone().try_into()
+                    .map_err(|_| "Failed to convert sender offset public key")?
+            );
+
+            // Parse encrypted data
+            let encrypted_data = EncryptedData::from_bytes(&http_output.encrypted_data)
+                .map_err(|e| format!("Invalid encrypted data: {}", e))?;
+
+            // Create LightweightTransactionOutput with minimal viable data
+            // HTTP API provides limited data, so we use defaults for missing fields
+            let output = LightweightTransactionOutput::new_current_version(
+                LightweightOutputFeatures::default(), // Default features (will be 0/Standard)
+                commitment,
+                None, // Range proof not provided in HTTP API
+                LightweightScript::default(), // Script not provided, use empty/default
+                sender_offset_public_key,
+                LightweightSignature::default(), // Metadata signature not provided, use default
+                LightweightCovenant::default(), // Covenant not provided, use default
+                encrypted_data,
+                MicroMinotari::from(0u64), // Minimum value promise not provided, use 0
+            );
+
+            outputs.push(output);
+        }
+
+        Ok(outputs)
+    }
+
+    /// Process block data (LEGACY METHOD for backward compatibility)
     pub fn process_block(&mut self, block_data: &BlockData) -> ScanResult {
-        // Convert block data to internal format
-        let block_info = match self.convert_block_data_to_internal(block_data) {
-            Ok(info) => info,
+        // Convert legacy format to internal format
+        let outputs = match self.convert_legacy_outputs(block_data) {
+            Ok(outputs) => outputs,
             Err(e) => {
                 return ScanResult {
                     total_outputs: 0,
@@ -211,16 +614,48 @@ impl WasmScanner {
             }
         };
 
-        // Create Block directly
+        let inputs = match self.convert_legacy_inputs(block_data) {
+            Ok(inputs) => inputs,
+            Err(e) => {
+                return ScanResult {
+                    total_outputs: 0,
+                    total_spent: 0,
+                    total_value: 0,
+                    current_balance: 0,
+                    blocks_processed: 0,
+                    transactions: Vec::new(),
+                    success: false,
+                    error: Some(e),
+                };
+            }
+        };
+
+        let block_hash = match hex::decode(&block_data.hash) {
+            Ok(hash) => hash,
+            Err(e) => {
+                return ScanResult {
+                    total_outputs: 0,
+                    total_spent: 0,
+                    total_value: 0,
+                    current_balance: 0,
+                    blocks_processed: 0,
+                    transactions: Vec::new(),
+                    success: false,
+                    error: Some(format!("Invalid block hash: {}", e)),
+                };
+            }
+        };
+
+        // Create Block using the same constructor as scanner.rs
         let block = Block::new(
-            block_info.height,
-            block_info.hash,
-            block_info.timestamp,
-            block_info.outputs,
-            block_info.inputs,
+            block_data.height,
+            block_hash,
+            block_data.timestamp,
+            outputs,
+            inputs,
         );
 
-        // Process block
+        // Use the exact same processing methods as scanner.rs
         let found_outputs = match block.process_outputs(&self.view_key, &self.entropy, &mut self.wallet_state) {
             Ok(count) => count,
             Err(e) => {
@@ -256,15 +691,15 @@ impl WasmScanner {
         self.create_scan_result(found_outputs, spent_outputs, 1)
     }
 
-    /// Process single block and return only block-specific results
+    /// Process single block and return only block-specific results (LEGACY METHOD)
     pub fn process_single_block(&mut self, block_data: &BlockData) -> BlockScanResult {
         // Get wallet state before processing
         let (prev_total_received, prev_total_spent, _prev_balance, _prev_unspent_count, _prev_spent_count) = self.wallet_state.get_summary();
         let prev_transaction_count = self.wallet_state.transactions.len();
 
-        // Convert block data to internal format
-        let block_info = match self.convert_block_data_to_internal(block_data) {
-            Ok(info) => info,
+        // Convert legacy format to internal format
+        let outputs = match self.convert_legacy_outputs(block_data) {
+            Ok(outputs) => outputs,
             Err(e) => {
                 return BlockScanResult {
                     block_height: block_data.height,
@@ -280,16 +715,50 @@ impl WasmScanner {
             }
         };
 
-        // Create Block directly
+        let inputs = match self.convert_legacy_inputs(block_data) {
+            Ok(inputs) => inputs,
+            Err(e) => {
+                return BlockScanResult {
+                    block_height: block_data.height,
+                    block_hash: block_data.hash.clone(),
+                    outputs_found: 0,
+                    inputs_spent: 0,
+                    value_found: 0,
+                    value_spent: 0,
+                    transactions: Vec::new(),
+                    success: false,
+                    error: Some(e),
+                };
+            }
+        };
+
+        let block_hash = match hex::decode(&block_data.hash) {
+            Ok(hash) => hash,
+            Err(e) => {
+                return BlockScanResult {
+                    block_height: block_data.height,
+                    block_hash: block_data.hash.clone(),
+                    outputs_found: 0,
+                    inputs_spent: 0,
+                    value_found: 0,
+                    value_spent: 0,
+                    transactions: Vec::new(),
+                    success: false,
+                    error: Some(format!("Invalid block hash: {}", e)),
+                };
+            }
+        };
+
+        // Create Block using the same constructor as scanner.rs
         let block = Block::new(
-            block_info.height,
-            block_info.hash.clone(),
-            block_info.timestamp,
-            block_info.outputs,
-            block_info.inputs,
+            block_data.height,
+            block_hash.clone(),
+            block_data.timestamp,
+            outputs,
+            inputs,
         );
 
-        // Process block
+        // Use the exact same processing methods as scanner.rs
         let found_outputs = match block.process_outputs(&self.view_key, &self.entropy, &mut self.wallet_state) {
             Ok(count) => count,
             Err(e) => {
@@ -326,13 +795,12 @@ impl WasmScanner {
 
         // Get wallet state after processing
         let (new_total_received, new_total_spent, _new_balance, _new_unspent_count, _new_spent_count) = self.wallet_state.get_summary();
-        let _new_transaction_count = self.wallet_state.transactions.len();
 
         // Calculate block-specific values
         let value_found = new_total_received - prev_total_received;
         let value_spent = new_total_spent - prev_total_spent;
 
-        // Get transactions added in this block (those from the new transaction count)
+        // Get transactions added in this block
         let block_transactions: Vec<TransactionSummary> = self.wallet_state.transactions
             .iter()
             .skip(prev_transaction_count)
@@ -368,43 +836,28 @@ impl WasmScanner {
         }
     }
 
-    /// Convert block data to internal format
-    fn convert_block_data_to_internal(&self, block_data: &BlockData) -> Result<BlockInfo, String> {
-        let block_hash = hex::decode(&block_data.hash)
-            .map_err(|e| format!("Invalid block hash: {}", e))?;
-
-        // Convert outputs
+    /// Convert legacy OutputData to LightweightTransactionOutput
+    fn convert_legacy_outputs(&self, block_data: &BlockData) -> Result<Vec<LightweightTransactionOutput>, String> {
         let mut outputs = Vec::new();
         for output_data in &block_data.outputs {
-            let output = self.convert_output_data(output_data)?;
+            let output = self.convert_legacy_output_data(output_data)?;
             outputs.push(output);
         }
-
-        // Convert inputs  
-        let mut inputs = Vec::new();
-        for input_data in &block_data.inputs {
-            let input = self.convert_input_data(input_data)?;
-            inputs.push(input);
-        }
-
-        Ok(BlockInfo {
-            height: block_data.height,
-            hash: block_hash,
-            timestamp: block_data.timestamp,
-            outputs,
-            inputs,
-            kernels: Vec::new(), // Kernels not provided in current API
-        })
+        Ok(outputs)
     }
 
-    /// Convert OutputData to LightweightTransactionOutput
-    fn convert_output_data(&self, output_data: &OutputData) -> Result<LightweightTransactionOutput, String> {
-        use crate::data_structures::{
-            types::{CompressedCommitment, CompressedPublicKey, MicroMinotari},
-            encrypted_data::EncryptedData,
-            wallet_output::{LightweightOutputFeatures, LightweightScript, LightweightSignature, LightweightCovenant},
-        };
+    /// Convert legacy InputData to TransactionInput
+    fn convert_legacy_inputs(&self, block_data: &BlockData) -> Result<Vec<TransactionInput>, String> {
+        let mut inputs = Vec::new();
+        for input_data in &block_data.inputs {
+            let input = self.convert_legacy_input_data(input_data)?;
+            inputs.push(input);
+        }
+        Ok(inputs)
+    }
 
+    /// Convert OutputData to LightweightTransactionOutput (LEGACY)
+    fn convert_legacy_output_data(&self, output_data: &OutputData) -> Result<LightweightTransactionOutput, String> {
         // Parse commitment
         let commitment = CompressedCommitment::from_hex(&output_data.commitment)
             .map_err(|e| format!("Invalid commitment hex: {}", e))?;
@@ -431,10 +884,9 @@ impl WasmScanner {
         ))
     }
 
-    /// Convert InputData to TransactionInput
-    fn convert_input_data(&self, input_data: &InputData) -> Result<TransactionInput, String> {
+    /// Convert InputData to TransactionInput (LEGACY)
+    fn convert_legacy_input_data(&self, input_data: &InputData) -> Result<TransactionInput, String> {
         use crate::data_structures::{
-            types::{CompressedPublicKey, MicroMinotari},
             transaction_input::LightweightExecutionStack,
         };
 
@@ -530,7 +982,16 @@ pub fn create_wasm_scanner(data: &str) -> Result<WasmScanner, JsValue> {
     WasmScanner::from_str(data).map_err(|e| JsValue::from_str(&e))
 }
 
-/// Scan block data (WASM export)
+/// Process HTTP block response (WASM export) - NEW METHOD for HTTP API
+#[wasm_bindgen]
+pub fn process_http_blocks(scanner: &mut WasmScanner, http_response_json: &str) -> Result<String, JsValue> {
+    let result = scanner.process_http_blocks(http_response_json);
+    
+    serde_json::to_string(&result)
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {}", e)))
+}
+
+/// Scan block data (WASM export) - LEGACY METHOD for backward compatibility
 #[wasm_bindgen]
 pub fn scan_block_data(scanner: &mut WasmScanner, block_data_json: &str) -> Result<String, JsValue> {
     let block_data: BlockData = serde_json::from_str(block_data_json)
@@ -542,7 +1003,7 @@ pub fn scan_block_data(scanner: &mut WasmScanner, block_data_json: &str) -> Resu
         .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {}", e)))
 }
 
-/// Scan single block and return only block-specific data (WASM export)
+/// Scan single block and return only block-specific data (WASM export) - LEGACY METHOD  
 #[wasm_bindgen]
 pub fn scan_single_block(scanner: &mut WasmScanner, block_data_json: &str) -> Result<String, JsValue> {
     let block_data: BlockData = serde_json::from_str(block_data_json)

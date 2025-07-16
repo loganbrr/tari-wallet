@@ -1180,6 +1180,7 @@ dependencies = [
  "tracing-subscriber",
  "wasm-bindgen",
  "wasm-bindgen-test",
+ "web-sys",
  "zeroize",
 ]
 
