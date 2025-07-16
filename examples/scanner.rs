@@ -54,6 +54,19 @@
 //! # Resume from a specific block after error
 //! cargo run --example scanner --features grpc -- --seed-phrase "your seed phrase" --from-block 25000 --to-block 30000
 //!
+//! # *** DATABASE STORAGE FEATURES (requires 'grpc-storage' feature) ***
+//! # Persist transactions to SQLite database
+//! cargo run --example scanner --features grpc-storage -- --seed-phrase "your seed phrase" --database wallet.db
+//!
+//! # Clear existing database and start fresh
+//! cargo run --example scanner --features grpc-storage -- --seed-phrase "your seed phrase" --database wallet.db --clear-database
+//!
+//! # Resume scanning from last processed block in database
+//! cargo run --example scanner --features grpc-storage -- --seed-phrase "your seed phrase" --database wallet.db --resume
+//!
+//! # Use in-memory database (useful for testing)
+//! cargo run --example scanner --features grpc-storage -- --seed-phrase "your seed phrase" --database ":memory:"
+//!
 //! # Show help
 //! cargo run --example scanner --features grpc -- --help
 //! ```
@@ -89,6 +102,8 @@ use lightweight_wallet_libs::{
 };
 #[cfg(feature = "grpc")]
 use tari_utilities::ByteArray;
+#[cfg(all(feature = "grpc", feature = "storage"))]
+use lightweight_wallet_libs::storage::{WalletStorage, SqliteStorage};
 #[cfg(feature = "grpc")]
 use tokio::time::Instant;
 #[cfg(feature = "grpc")]
@@ -147,6 +162,18 @@ struct CliArgs {
     /// Enable detailed profiling output
     #[arg(long, help = "Enable detailed performance profiling")]
     profile: bool,
+
+    /// Database file path for storing transactions (optional, enables persistence)
+    #[arg(long, help = "SQLite database file path for storing transactions. If not provided, transactions are only stored in memory")]
+    database: Option<String>,
+
+    /// Clear existing database before scanning
+    #[arg(long, help = "Clear all existing transactions from database before starting scan")]
+    clear_database: bool,
+
+    /// Resume scan from last processed block in database
+    #[arg(long, help = "Resume scanning from the highest block height stored in database")]
+    resume: bool,
 }
 
 /// Configuration for wallet scanning
@@ -161,6 +188,9 @@ pub struct ScanConfig {
     pub output_format: OutputFormat,
     pub batch_size: usize,
     pub enable_profiling: bool,
+    pub database_path: Option<String>,
+    pub clear_database: bool,
+    pub resume: bool,
 }
 
 /// Output format options
@@ -184,6 +214,14 @@ impl std::str::FromStr for OutputFormat {
             _ => Err(format!("Invalid output format: {}. Valid options: detailed, summary, json", s)),
         }
     }
+}
+
+/// Storage backend options for scanning
+#[cfg(feature = "grpc")]
+pub enum StorageBackend {
+    #[cfg(feature = "storage")]
+    Database(Box<dyn WalletStorage>),
+    Memory,
 }
 
 /// Wallet scanning context
@@ -326,6 +364,9 @@ impl BlockHeightRange {
             output_format,
             batch_size: args.batch_size,
             enable_profiling: args.profile,
+            database_path: args.database.clone(),
+            clear_database: args.clear_database,
+            resume: args.resume,
         })
     }
 }
@@ -386,17 +427,79 @@ pub enum ScanResult {
     Interrupted(WalletState, ProfileData),
 }
 
+/// Create storage backend based on configuration
+#[cfg(feature = "grpc")]
+async fn create_storage_backend(config: &ScanConfig) -> LightweightWalletResult<StorageBackend> {
+    #[cfg(feature = "storage")]
+    {
+        if let Some(db_path) = &config.database_path {
+            let storage = if db_path == ":memory:" {
+                SqliteStorage::new_in_memory().await?
+            } else {
+                SqliteStorage::new(db_path).await?
+            };
+            
+            storage.initialize().await?;
+            
+            if config.clear_database {
+                storage.clear_all_transactions().await?;
+            }
+            
+            return Ok(StorageBackend::Database(Box::new(storage)));
+        }
+    }
+    
+    Ok(StorageBackend::Memory)
+}
+
 /// Core scanning logic - simplified and focused with batch processing
 #[cfg(feature = "grpc")]
 async fn scan_wallet_across_blocks_with_cancellation(
     scanner: &mut GrpcBlockchainScanner,
     scan_context: &ScanContext,
     config: &ScanConfig,
+    storage_backend: &mut StorageBackend,
     cancel_rx: &mut tokio::sync::watch::Receiver<bool>,
 ) -> LightweightWalletResult<ScanResult> {
     let has_specific_blocks = config.block_heights.is_some();
+    
+    // Handle resume functionality for database storage
+    let (from_block, to_block) = if config.resume {
+        #[cfg(feature = "storage")]
+        if let StorageBackend::Database(storage) = storage_backend {
+            if let Some(highest_block) = storage.get_highest_block().await? {
+                let resume_from = highest_block + 1;
+                if !config.quiet {
+                    println!("📄 Resuming scan from block {} (last processed: {})", 
+                        format_number(resume_from), format_number(highest_block));
+                }
+                (resume_from, config.to_block)
+            } else {
+                if !config.quiet {
+                    println!("📄 No previous scan data found, starting from beginning");
+                }
+                (config.from_block, config.to_block)
+            }
+        } else {
+            if !config.quiet {
+                println!("⚠️  Resume option requires database storage, ignoring");
+            }
+            (config.from_block, config.to_block)
+        }
+        
+        #[cfg(not(feature = "storage"))]
+        {
+            if !config.quiet {
+                println!("⚠️  Resume option requires storage feature, ignoring");
+            }
+            (config.from_block, config.to_block)
+        }
+    } else {
+        (config.from_block, config.to_block)
+    };
+    
     let block_heights = config.block_heights.clone().unwrap_or_else(|| {
-        (config.from_block..=config.to_block).collect()
+        (from_block..=to_block).collect()
     });
 
     if !config.quiet {
@@ -523,6 +626,26 @@ async fn scan_wallet_across_blocks_with_cancellation(
                     if config.enable_profiling {
                         profile_data.add_block_processing_time(*block_height, block_duration);
                     }
+                    
+                    // Save transactions to storage backend if using database
+                    #[cfg(feature = "storage")]
+                    if let StorageBackend::Database(storage) = storage_backend {
+                        // Get new transactions from this block height
+                        let block_transactions: Vec<_> = wallet_state.transactions.iter()
+                            .filter(|tx| tx.block_height == *block_height)
+                            .cloned()
+                            .collect();
+                        
+                        if !block_transactions.is_empty() {
+                            if let Err(e) = storage.save_transactions(&block_transactions).await {
+                                if !config.quiet {
+                                    println!("\n⚠️  Warning: Failed to save {} transactions from block {} to database: {}", 
+                                        format_number(block_transactions.len()), format_number(*block_height), e);
+                                }
+                            }
+                        }
+                    }
+                    
                     result
                 },
                 Err(e) => {
@@ -892,6 +1015,40 @@ async fn main() -> LightweightWalletResult<()> {
     let block_height_range = BlockHeightRange::new(from_block, to_block, args.blocks.clone());
     let config = block_height_range.into_scan_config(&args)?;
 
+    // Create storage backend
+    let mut storage_backend = create_storage_backend(&config).await?;
+    
+    // Display storage info and existing data
+    if !args.quiet {
+        match &storage_backend {
+            #[cfg(feature = "storage")]
+            StorageBackend::Database(storage) => {
+                if let Some(db_path) = &config.database_path {
+                    println!("💾 Using SQLite database: {}", db_path);
+                    if config.clear_database {
+                        println!("🗑️  Database cleared before scanning");
+                    }
+                } else {
+                    println!("💾 Using in-memory database");
+                }
+                
+                // Show existing data if any
+                let stats = storage.get_statistics().await?;
+                if stats.total_transactions > 0 {
+                    println!("📄 Existing data: {} transactions, balance: {:.6} T, blocks: {}-{}", 
+                        format_number(stats.total_transactions),
+                        stats.current_balance as f64 / 1_000_000.0,
+                        format_number(stats.lowest_block.unwrap_or(0)),
+                        format_number(stats.highest_block.unwrap_or(0))
+                    );
+                }
+            },
+            StorageBackend::Memory => {
+                println!("💭 Using in-memory storage (transactions will not be persisted)");
+            }
+        }
+    }
+
     // Setup cancellation mechanism
     let (cancel_tx, mut cancel_rx) = tokio::sync::watch::channel(false);
     
@@ -903,7 +1060,7 @@ async fn main() -> LightweightWalletResult<()> {
     
     // Perform the scan with cancellation support
     let scan_result = tokio::select! {
-        result = scan_wallet_across_blocks_with_cancellation(&mut scanner, &scan_context, &config, &mut cancel_rx) => {
+        result = scan_wallet_across_blocks_with_cancellation(&mut scanner, &scan_context, &config, &mut storage_backend, &mut cancel_rx) => {
             Some(result)
         }
         _ = ctrl_c => {
@@ -932,7 +1089,22 @@ async fn main() -> LightweightWalletResult<()> {
                 profile_data.display_recommendations(config.quiet);
             }
             
+            // Display storage completion info
             if !args.quiet {
+                match &storage_backend {
+                    #[cfg(feature = "storage")]
+                    StorageBackend::Database(storage) => {
+                        if let Ok(stats) = storage.get_statistics().await {
+                            println!("💾 Database updated: {} total transactions stored", format_number(stats.total_transactions));
+                            if config.resume {
+                                println!("📍 Next scan can resume from block {}", format_number(stats.highest_block.unwrap_or(0) + 1));
+                            }
+                        }
+                    },
+                    StorageBackend::Memory => {
+                        println!("💭 Transactions stored in memory only (not persisted)");
+                    }
+                }
                 println!("✅ Scan completed successfully!");
             }
         }

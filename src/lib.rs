@@ -12,6 +12,8 @@ pub mod extraction;
 pub mod key_management;
 #[cfg(feature = "grpc")]
 pub mod scanning;
+#[cfg(feature = "storage")]
+pub mod storage;
 pub mod wallet;
 pub mod utils;
 #[cfg(target_arch = "wasm32")]
@@ -30,4 +32,6 @@ pub use extraction::*;
 pub use key_management::*;
 #[cfg(feature = "grpc")]
 pub use scanning::*;
+#[cfg(feature = "storage")]
+pub use storage::*;
 pub use wallet::*; 
