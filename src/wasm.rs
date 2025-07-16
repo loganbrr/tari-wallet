@@ -80,6 +80,20 @@ pub struct InputData {
     pub sender_offset_public_key: Option<String>,
 }
 
+/// Block-specific scan result structure (only data found in this block)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BlockScanResult {
+    pub block_height: u64,
+    pub block_hash: String,
+    pub outputs_found: u64,
+    pub inputs_spent: u64,
+    pub value_found: u64,
+    pub value_spent: u64,
+    pub transactions: Vec<TransactionSummary>,
+    pub success: bool,
+    pub error: Option<String>,
+}
+
 /// Scan result structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanResult {
@@ -240,6 +254,118 @@ impl WasmScanner {
         };
 
         self.create_scan_result(found_outputs, spent_outputs, 1)
+    }
+
+    /// Process single block and return only block-specific results
+    pub fn process_single_block(&mut self, block_data: &BlockData) -> BlockScanResult {
+        // Get wallet state before processing
+        let (prev_total_received, prev_total_spent, _prev_balance, _prev_unspent_count, _prev_spent_count) = self.wallet_state.get_summary();
+        let prev_transaction_count = self.wallet_state.transactions.len();
+
+        // Convert block data to internal format
+        let block_info = match self.convert_block_data_to_internal(block_data) {
+            Ok(info) => info,
+            Err(e) => {
+                return BlockScanResult {
+                    block_height: block_data.height,
+                    block_hash: block_data.hash.clone(),
+                    outputs_found: 0,
+                    inputs_spent: 0,
+                    value_found: 0,
+                    value_spent: 0,
+                    transactions: Vec::new(),
+                    success: false,
+                    error: Some(e),
+                };
+            }
+        };
+
+        // Create Block directly
+        let block = Block::new(
+            block_info.height,
+            block_info.hash.clone(),
+            block_info.timestamp,
+            block_info.outputs,
+            block_info.inputs,
+        );
+
+        // Process block
+        let found_outputs = match block.process_outputs(&self.view_key, &self.entropy, &mut self.wallet_state) {
+            Ok(count) => count,
+            Err(e) => {
+                return BlockScanResult {
+                    block_height: block_data.height,
+                    block_hash: block_data.hash.clone(),
+                    outputs_found: 0,
+                    inputs_spent: 0,
+                    value_found: 0,
+                    value_spent: 0,
+                    transactions: Vec::new(),
+                    success: false,
+                    error: Some(format!("Failed to process outputs: {}", e)),
+                };
+            }
+        };
+
+        let spent_outputs = match block.process_inputs(&mut self.wallet_state) {
+            Ok(count) => count,
+            Err(e) => {
+                return BlockScanResult {
+                    block_height: block_data.height,
+                    block_hash: block_data.hash.clone(),
+                    outputs_found: 0,
+                    inputs_spent: 0,
+                    value_found: 0,
+                    value_spent: 0,
+                    transactions: Vec::new(),
+                    success: false,
+                    error: Some(format!("Failed to process inputs: {}", e)),
+                };
+            }
+        };
+
+        // Get wallet state after processing
+        let (new_total_received, new_total_spent, _new_balance, _new_unspent_count, _new_spent_count) = self.wallet_state.get_summary();
+        let _new_transaction_count = self.wallet_state.transactions.len();
+
+        // Calculate block-specific values
+        let value_found = new_total_received - prev_total_received;
+        let value_spent = new_total_spent - prev_total_spent;
+
+        // Get transactions added in this block (those from the new transaction count)
+        let block_transactions: Vec<TransactionSummary> = self.wallet_state.transactions
+            .iter()
+            .skip(prev_transaction_count)
+            .filter(|tx| tx.block_height == block_data.height)
+            .map(|tx| {
+                TransactionSummary {
+                    block_height: tx.block_height,
+                    value: tx.value,
+                    direction: match tx.transaction_direction {
+                        TransactionDirection::Inbound => "inbound".to_string(),
+                        TransactionDirection::Outbound => "outbound".to_string(),
+                        TransactionDirection::Unknown => "unknown".to_string(),
+                    },
+                    status: format!("{:?}", tx.transaction_status),
+                    is_spent: tx.is_spent,
+                    payment_id: match &tx.payment_id {
+                        PaymentId::Empty => None,
+                        _ => Some(tx.payment_id.user_data_as_string()),
+                    },
+                }
+            }).collect();
+
+        BlockScanResult {
+            block_height: block_data.height,
+            block_hash: block_data.hash.clone(),
+            outputs_found: found_outputs as u64,
+            inputs_spent: spent_outputs as u64,
+            value_found,
+            value_spent,
+            transactions: block_transactions,
+            success: true,
+            error: None,
+        }
     }
 
     /// Convert block data to internal format
@@ -414,6 +540,35 @@ pub fn scan_block_data(scanner: &mut WasmScanner, block_data_json: &str) -> Resu
     
     serde_json::to_string(&result)
         .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {}", e)))
+}
+
+/// Scan single block and return only block-specific data (WASM export)
+#[wasm_bindgen]
+pub fn scan_single_block(scanner: &mut WasmScanner, block_data_json: &str) -> Result<String, JsValue> {
+    let block_data: BlockData = serde_json::from_str(block_data_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse block data: {}", e)))?;
+
+    let result = scanner.process_single_block(&block_data);
+    
+    serde_json::to_string(&result)
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {}", e)))
+}
+
+/// Get cumulative scanner statistics (WASM export)
+#[wasm_bindgen]
+pub fn get_scanner_stats(scanner: &WasmScanner) -> Result<String, JsValue> {
+    let (total_received, _total_spent, balance, unspent_count, spent_count) = scanner.wallet_state.get_summary();
+    
+    let stats = serde_json::json!({
+        "total_outputs": unspent_count,
+        "total_spent": spent_count,
+        "total_value": total_received,
+        "current_balance": balance,
+        "total_transactions": scanner.wallet_state.transactions.len(),
+    });
+    
+    serde_json::to_string(&stats)
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize stats: {}", e)))
 }
 
 /// Get scanner state (WASM export)
