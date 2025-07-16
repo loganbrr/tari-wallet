@@ -71,6 +71,9 @@ tracing = { version = "0.1", optional = true }
 tonic = { version = "0.10", features = ["tls", "tls-roots", "prost"], optional = true }
 prost = { version = "0.12", optional = true }
 
+# HTTP client dependencies for blockchain scanning
+reqwest = { version = "0.11", features = ["json"], optional = true, default-features = false }
+
 # CLI argument parsing for examples
 clap = { version = "4.4", features = ["derive"], optional = true }
 
@@ -90,15 +93,19 @@ wasm-bindgen-test = "0.3"
 tonic-build = "0.10"
 
 [features]
-default = []
+default = ["http"]
 wasm = ["getrandom/js"]
 grpc = ["rayon", "tonic", "prost", "clap", "async-trait", "tokio", "tracing", "tracing-subscriber"]
+http = ["reqwest", "async-trait", "tokio", "tracing"]
+http-wasm = ["reqwest", "async-trait"]
 storage = ["rusqlite", "tokio-rusqlite", "async-trait", "tokio"]
 grpc-storage = ["grpc", "storage"]
+http-storage = ["http", "storage"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.2", features = ["js"] }
-web-sys = { version = "0.3", features = ["console"] } 
+web-sys = { version = "0.3", features = ["console"] }
+wasm-bindgen-futures = "0.4" 
 
 
 [lib]

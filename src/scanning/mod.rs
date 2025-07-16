@@ -35,9 +35,15 @@ use tari_crypto::{
 #[cfg(feature = "grpc")]
 pub mod grpc_scanner;
 
+// Include HTTP scanner
+pub mod http_scanner;
+
 // Re-export GRPC scanner types
 #[cfg(feature = "grpc")]
 pub use grpc_scanner::{GrpcBlockchainScanner, GrpcScannerBuilder};
+
+// Re-export HTTP scanner types
+pub use http_scanner::{HttpBlockchainScanner, HttpScannerBuilder};
 
 /// Progress callback for scanning operations
 pub type ProgressCallback = Box<dyn Fn(ScanProgress) + Send + Sync>;

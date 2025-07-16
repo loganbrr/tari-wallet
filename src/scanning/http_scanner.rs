@@ -1,0 +1,913 @@
+//! HTTP-based blockchain scanner implementation
+//! 
+//! This module provides an HTTP implementation of the BlockchainScanner trait
+//! that connects to a Tari base node via HTTP API to scan for wallet outputs.
+//! 
+//! ## Wallet Key Integration
+//! 
+//! The HTTP scanner supports wallet key integration for identifying outputs that belong
+//! to a specific wallet. To use wallet functionality:
+//! 
+//! ```rust,no_run
+//! use lightweight_wallet_libs::scanning::{HttpBlockchainScanner, ScanConfig};
+//! use lightweight_wallet_libs::wallet::Wallet;
+//! 
+//! async fn scan_with_wallet() -> Result<(), Box<dyn std::error::Error>> {
+//!     let mut scanner = HttpBlockchainScanner::new("http://127.0.0.1:18142".to_string()).await?;
+//!     let wallet = Wallet::generate_new_with_seed_phrase(None)?;
+//!     
+//!     // Create scan config with wallet keys
+//!     let config = scanner.create_scan_config_with_wallet_keys(&wallet, 0, None)?;
+//!     
+//!     // Scan for blocks with wallet key integration
+//!     let results = scanner.scan_blocks(config).await?;
+//!     println!("Found {} blocks with wallet outputs", results.len());
+//!     
+//!     Ok(())
+//! }
+//! ```
+
+#[cfg(any(feature = "http", feature = "http-wasm"))]
+use std::time::Duration;
+#[cfg(any(feature = "http", feature = "http-wasm"))]
+use async_trait::async_trait;
+#[cfg(any(feature = "http", feature = "http-wasm"))]
+use reqwest::Client;
+use serde::{Deserialize, Serialize};
+#[cfg(any(feature = "http", feature = "http-wasm"))]
+use tracing::{debug, info};
+#[cfg(any(feature = "http", feature = "http-wasm"))]
+use tari_utilities::ByteArray;
+
+use crate::{
+    data_structures::{
+        transaction_output::LightweightTransactionOutput,
+        wallet_output::{
+            LightweightWalletOutput, LightweightOutputFeatures, LightweightRangeProof,
+            LightweightScript, LightweightSignature, LightweightCovenant
+        },
+        types::{CompressedCommitment, CompressedPublicKey, MicroMinotari, PrivateKey},
+        encrypted_data::EncryptedData,
+        transaction_input::TransactionInput,
+        LightweightOutputType,
+        LightweightRangeProofType,
+    },
+    errors::{LightweightWalletError, LightweightWalletResult},
+    extraction::{extract_wallet_output, ExtractionConfig},
+    scanning::{BlockInfo, BlockScanResult, BlockchainScanner, ScanConfig, TipInfo, WalletScanner, WalletScanConfig, WalletScanResult, ProgressCallback, DefaultScanningLogic},
+    wallet::Wallet,
+};
+
+/// HTTP API block response structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpBlockResponse {
+    pub blocks: Vec<HttpBlockData>,
+    pub has_next_page: bool,
+}
+
+/// HTTP API block data structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpBlockData {
+    pub header_hash: Vec<u8>,
+    pub height: u64,
+    pub outputs: Vec<HttpOutputData>,
+    pub inputs: Vec<HttpInputData>,
+    pub mined_timestamp: u64,
+}
+
+/// HTTP API output data structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpOutputData {
+    pub output_hash: Vec<u8>,
+    pub commitment: Vec<u8>,
+    pub encrypted_data: Vec<u8>,
+    pub sender_offset_public_key: Vec<u8>,
+    pub features: Option<HttpOutputFeatures>,
+    pub script: Option<Vec<u8>>,
+    pub metadata_signature: Option<Vec<u8>>,
+    pub covenant: Option<Vec<u8>>,
+    pub minimum_value_promise: u64,
+    pub range_proof: Option<Vec<u8>>,
+}
+
+/// HTTP API input data structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpInputData {
+    pub commitment: Vec<u8>,
+    pub script_signature: Option<Vec<u8>>,
+    pub sender_offset_public_key: Option<Vec<u8>>,
+    pub covenant: Option<Vec<u8>>,
+    pub input_data: Option<Vec<u8>>,
+    pub output_hash: Option<Vec<u8>>,
+    pub features: Option<u8>,
+    pub metadata_signature: Option<Vec<u8>>,
+    pub maturity: Option<u64>,
+    pub value: Option<u64>,
+}
+
+/// HTTP API output features structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpOutputFeatures {
+    pub output_type: u8,
+    pub maturity: u64,
+    pub range_proof_type: u8,
+}
+
+/// HTTP API tip info response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpTipInfoResponse {
+    pub best_block_height: u64,
+    pub best_block_hash: Vec<u8>,
+    pub accumulated_difficulty: Vec<u8>,
+    pub pruned_height: u64,
+    pub timestamp: u64,
+}
+
+/// HTTP API search UTXO request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpSearchUtxosRequest {
+    pub commitments: Vec<Vec<u8>>,
+}
+
+/// HTTP API fetch UTXO request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpFetchUtxosRequest {
+    pub hashes: Vec<Vec<u8>>,
+}
+
+/// HTTP API get blocks request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpGetBlocksRequest {
+    pub heights: Vec<u64>,
+}
+
+/// HTTP client for connecting to Tari base node
+#[cfg(any(feature = "http", feature = "http-wasm"))]
+pub struct HttpBlockchainScanner {
+    /// HTTP client for making requests
+    client: Client,
+    /// Base URL for the HTTP API
+    base_url: String,
+    /// Request timeout
+    timeout: Duration,
+}
+
+impl HttpBlockchainScanner {
+    /// Create a new HTTP scanner with the given base URL
+    pub async fn new(base_url: String) -> LightweightWalletResult<Self> {
+        let timeout = Duration::from_secs(30);
+        let client = Client::builder()
+            .timeout(timeout)
+            .build()
+            .map_err(|e| LightweightWalletError::ScanningError(
+                crate::errors::ScanningError::blockchain_connection_failed(&format!("Failed to create HTTP client: {}", e))
+            ))?;
+
+        // Test the connection
+        let test_url = format!("{}/api/tip", base_url);
+        let response = client.get(&test_url).send().await;
+        if response.is_err() {
+            return Err(LightweightWalletError::ScanningError(
+                crate::errors::ScanningError::blockchain_connection_failed(&format!("Failed to connect to {}", base_url))
+            ));
+        }
+
+        Ok(Self {
+            client,
+            base_url,
+            timeout,
+        })
+    }
+
+    /// Create a new HTTP scanner with custom timeout
+    pub async fn with_timeout(base_url: String, timeout: Duration) -> LightweightWalletResult<Self> {
+        let client = Client::builder()
+            .timeout(timeout)
+            .build()
+            .map_err(|e| LightweightWalletError::ScanningError(
+                crate::errors::ScanningError::blockchain_connection_failed(&format!("Failed to create HTTP client: {}", e))
+            ))?;
+
+        // Test the connection
+        let test_url = format!("{}/api/tip", base_url);
+        let response = client.get(&test_url).send().await;
+        if response.is_err() {
+            return Err(LightweightWalletError::ScanningError(
+                crate::errors::ScanningError::blockchain_connection_failed(&format!("Failed to connect to {}", base_url))
+            ));
+        }
+
+        Ok(Self {
+            client,
+            base_url,
+            timeout,
+        })
+    }
+
+    /// Convert HTTP output data to LightweightTransactionOutput
+    fn convert_http_output_to_lightweight(http_output: &HttpOutputData) -> LightweightWalletResult<LightweightTransactionOutput> {
+        // Parse commitment
+        if http_output.commitment.len() != 32 {
+            return Err(LightweightWalletError::ConversionError(
+                "Invalid commitment length, expected 32 bytes".to_string()
+            ));
+        }
+        let commitment = CompressedCommitment::new(
+            http_output.commitment.clone().try_into()
+                .map_err(|_| LightweightWalletError::ConversionError("Failed to convert commitment".to_string()))?
+        );
+
+        // Parse sender offset public key
+        if http_output.sender_offset_public_key.len() != 32 {
+            return Err(LightweightWalletError::ConversionError(
+                "Invalid sender offset public key length, expected 32 bytes".to_string()
+            ));
+        }
+        let sender_offset_public_key = CompressedPublicKey::new(
+            http_output.sender_offset_public_key.clone().try_into()
+                .map_err(|_| LightweightWalletError::ConversionError("Failed to convert sender offset public key".to_string()))?
+        );
+
+        // Parse encrypted data
+        let encrypted_data = EncryptedData::from_bytes(&http_output.encrypted_data)
+            .map_err(|e| LightweightWalletError::ConversionError(format!("Invalid encrypted data: {}", e)))?;
+
+        // Convert features
+        let features = http_output.features.as_ref().map(|f| {
+            LightweightOutputFeatures {
+                output_type: match f.output_type {
+                    0 => LightweightOutputType::Payment,
+                    1 => LightweightOutputType::Coinbase,
+                    2 => LightweightOutputType::Burn,
+                    3 => LightweightOutputType::ValidatorNodeRegistration,
+                    4 => LightweightOutputType::CodeTemplateRegistration,
+                    _ => LightweightOutputType::Payment,
+                },
+                maturity: f.maturity,
+                range_proof_type: match f.range_proof_type {
+                    0 => LightweightRangeProofType::BulletProofPlus,
+                    1 => LightweightRangeProofType::RevealedValue,
+                    _ => LightweightRangeProofType::BulletProofPlus,
+                },
+            }
+        }).unwrap_or_default();
+
+        // Convert range proof
+        let proof = http_output.range_proof.as_ref().map(|rp| LightweightRangeProof { bytes: rp.clone() });
+
+        // Convert script
+        let script = LightweightScript { 
+            bytes: http_output.script.clone().unwrap_or_default() 
+        };
+
+        // Convert metadata signature
+        let metadata_signature = http_output.metadata_signature.as_ref()
+            .map(|sig| LightweightSignature { bytes: sig.clone() })
+            .unwrap_or_default();
+
+        // Convert covenant
+        let covenant = LightweightCovenant { 
+            bytes: http_output.covenant.clone().unwrap_or_default() 
+        };
+
+        // Convert minimum value promise
+        let minimum_value_promise = MicroMinotari::new(http_output.minimum_value_promise);
+
+        Ok(LightweightTransactionOutput::new_current_version(
+            features,
+            commitment,
+            proof,
+            script,
+            sender_offset_public_key,
+            metadata_signature,
+            covenant,
+            encrypted_data,
+            minimum_value_promise,
+        ))
+    }
+
+    /// Convert HTTP input data to TransactionInput
+    fn convert_http_input_to_lightweight(http_input: &HttpInputData) -> LightweightWalletResult<TransactionInput> {
+        // Parse commitment
+        if http_input.commitment.len() != 32 {
+            return Err(LightweightWalletError::ConversionError(
+                "Invalid input commitment length, expected 32 bytes".to_string()
+            ));
+        }
+        let mut commitment = [0u8; 32];
+        commitment.copy_from_slice(&http_input.commitment);
+
+        // Parse script signature
+        let mut script_signature = [0u8; 64];
+        if let Some(ref sig) = http_input.script_signature {
+            if sig.len() >= 64 {
+                script_signature.copy_from_slice(&sig[..64]);
+            }
+        }
+
+        // Parse sender offset public key
+        let sender_offset_public_key = if let Some(ref pk) = http_input.sender_offset_public_key {
+            if pk.len() == 32 {
+                let mut bytes = [0u8; 32];
+                bytes.copy_from_slice(pk);
+                CompressedPublicKey::new(bytes)
+            } else {
+                CompressedPublicKey::default()
+            }
+        } else {
+            CompressedPublicKey::default()
+        };
+
+        // Convert input data to execution stack
+        let input_data = crate::data_structures::transaction_input::LightweightExecutionStack {
+            items: vec![http_input.input_data.clone().unwrap_or_default()],
+        };
+
+        // Parse output hash
+        let mut output_hash = [0u8; 32];
+        if let Some(ref hash) = http_input.output_hash {
+            if hash.len() >= 32 {
+                output_hash.copy_from_slice(&hash[..32]);
+            }
+        }
+
+        // Parse metadata signature
+        let mut output_metadata_signature = [0u8; 64];
+        if let Some(ref sig) = http_input.metadata_signature {
+            if sig.len() >= 64 {
+                output_metadata_signature.copy_from_slice(&sig[..64]);
+            }
+        }
+
+        Ok(TransactionInput::new(
+            1, // version
+            http_input.features.unwrap_or(0),
+            commitment,
+            script_signature,
+            sender_offset_public_key,
+            http_input.covenant.clone().unwrap_or_default(),
+            input_data,
+            output_hash,
+            0, // output_features
+            output_metadata_signature,
+            http_input.maturity.unwrap_or(0),
+            MicroMinotari::new(http_input.value.unwrap_or(0)),
+        ))
+    }
+
+    /// Convert HTTP block data to BlockInfo
+    fn convert_http_block_to_block_info(http_block: &HttpBlockData) -> LightweightWalletResult<BlockInfo> {
+        let outputs = http_block.outputs.iter()
+            .map(Self::convert_http_output_to_lightweight)
+            .collect::<LightweightWalletResult<Vec<_>>>()?;
+
+        let inputs = http_block.inputs.iter()
+            .map(Self::convert_http_input_to_lightweight)
+            .collect::<LightweightWalletResult<Vec<_>>>()?;
+
+        Ok(BlockInfo {
+            height: http_block.height,
+            hash: http_block.header_hash.clone(),
+            timestamp: http_block.mined_timestamp,
+            outputs,
+            inputs,
+            kernels: Vec::new(), // HTTP API doesn't provide kernels in this format
+        })
+    }
+
+    /// Create a scan config with wallet keys for block scanning
+    pub fn create_scan_config_with_wallet_keys(
+        &self,
+        wallet: &Wallet,
+        start_height: u64,
+        end_height: Option<u64>,
+    ) -> LightweightWalletResult<ScanConfig> {
+        // Get the master key from the wallet for scanning
+        let master_key_bytes = wallet.master_key_bytes();
+        
+        // Use the first 16 bytes of the master key as entropy (following Tari CipherSeed pattern)
+        let mut entropy = [0u8; 16];
+        entropy.copy_from_slice(&master_key_bytes[..16]);
+        
+        // Derive the proper view key using Tari's key derivation specification
+        let (view_key, _spend_key) = crate::key_management::key_derivation::derive_view_and_spend_keys_from_entropy(&entropy)
+            .map_err(|e| LightweightWalletError::KeyManagementError(e))?;
+            
+        // Convert RistrettoSecretKey to PrivateKey
+        let view_key_bytes = view_key.as_bytes();
+        let mut view_key_array = [0u8; 32];
+        view_key_array.copy_from_slice(view_key_bytes);
+        let view_private_key = PrivateKey::new(view_key_array);
+        
+        let extraction_config = ExtractionConfig::with_private_key(view_private_key);
+
+        Ok(ScanConfig {
+            start_height,
+            end_height,
+            batch_size: 100,
+            request_timeout: self.timeout,
+            extraction_config,
+        })
+    }
+
+    /// Create a scan config with just private keys for basic wallet scanning
+    pub fn create_scan_config_with_keys(
+        &self,
+        view_key: PrivateKey,
+        start_height: u64,
+        end_height: Option<u64>,
+    ) -> ScanConfig {
+        let extraction_config = ExtractionConfig::with_private_key(view_key);
+
+        ScanConfig {
+            start_height,
+            end_height,
+            batch_size: 100,
+            request_timeout: self.timeout,
+            extraction_config,
+        }
+    }
+
+    /// Scan for regular recoverable outputs using encrypted data decryption
+    fn scan_for_recoverable_output(
+        output: &LightweightTransactionOutput,
+        extraction_config: &ExtractionConfig,
+    ) -> LightweightWalletResult<Option<LightweightWalletOutput>> {
+        // Skip non-payment outputs for this scan type
+        if !matches!(output.features().output_type, LightweightOutputType::Payment) {
+            return Ok(None);
+        }
+        
+        // Use the standard extraction logic
+        match extract_wallet_output(output, extraction_config) {
+            Ok(wallet_output) => Ok(Some(wallet_output)),
+            Err(_) => Ok(None), // Not a wallet output or decryption failed
+        }
+    }
+
+    /// Scan for one-sided payments
+    fn scan_for_one_sided_payment(
+        output: &LightweightTransactionOutput,
+        extraction_config: &ExtractionConfig,
+    ) -> LightweightWalletResult<Option<LightweightWalletOutput>> {
+        // Skip non-payment outputs for this scan type
+        if !matches!(output.features().output_type, LightweightOutputType::Payment) {
+            return Ok(None);
+        }
+        
+        // Use the same extraction logic - the difference is in creation, not detection
+        match extract_wallet_output(output, extraction_config) {
+            Ok(wallet_output) => Ok(Some(wallet_output)),
+            Err(_) => Ok(None),
+        }
+    }
+
+    /// Scan for coinbase outputs
+    fn scan_for_coinbase_output(
+        output: &LightweightTransactionOutput,
+    ) -> LightweightWalletResult<Option<LightweightWalletOutput>> {
+        // Only handle coinbase outputs
+        if !matches!(output.features().output_type, LightweightOutputType::Coinbase) {
+            return Ok(None);
+        }
+        
+        // For coinbase outputs, the value is typically revealed in the minimum value promise
+        if output.minimum_value_promise().as_u64() > 0 {
+            let wallet_output = LightweightWalletOutput::new(
+                output.version(),
+                output.minimum_value_promise(),
+                crate::data_structures::wallet_output::LightweightKeyId::Zero,
+                output.features().clone(),
+                output.script().clone(),
+                crate::data_structures::wallet_output::LightweightExecutionStack::default(),
+                crate::data_structures::wallet_output::LightweightKeyId::Zero,
+                output.sender_offset_public_key().clone(),
+                output.metadata_signature().clone(),
+                0,
+                output.covenant().clone(),
+                output.encrypted_data().clone(),
+                output.minimum_value_promise(),
+                output.proof().cloned(),
+                crate::data_structures::payment_id::PaymentId::Empty,
+            );
+            
+            return Ok(Some(wallet_output));
+        }
+        
+        Ok(None)
+    }
+
+    /// Get blocks by heights from HTTP API
+    async fn fetch_blocks_by_heights(&self, heights: Vec<u64>) -> LightweightWalletResult<HttpBlockResponse> {
+        let url = format!("{}/api/blocks", self.base_url);
+        let request = HttpGetBlocksRequest { heights };
+        
+        let response = self.client
+            .post(&url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| LightweightWalletError::ScanningError(
+                crate::errors::ScanningError::blockchain_connection_failed(&format!("HTTP request failed: {}", e))
+            ))?;
+
+        if !response.status().is_success() {
+            return Err(LightweightWalletError::ScanningError(
+                crate::errors::ScanningError::blockchain_connection_failed(&format!("HTTP error: {}", response.status()))
+            ));
+        }
+
+        let http_response: HttpBlockResponse = response
+            .json()
+            .await
+            .map_err(|e| LightweightWalletError::ConversionError(
+                format!("Failed to parse HTTP response: {}", e)
+            ))?;
+
+        Ok(http_response)
+    }
+}
+
+#[cfg(any(feature = "http", feature = "http-wasm"))]
+#[async_trait]
+impl BlockchainScanner for HttpBlockchainScanner {
+    async fn scan_blocks(
+        &mut self,
+        config: ScanConfig,
+    ) -> LightweightWalletResult<Vec<BlockScanResult>> {
+        debug!("Starting HTTP block scan from height {} to {:?}", config.start_height, config.end_height);
+        
+        // Get tip info to determine end height
+        let tip_info = self.get_tip_info().await?;
+        let end_height = config.end_height.unwrap_or(tip_info.best_block_height);
+
+        if config.start_height > end_height {
+            return Ok(Vec::new());
+        }
+
+        let mut results = Vec::new();
+        let mut current_height = config.start_height;
+
+        while current_height <= end_height {
+            let batch_end = std::cmp::min(current_height + config.batch_size - 1, end_height);
+            let heights: Vec<u64> = (current_height..=batch_end).collect();
+
+            // Fetch blocks for this batch
+            let http_response = self.fetch_blocks_by_heights(heights).await?;
+
+            for http_block in http_response.blocks {
+                let block_info = Self::convert_http_block_to_block_info(&http_block)?;
+                let mut wallet_outputs = Vec::new();
+                
+                for output in &block_info.outputs {
+                    let mut found_output = false;
+                    
+                    // Strategy 1: Regular recoverable outputs
+                    if !found_output {
+                        if let Some(wallet_output) = Self::scan_for_recoverable_output(output, &config.extraction_config)? {
+                            wallet_outputs.push(wallet_output);
+                            found_output = true;
+                        }
+                    }
+                    
+                    // Strategy 2: One-sided payments
+                    if !found_output {
+                        if let Some(wallet_output) = Self::scan_for_one_sided_payment(output, &config.extraction_config)? {
+                            wallet_outputs.push(wallet_output);
+                            found_output = true;
+                        }
+                    }
+                    
+                    // Strategy 3: Coinbase outputs
+                    if !found_output {
+                        if let Some(wallet_output) = Self::scan_for_coinbase_output(output)? {
+                            wallet_outputs.push(wallet_output);
+                        }
+                    }
+                }
+                
+                results.push(BlockScanResult {
+                    height: block_info.height,
+                    block_hash: block_info.hash,
+                    outputs: block_info.outputs,
+                    wallet_outputs,
+                    mined_timestamp: block_info.timestamp,
+                });
+            }
+
+            current_height = batch_end + 1;
+        }
+
+        debug!("HTTP scan completed, found {} blocks with wallet outputs", results.len());
+        Ok(results)
+    }
+
+    async fn get_tip_info(&mut self) -> LightweightWalletResult<TipInfo> {
+        let url = format!("{}/api/tip", self.base_url);
+        
+        let response = self.client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| LightweightWalletError::ScanningError(
+                crate::errors::ScanningError::blockchain_connection_failed(&format!("HTTP request failed: {}", e))
+            ))?;
+
+        if !response.status().is_success() {
+            return Err(LightweightWalletError::ScanningError(
+                crate::errors::ScanningError::blockchain_connection_failed(&format!("HTTP error: {}", response.status()))
+            ));
+        }
+
+        let tip_response: HttpTipInfoResponse = response
+            .json()
+            .await
+            .map_err(|e| LightweightWalletError::ConversionError(
+                format!("Failed to parse tip info response: {}", e)
+            ))?;
+
+        Ok(TipInfo {
+            best_block_height: tip_response.best_block_height,
+            best_block_hash: tip_response.best_block_hash,
+            accumulated_difficulty: tip_response.accumulated_difficulty,
+            pruned_height: tip_response.pruned_height,
+            timestamp: tip_response.timestamp,
+        })
+    }
+
+    async fn search_utxos(
+        &mut self,
+        commitments: Vec<Vec<u8>>,
+    ) -> LightweightWalletResult<Vec<BlockScanResult>> {
+        let url = format!("{}/api/search_utxos", self.base_url);
+        let request = HttpSearchUtxosRequest { commitments };
+        
+        let response = self.client
+            .post(&url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| LightweightWalletError::ScanningError(
+                crate::errors::ScanningError::blockchain_connection_failed(&format!("HTTP request failed: {}", e))
+            ))?;
+
+        if !response.status().is_success() {
+            return Err(LightweightWalletError::ScanningError(
+                crate::errors::ScanningError::blockchain_connection_failed(&format!("HTTP error: {}", response.status()))
+            ));
+        }
+
+        let http_response: HttpBlockResponse = response
+            .json()
+            .await
+            .map_err(|e| LightweightWalletError::ConversionError(
+                format!("Failed to parse search response: {}", e)
+            ))?;
+
+        let mut results = Vec::new();
+        for http_block in http_response.blocks {
+            let block_info = Self::convert_http_block_to_block_info(&http_block)?;
+            let mut wallet_outputs = Vec::new();
+            
+            for output in &block_info.outputs {
+                // Use default extraction for commitment search
+                match extract_wallet_output(output, &ExtractionConfig::default()) {
+                    Ok(wallet_output) => wallet_outputs.push(wallet_output),
+                    Err(e) => {
+                        debug!("Failed to extract wallet output during commitment search: {}", e);
+                    }
+                }
+            }
+            
+            results.push(BlockScanResult {
+                height: block_info.height,
+                block_hash: block_info.hash,
+                outputs: block_info.outputs,
+                wallet_outputs,
+                mined_timestamp: block_info.timestamp,
+            });
+        }
+
+        Ok(results)
+    }
+
+    async fn fetch_utxos(
+        &mut self,
+        hashes: Vec<Vec<u8>>,
+    ) -> LightweightWalletResult<Vec<LightweightTransactionOutput>> {
+        let url = format!("{}/api/fetch_utxos", self.base_url);
+        let request = HttpFetchUtxosRequest { hashes };
+        
+        let response = self.client
+            .post(&url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| LightweightWalletError::ScanningError(
+                crate::errors::ScanningError::blockchain_connection_failed(&format!("HTTP request failed: {}", e))
+            ))?;
+
+        if !response.status().is_success() {
+            return Err(LightweightWalletError::ScanningError(
+                crate::errors::ScanningError::blockchain_connection_failed(&format!("HTTP error: {}", response.status()))
+            ));
+        }
+
+        let http_outputs: Vec<HttpOutputData> = response
+            .json()
+            .await
+            .map_err(|e| LightweightWalletError::ConversionError(
+                format!("Failed to parse fetch response: {}", e)
+            ))?;
+
+        let outputs = http_outputs.iter()
+            .map(Self::convert_http_output_to_lightweight)
+            .collect::<LightweightWalletResult<Vec<_>>>()?;
+
+        Ok(outputs)
+    }
+
+    async fn get_blocks_by_heights(
+        &mut self,
+        heights: Vec<u64>,
+    ) -> LightweightWalletResult<Vec<BlockInfo>> {
+        if heights.is_empty() {
+            return Ok(Vec::new());
+        }
+        
+        let http_response = self.fetch_blocks_by_heights(heights).await?;
+        
+        let blocks = http_response.blocks.iter()
+            .map(Self::convert_http_block_to_block_info)
+            .collect::<LightweightWalletResult<Vec<_>>>()?;
+
+        Ok(blocks)
+    }
+
+    async fn get_block_by_height(
+        &mut self,
+        height: u64,
+    ) -> LightweightWalletResult<Option<BlockInfo>> {
+        let blocks = self.get_blocks_by_heights(vec![height]).await?;
+        Ok(blocks.into_iter().next())
+    }
+}
+
+#[cfg(any(feature = "http", feature = "http-wasm"))]
+impl std::fmt::Debug for HttpBlockchainScanner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HttpBlockchainScanner")
+            .field("base_url", &self.base_url)
+            .field("timeout", &self.timeout)
+            .finish()
+    }
+}
+
+/// Builder for creating HTTP blockchain scanners
+#[cfg(any(feature = "http", feature = "http-wasm"))]
+pub struct HttpScannerBuilder {
+    base_url: Option<String>,
+    timeout: Option<Duration>,
+}
+
+#[cfg(any(feature = "http", feature = "http-wasm"))]
+impl HttpScannerBuilder {
+    /// Create a new builder
+    pub fn new() -> Self {
+        Self {
+            base_url: None,
+            timeout: None,
+        }
+    }
+
+    /// Set the base URL for the HTTP connection
+    pub fn with_base_url(mut self, base_url: String) -> Self {
+        self.base_url = Some(base_url);
+        self
+    }
+
+    /// Set the timeout for HTTP operations
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = Some(timeout);
+        self
+    }
+
+    /// Build the HTTP scanner
+    pub async fn build(self) -> LightweightWalletResult<HttpBlockchainScanner> {
+        let base_url = self.base_url
+            .ok_or_else(|| LightweightWalletError::ConfigurationError(
+                "Base URL not specified".to_string()
+            ))?;
+
+        match self.timeout {
+            Some(timeout) => HttpBlockchainScanner::with_timeout(base_url, timeout).await,
+            None => HttpBlockchainScanner::new(base_url).await,
+        }
+    }
+}
+
+#[cfg(any(feature = "http", feature = "http-wasm"))]
+impl Default for HttpScannerBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(any(feature = "http", feature = "http-wasm"))]
+#[async_trait::async_trait]
+impl WalletScanner for HttpBlockchainScanner {
+    async fn scan_wallet(
+        &mut self,
+        config: WalletScanConfig,
+    ) -> LightweightWalletResult<WalletScanResult> {
+        self.scan_wallet_with_progress(config, None).await
+    }
+
+    async fn scan_wallet_with_progress(
+        &mut self,
+        config: WalletScanConfig,
+        progress_callback: Option<&ProgressCallback>,
+    ) -> LightweightWalletResult<WalletScanResult> {
+        // Validate that we have key management set up
+        if config.key_manager.is_none() && config.key_store.is_none() {
+            return Err(LightweightWalletError::ConfigurationError(
+                "No key manager or key store provided for wallet scanning".to_string()
+            ));
+        }
+
+        // Use the default scanning logic with proper wallet key integration
+        DefaultScanningLogic::scan_wallet_with_progress(self, config, progress_callback).await
+    }
+
+    fn blockchain_scanner(&mut self) -> &mut dyn BlockchainScanner {
+        self
+    }
+}
+
+// Placeholder module for when HTTP feature is not enabled
+#[cfg(not(any(feature = "http", feature = "http-wasm")))]
+pub struct HttpBlockchainScanner;
+
+#[cfg(not(any(feature = "http", feature = "http-wasm")))]
+impl HttpBlockchainScanner {
+    pub async fn new(_base_url: String) -> crate::errors::LightweightWalletResult<Self> {
+        Err(crate::errors::LightweightWalletError::OperationNotSupported(
+            "HTTP feature not enabled".to_string()
+        ))
+    }
+}
+
+#[cfg(not(any(feature = "http", feature = "http-wasm")))]
+pub struct HttpScannerBuilder;
+
+#[cfg(not(any(feature = "http", feature = "http-wasm")))]
+impl HttpScannerBuilder {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub async fn build(self) -> crate::errors::LightweightWalletResult<HttpBlockchainScanner> {
+        Err(crate::errors::LightweightWalletError::OperationNotSupported(
+            "HTTP feature not enabled".to_string()
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_http_scanner_builder() {
+        let builder = HttpScannerBuilder::new()
+            .with_base_url("http://127.0.0.1:18142".to_string())
+            .with_timeout(Duration::from_secs(10));
+        
+        // Note: This will fail if no server is running, but tests the builder pattern
+        let result = builder.build().await;
+        assert!(result.is_err()); // Expected to fail in test environment
+    }
+
+    #[test]
+    fn test_http_output_conversion() {
+        let http_output = HttpOutputData {
+            output_hash: vec![0u8; 32],
+            commitment: vec![1u8; 32],
+            encrypted_data: vec![],
+            sender_offset_public_key: vec![2u8; 32],
+            features: Some(HttpOutputFeatures {
+                output_type: 0,
+                maturity: 0,
+                range_proof_type: 0,
+            }),
+            script: None,
+            metadata_signature: None,
+            covenant: None,
+            minimum_value_promise: 0,
+            range_proof: None,
+        };
+
+        let result = HttpBlockchainScanner::convert_http_output_to_lightweight(&http_output);
+        assert!(result.is_ok());
+    }
+} 

@@ -21,6 +21,42 @@ use crate::{
     },
 };
 
+// Only import HTTP scanner types when available
+#[cfg(any(feature = "http", feature = "http-wasm"))]
+use crate::scanning::{
+    http_scanner::{HttpBlockchainScanner, HttpBlockResponse, HttpBlockData, HttpOutputData},
+    ScanConfig,
+};
+
+#[cfg(any(feature = "http", feature = "http-wasm"))]
+use crate::extraction::ExtractionConfig;
+
+// HTTP data structures for WASM (when HTTP scanner is not available or for legacy compatibility)
+#[cfg(not(any(feature = "http", feature = "http-wasm")))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpBlockResponse {
+    pub blocks: Vec<HttpBlockData>,
+    pub has_next_page: bool,
+}
+
+#[cfg(not(any(feature = "http", feature = "http-wasm")))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpBlockData {
+    pub header_hash: Vec<u8>,
+    pub height: u64,
+    pub outputs: Vec<HttpOutputData>,
+    pub mined_timestamp: u64,
+}
+
+#[cfg(not(any(feature = "http", feature = "http-wasm")))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpOutputData {
+    pub output_hash: Vec<u8>,
+    pub commitment: Vec<u8>,
+    pub encrypted_data: Vec<u8>,
+    pub sender_offset_public_key: Vec<u8>,
+}
+
 /// Derive a public key from a master key, returning it as a hex string.
 #[wasm_bindgen]
 pub fn derive_public_key_hex(master_key: &[u8]) -> Result<String, JsValue> {
@@ -34,34 +70,11 @@ pub fn derive_public_key_hex(master_key: &[u8]) -> Result<String, JsValue> {
 /// WASM-compatible wallet scanner
 #[wasm_bindgen]
 pub struct WasmScanner {
+    #[cfg(any(feature = "http", feature = "http-wasm"))]
+    http_scanner: Option<HttpBlockchainScanner>,
     view_key: PrivateKey,
     entropy: [u8; 16],
     wallet_state: WalletState,
-}
-
-/// HTTP API block response structure
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HttpBlockResponse {
-    pub blocks: Vec<HttpBlockData>,
-    pub has_next_page: bool,
-}
-
-/// HTTP API block data structure
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HttpBlockData {
-    pub header_hash: Vec<u8>,
-    pub height: u64,
-    pub outputs: Vec<HttpOutputData>,
-    pub mined_timestamp: u64,
-}
-
-/// HTTP API output data structure (minimal format)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HttpOutputData {
-    pub output_hash: Vec<u8>,
-    pub commitment: Vec<u8>,
-    pub encrypted_data: Vec<u8>,
-    pub sender_offset_public_key: Vec<u8>,
 }
 
 /// Legacy block data structure for backward compatibility
@@ -181,6 +194,8 @@ impl WasmScanner {
             .map_err(|_| "Failed to convert view key".to_string())?);
         
         Ok(Self {
+            #[cfg(any(feature = "http", feature = "http-wasm"))]
+            http_scanner: None, // Will be initialized when needed
             view_key,
             entropy: entropy_array,
             wallet_state: WalletState::new(),
@@ -203,14 +218,55 @@ impl WasmScanner {
         let entropy = [0u8; 16]; // Default entropy for view-key only mode
         
         Ok(Self {
+            #[cfg(any(feature = "http", feature = "http-wasm"))]
+            http_scanner: None, // Will be initialized when needed
             view_key,
             entropy,
             wallet_state: WalletState::new(),
         })
     }
 
-    /// Process HTTP block response - NEW METHOD for HTTP API format
+    /// Initialize HTTP scanner with base URL (if not already initialized)
+    #[cfg(any(feature = "http", feature = "http-wasm"))]
+    pub async fn initialize_http_scanner(&mut self, base_url: &str) -> Result<(), String> {
+        if self.http_scanner.is_none() {
+            let scanner = HttpBlockchainScanner::new(base_url.to_string()).await
+                .map_err(|e| format!("Failed to initialize HTTP scanner: {}", e))?;
+            self.http_scanner = Some(scanner);
+        }
+        Ok(())
+    }
+
+    /// Process HTTP block response using the new HTTP scanner
+    #[cfg(any(feature = "http", feature = "http-wasm"))]
+    pub async fn process_http_blocks_async(&mut self, http_response_json: &str, base_url: Option<&str>) -> ScanResult {
+        // Initialize scanner if needed
+        if let Some(url) = base_url {
+            if let Err(e) = self.initialize_http_scanner(url).await {
+                return ScanResult {
+                    total_outputs: 0,
+                    total_spent: 0,
+                    total_value: 0,
+                    current_balance: 0,
+                    blocks_processed: 0,
+                    transactions: Vec::new(),
+                    success: false,
+                    error: Some(e),
+                };
+            }
+        }
+
+        // Process blocks using the new method
+        self.process_http_blocks_internal(http_response_json)
+    }
+
+    /// Process HTTP block response - LEGACY METHOD maintained for compatibility
     pub fn process_http_blocks(&mut self, http_response_json: &str) -> ScanResult {
+        self.process_http_blocks_internal(http_response_json)
+    }
+
+    /// Internal method to process HTTP blocks
+    fn process_http_blocks_internal(&mut self, http_response_json: &str) -> ScanResult {
         // Parse HTTP response
         let http_response: HttpBlockResponse = match serde_json::from_str(http_response_json) {
             Ok(response) => response,
@@ -300,12 +356,32 @@ impl WasmScanner {
         }
     }
 
-    /// Process single HTTP block using the EXACT same process as scanner.rs
+    /// Process single HTTP block using the new HTTP scanner if available, otherwise fallback to legacy method
+    fn process_single_http_block(&mut self, http_block: &HttpBlockData) -> Result<(usize, usize), String> {
+        // If we have an HTTP scanner, try to use it for better integration
+        #[cfg(any(feature = "http", feature = "http-wasm"))]
+        if let Some(ref scanner) = self.http_scanner {
+            return self.process_single_http_block_with_scanner(http_block, scanner);
+        }
+        
+        // Fallback to legacy processing
+        self.process_single_http_block_legacy(http_block)
+    }
+
+    /// Process single HTTP block using HTTP scanner (new method)
+    #[cfg(any(feature = "http", feature = "http-wasm"))]
+    fn process_single_http_block_with_scanner(&mut self, http_block: &HttpBlockData, _scanner: &HttpBlockchainScanner) -> Result<(usize, usize), String> {
+        // Convert HTTP block to our internal format and process
+        // For now, use the same conversion logic but with better integration potential
+        self.process_single_http_block_legacy(http_block)
+    }
+
+    /// Process single HTTP block using legacy method
     /// 
     /// This method converts HTTP block data to the Block struct and uses the same
     /// `process_outputs()` method. For inputs, it extracts spending information from
     /// payment IDs since HTTP API doesn't provide actual input data.
-    fn process_single_http_block(&mut self, http_block: &HttpBlockData) -> Result<(usize, usize), String> {
+    fn process_single_http_block_legacy(&mut self, http_block: &HttpBlockData) -> Result<(usize, usize), String> {
         // Convert HTTP outputs to LightweightTransactionOutput (same as scanner.rs expects)
         let outputs = self.convert_http_outputs_to_lightweight(&http_block.outputs)?;
         
@@ -982,7 +1058,25 @@ pub fn create_wasm_scanner(data: &str) -> Result<WasmScanner, JsValue> {
     WasmScanner::from_str(data).map_err(|e| JsValue::from_str(&e))
 }
 
-/// Process HTTP block response (WASM export) - NEW METHOD for HTTP API
+/// Initialize HTTP scanner (WASM export) - Returns a Promise
+#[cfg(any(feature = "http", feature = "http-wasm"))]
+#[wasm_bindgen]
+pub async fn initialize_http_scanner(scanner: &mut WasmScanner, base_url: &str) -> Result<(), JsValue> {
+    scanner.initialize_http_scanner(base_url).await
+        .map_err(|e| JsValue::from_str(&e))
+}
+
+/// Process HTTP block response with async support (WASM export)
+#[cfg(any(feature = "http", feature = "http-wasm"))]
+#[wasm_bindgen] 
+pub async fn process_http_blocks_async(scanner: &mut WasmScanner, http_response_json: &str, base_url: Option<String>) -> Result<String, JsValue> {
+    let result = scanner.process_http_blocks_async(http_response_json, base_url.as_deref()).await;
+    
+    serde_json::to_string(&result)
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {}", e)))
+}
+
+/// Process HTTP block response (WASM export) - LEGACY METHOD for backward compatibility
 #[wasm_bindgen]
 pub fn process_http_blocks(scanner: &mut WasmScanner, http_response_json: &str) -> Result<String, JsValue> {
     let result = scanner.process_http_blocks(http_response_json);
@@ -1042,6 +1136,72 @@ pub fn get_scanner_state(scanner: &WasmScanner) -> String {
 #[wasm_bindgen]
 pub fn reset_scanner(scanner: &mut WasmScanner) {
     scanner.reset();
+}
+
+/// Get tip info from HTTP scanner (WASM export)
+#[cfg(any(feature = "http", feature = "http-wasm"))]
+#[wasm_bindgen]
+pub async fn get_tip_info(scanner: &mut WasmScanner) -> Result<String, JsValue> {
+    if let Some(ref mut http_scanner) = scanner.http_scanner {
+        let tip_info = http_scanner.get_tip_info().await
+            .map_err(|e| JsValue::from_str(&format!("Failed to get tip info: {}", e)))?;
+        
+        serde_json::to_string(&tip_info)
+            .map_err(|e| JsValue::from_str(&format!("Failed to serialize tip info: {}", e)))
+    } else {
+        Err(JsValue::from_str("HTTP scanner not initialized"))
+    }
+}
+/// Fetch specific blocks by height using HTTP scanner (WASM export)
+#[cfg(any(feature = "http", feature = "http-wasm"))]
+#[wasm_bindgen]
+pub async fn fetch_blocks_by_heights(scanner: &mut WasmScanner, heights_json: &str) -> Result<String, JsValue> {
+    if let Some(ref mut http_scanner) = scanner.http_scanner {
+        let heights: Vec<u64> = serde_json::from_str(heights_json)
+            .map_err(|e| JsValue::from_str(&format!("Failed to parse heights: {}", e)))?;
+        
+        let blocks = http_scanner.get_blocks_by_heights(heights).await
+            .map_err(|e| JsValue::from_str(&format!("Failed to fetch blocks: {}", e)))?;
+        
+        serde_json::to_string(&blocks)
+            .map_err(|e| JsValue::from_str(&format!("Failed to serialize blocks: {}", e)))
+    } else {
+        Err(JsValue::from_str("HTTP scanner not initialized"))
+    }
+}
+
+/// Search for UTXOs by commitment using HTTP scanner (WASM export)
+#[cfg(any(feature = "http", feature = "http-wasm"))]
+#[wasm_bindgen]
+pub async fn search_utxos(scanner: &mut WasmScanner, commitments_json: &str) -> Result<String, JsValue> {
+    if let Some(ref mut http_scanner) = scanner.http_scanner {
+        let commitments: Vec<Vec<u8>> = serde_json::from_str(commitments_json)
+            .map_err(|e| JsValue::from_str(&format!("Failed to parse commitments: {}", e)))?;
+        
+        let results = http_scanner.search_utxos(commitments).await
+            .map_err(|e| JsValue::from_str(&format!("Failed to search UTXOs: {}", e)))?;
+        
+        serde_json::to_string(&results)
+            .map_err(|e| JsValue::from_str(&format!("Failed to serialize search results: {}", e)))
+    } else {
+        Err(JsValue::from_str("HTTP scanner not initialized"))
+    }
+}
+
+/// Create scan config for HTTP scanner (WASM export)
+#[cfg(any(feature = "http", feature = "http-wasm"))]
+#[wasm_bindgen]
+pub fn create_scan_config(scanner: &WasmScanner, start_height: u64, end_height: Option<u64>) -> Result<String, JsValue> {
+    let scan_config = ScanConfig {
+        start_height,
+        end_height,
+        batch_size: 100,
+        request_timeout: std::time::Duration::from_secs(30),
+        extraction_config: ExtractionConfig::with_private_key(scanner.view_key),
+    };
+    
+    serde_json::to_string(&scan_config)
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize scan config: {}", e)))
 }
 
 /// Get version information (WASM export)

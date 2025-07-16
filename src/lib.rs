@@ -10,7 +10,7 @@ pub mod hex_utils;
 pub mod validation;
 pub mod extraction;
 pub mod key_management;
-#[cfg(feature = "grpc")]
+#[cfg(any(feature = "grpc", feature = "http", feature = "http-wasm"))]
 pub mod scanning;
 #[cfg(feature = "storage")]
 pub mod storage;
