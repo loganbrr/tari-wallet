@@ -197,9 +197,17 @@ impl WalletState {
         // Index by commitment
         self.outputs_by_commitment.insert(commitment.as_bytes().to_vec(), tx_index);
         
-        // Index by output hash if available
+        // Index by output hash if available - CRITICAL for spent detection
         if let Some(hash) = output_hash {
-            self.outputs_by_hash.insert(hash, tx_index);
+            self.outputs_by_hash.insert(hash.clone(), tx_index);
+            
+            // Debug logging for output hash indexing
+            #[cfg(feature = "wasm")]
+            {
+                let hash_hex = hex::encode(&hash);
+                web_sys::console::log_1(&format!("📝 INDEXED OUTPUT: Hash {} -> Value {} μT (total tracked: {})", 
+                    hash_hex, value, self.outputs_by_hash.len()).into());
+            }
         }
         
         self.transactions.push(transaction);
@@ -272,10 +280,19 @@ impl WalletState {
                     let spent_value = transaction.value;
                     
                     // Update balance and counters for the spent inbound transaction
+                    let old_total_spent = self.total_spent;
                     self.total_spent += spent_value;
                     self.running_balance -= spent_value as i64;
                     self.unspent_count -= 1;
                     self.spent_count += 1;
+                    
+                    // Debug logging for spent value tracking
+                    #[cfg(feature = "wasm")]
+                    {
+                        let hash_hex = hex::encode(output_hash);
+                        web_sys::console::log_1(&format!("💰 SPENT VALUE UPDATE: Hash {} - Value: {} μT, Total spent: {} -> {} μT", 
+                            hash_hex, spent_value, old_total_spent, self.total_spent).into());
+                    }
                     
                     // Create an outbound transaction record for the spending
                     // (this is just for tracking/display, doesn't affect balance)
@@ -296,6 +313,14 @@ impl WalletState {
                     
                     return true;
                 }
+            }
+        } else {
+            // Debug logging for failed hash lookup
+            #[cfg(feature = "wasm")]
+            {
+                let hash_hex = hex::encode(output_hash);
+                web_sys::console::log_1(&format!("🔍 OUTPUT HASH LOOKUP FAILED: {} (not found in {} tracked hashes)", 
+                    hash_hex, self.outputs_by_hash.len()).into());
             }
         }
         false
@@ -359,6 +384,22 @@ impl WalletState {
         }
         
         (inbound, outbound, unknown)
+    }
+
+    /// Get the number of tracked output hashes (for debugging)
+    pub fn get_tracked_hash_count(&self) -> usize {
+        self.outputs_by_hash.len()
+    }
+
+    /// Get all tracked output hashes (for debugging) - returns (hash, transaction_index, value, is_spent)
+    pub fn get_tracked_hashes(&self) -> Vec<(Vec<u8>, usize, u64, bool)> {
+        self.outputs_by_hash.iter().map(|(hash, &tx_index)| {
+            if let Some(tx) = self.transactions.get(tx_index) {
+                (hash.clone(), tx_index, tx.value, tx.is_spent)
+            } else {
+                (hash.clone(), tx_index, 0, false)
+            }
+        }).collect()
     }
 
     /// Create an enhanced progress bar with balance information

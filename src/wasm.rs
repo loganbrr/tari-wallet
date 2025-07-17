@@ -450,8 +450,11 @@ impl WasmScanner {
         let inputs = self.convert_simplified_inputs_to_lightweight(&http_block.inputs)?;
 
         // Process outputs manually to preserve output_hash from HTTP response
+        // CRITICAL: We must use the exact output_hash from HTTP API for later spent detection
         let mut found_outputs = 0;
         for (output_index, (http_output, lightweight_output)) in http_block.outputs.iter().zip(outputs.iter()).enumerate() {
+            let output_hash_hex = hex::encode(&http_output.output_hash);
+            
             // Try to decrypt and extract wallet output
             if let Ok((value, _mask, payment_id)) = crate::data_structures::encrypted_data::EncryptedData::decrypt_data(
                 &self.view_key,
@@ -463,7 +466,7 @@ impl WasmScanner {
                     http_block.height,
                     output_index,
                     lightweight_output.commitment.clone(),
-                    Some(http_output.output_hash.clone()), // Preserve original output_hash from HTTP
+                    Some(http_output.output_hash.clone()), // CRITICAL: Preserve exact output_hash from HTTP
                     value.as_u64(),
                     payment_id,
                     crate::data_structures::transaction::TransactionStatus::MinedConfirmed,
@@ -487,7 +490,7 @@ impl WasmScanner {
                         http_block.height,
                         output_index,
                         lightweight_output.commitment.clone(),
-                        Some(http_output.output_hash.clone()), // Preserve original output_hash from HTTP
+                        Some(http_output.output_hash.clone()), // CRITICAL: Preserve exact output_hash from HTTP
                         value.as_u64(),
                         payment_id,
                         crate::data_structures::transaction::TransactionStatus::OneSidedConfirmed,
@@ -500,13 +503,15 @@ impl WasmScanner {
         }
 
         // Process inputs for spent detection
+        // CRITICAL: HTTP API provides OUTPUT HASHES - we must match these exactly to track spending
         let mut spent_outputs = 0;
-        for input in &inputs {
-            // HTTP inputs contain output hashes, not commitments
-            // Use the output_hash field to match spent outputs
-            if self.wallet_state.mark_output_spent_by_hash(&input.output_hash, http_block.height, 0) {
+        for (input_index, input) in inputs.iter().enumerate() {
+            let input_hash_hex = hex::encode(&input.output_hash);
+            
+            // Try to match by output hash - this is the primary method for HTTP API
+            if self.wallet_state.mark_output_spent_by_hash(&input.output_hash, http_block.height, input_index) {
                 spent_outputs += 1;
-            }
+            } 
         }
 
         Ok((found_outputs, spent_outputs))
@@ -898,8 +903,9 @@ impl WasmScanner {
 
     /// Convert simplified inputs structure to TransactionInput objects
     /// 
-    /// The HTTP API returns inputs as arrays of 32-byte OUTPUT HASHES (not commitment hashes).
+    /// The HTTP API returns inputs as arrays of 32-byte OUTPUT HASHES.
     /// We convert these to minimal TransactionInput objects for spent output tracking.
+    /// CRITICAL: We must preserve the output hashes exactly as provided for accurate spent detection.
     fn convert_simplified_inputs_to_lightweight(
         &self,
         inputs: &Option<Vec<Vec<u8>>>,
@@ -918,12 +924,12 @@ impl WasmScanner {
                     return Err(format!("Invalid output hash length: expected 32 bytes, got {}", input_hash.len()));
                 }
 
-                // Convert to 32-byte array for output_hash
+                // Convert to 32-byte array for output_hash - PRESERVE EXACTLY AS PROVIDED
                 let mut output_hash = [0u8; 32];
                 output_hash.copy_from_slice(input_hash);
 
                 // Create minimal TransactionInput with the output hash
-                // We don't have the commitment from HTTP API, so use placeholder
+                // The output_hash field is what we use for spent detection
                 let transaction_input = TransactionInput::new(
                     1, // version
                     0, // features (default)
@@ -932,7 +938,7 @@ impl WasmScanner {
                     CompressedPublicKey::default(), // sender_offset_public_key (not available)
                     Vec::new(), // covenant (not available)
                     LightweightExecutionStack::new(), // input_data (not available)
-                    output_hash, // output_hash (this is the actual data from HTTP API)
+                    output_hash, // output_hash (CRITICAL: this is the actual data from HTTP API)
                     0, // output_features (not available)
                     [0u8; 64], // output_metadata_signature (not available)
                     0, // maturity (not available)
@@ -1057,14 +1063,18 @@ pub fn scan_single_block(scanner: &mut WasmScanner, block_data_json: &str) -> Re
 /// Get cumulative scanner statistics (WASM export)
 #[wasm_bindgen]
 pub fn get_scanner_stats(scanner: &WasmScanner) -> Result<String, JsValue> {
-    let (total_received, _total_spent, balance, unspent_count, spent_count) = scanner.wallet_state.get_summary();
+    let (total_received, total_spent, balance, unspent_count, spent_count) = scanner.wallet_state.get_summary();
+    let (inbound_count, outbound_count, _unknown_count) = scanner.wallet_state.get_direction_counts();
     
     let stats = serde_json::json!({
         "total_outputs": unspent_count,
         "total_spent": spent_count,
         "total_value": total_received,
+        "total_spent_value": total_spent,
         "current_balance": balance,
         "total_transactions": scanner.wallet_state.transactions.len(),
+        "inbound_transactions": inbound_count,
+        "outbound_transactions": outbound_count,
     });
     
     serde_json::to_string(&stats)

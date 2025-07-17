@@ -115,6 +115,7 @@ fn handle_new_wallet(args: &[String]) {
                         Ok(address) => {
                             println!("Base58: {}", address.to_base58());
                             println!("Emoji: {}", address.to_emoji_string());
+                            println!("Birthday: {}", wallet.birthday());
                             
                             // Print additional info if payment ID was provided
                             if address.features().contains(TariAddressFeatures::PAYMENT_ID) {
