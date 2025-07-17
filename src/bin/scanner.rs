@@ -11,81 +11,68 @@
 //! - Automatic scan from wallet birthday to chain tip
 //! - **Batch processing for improved performance (up to 100 blocks per batch)**
 //! - **Graceful error handling with resume functionality**
-//! - **Detailed performance profiling for optimization**
 //!
 //! ## Error Handling & Interruption
 //! When GRPC errors occur (e.g., "message length too large"), the scanner will:
 //! - Display the exact block height and error details
 //! - Offer interactive options: Continue (y), Skip block (s), or Abort (n)
 //! - Provide resume commands for easy restart from the failed point
-//! - Example: `cargo run --example scanner --features grpc -- --seed-phrase "your seed phrase" --from-block 25000 --to-block 30000`
+//! - Example: `cargo run --bin scanner --features grpc-storage -- --from-block 25000 --to-block 30000`
 //!
 //! **Graceful Ctrl+C Support:**
 //! - Press Ctrl+C to cleanly interrupt any scan
-//! - Profiling data and partial results are preserved and displayed
+//! - Partial results are preserved and displayed
 //! - Automatic resume command generation for continuing from interruption point
 //!
 //! ## Usage
 //! ```bash
-//! # Scan with wallet from birthday to tip using seed phrase
-//! cargo run --example scanner --features grpc -- --seed-phrase "your seed phrase here"
+//! # Scan with wallet from birthday to tip using seed phrase (memory only)
+//! cargo run --bin scanner --features grpc-storage -- --seed-phrase "your seed phrase here"
 //!
-//! # Scan using private view key (hex format, 64 characters)
-//! cargo run --example scanner --features grpc -- --view-key "a1b2c3d4e5f6789abcdef0123456789abcdef0123456789abcdef0123456789ab"
+//! # Scan using private view key (hex format, 64 characters, memory only)
+//! cargo run --bin scanner --features grpc-storage -- --view-key "a1b2c3d4e5f6789abcdef0123456789abcdef0123456789abcdef0123456789ab"
 //!
-//! # Scan specific range with view key
-//! cargo run --example scanner --features grpc -- --view-key "your_view_key_here" --from-block 34920 --to-block 34930
+//! # Scan specific range with view key (memory only)
+//! cargo run --bin scanner --features grpc-storage -- --view-key "your_view_key_here" --from-block 34920 --to-block 34930
 //!
-//! # Scan specific blocks only
-//! cargo run --example scanner --features grpc -- --seed-phrase "your seed phrase" --blocks 1000,2000,5000,10000
+//! # Scan specific blocks only (memory only)
+//! cargo run --bin scanner --features grpc-storage -- --seed-phrase "your seed phrase" --blocks 1000,2000,5000,10000
 //!
-//! # Use custom base node URL
-//! cargo run --example scanner --features grpc -- --seed-phrase "your seed phrase" --base-url "http://192.168.1.100:18142"
+//! # Use custom base node URL (memory only)
+//! cargo run --bin scanner --features grpc-storage -- --seed-phrase "your seed phrase" --base-url "http://192.168.1.100:18142"
 //!
-//! # Quiet mode with JSON output (script-friendly)
-//! cargo run --example scanner --features grpc -- --view-key "your_view_key" --quiet --format json
+//! # Quiet mode with JSON output (script-friendly, memory only)
+//! cargo run --bin scanner --features grpc-storage -- --view-key "your_view_key" --quiet --format json
 //!
-//! # Summary output with minimal progress updates
-//! cargo run --example scanner --features grpc -- --seed-phrase "your seed phrase" --format summary --progress-frequency 50
-//!
-//! # Enable detailed profiling output
-//! cargo run --example scanner --features grpc -- --seed-phrase "your seed phrase" --profile
-//!
-//! # Resume from a specific block after error
-//! cargo run --example scanner --features grpc -- --seed-phrase "your seed phrase" --from-block 25000 --to-block 30000
+//! # Summary output with minimal progress updates (memory only)
+//! cargo run --bin scanner --features grpc-storage -- --seed-phrase "your seed phrase" --format summary --progress-frequency 50
 //!
 //! # *** DATABASE STORAGE FEATURES (requires 'grpc-storage' feature) ***
-//! # Persist transactions to SQLite database
-//! cargo run --example scanner --features grpc-storage -- --seed-phrase "your seed phrase" --database wallet.db
+//! # Resume scanning from stored wallet (uses default database ./wallet.db)
+//! cargo run --bin scanner --features grpc-storage
 //!
-//! # Clear existing database and start fresh
-//! cargo run --example scanner --features grpc-storage -- --seed-phrase "your seed phrase" --database wallet.db --clear-database
+//! # Resume from specific database file
+//! cargo run --bin scanner --features grpc-storage -- --database custom_wallet.db
 //!
-//! # Resume scanning from last processed block in database
-//! cargo run --example scanner --features grpc-storage -- --seed-phrase "your seed phrase" --database wallet.db --resume
-//!
-//! # Resume scanning without providing seed phrase (loads keys from stored wallet)
-//! cargo run --example scanner --features grpc-storage -- --database wallet.db --resume
+//! # Resume from specific wallet in database
+//! cargo run --bin scanner --features grpc-storage -- --wallet-name "my-wallet"
 //!
 //! # Use in-memory database (useful for testing)
-//! cargo run --example scanner --features grpc-storage -- --seed-phrase "your seed phrase" --database ":memory:"
+//! cargo run --bin scanner --features grpc-storage -- --database ":memory:"
 //!
 //! # *** WALLET MANAGEMENT FEATURES ***
 //! # Use specific wallet for scanning
-//! cargo run --example scanner --features grpc-storage -- --database wallet.db --wallet-name "my-wallet" --resume
+//! cargo run --bin scanner --features grpc-storage -- --database wallet.db --wallet-name "my-wallet"
 //!
 //! # Scanner will auto-select wallet if only one exists, or create default wallet if none exist
-//! cargo run --example scanner --features grpc-storage -- --database wallet.db --resume
-//!
-//! # Resume specific wallet without providing keys (loads keys from database)
-//! cargo run --example scanner --features grpc-storage -- --database wallet.db --wallet-name "my-wallet" --resume
+//! cargo run --bin scanner --features grpc-storage -- --database wallet.db
 //!
 //! # NOTE: To list or create wallets, use the wallet binary:
 //! cargo run --bin wallet --features storage list-wallets
 //! cargo run --bin wallet --features storage create-wallet "seed phrase" --name "wallet-name"
 //!
 //! # Show help
-//! cargo run --example scanner --features grpc -- --help
+//! cargo run --bin scanner --features grpc-storage -- --help
 //! ```
 //!
 //! ## View Key vs Seed Phrase
@@ -94,12 +81,19 @@
 //! - Full wallet functionality
 //! - Automatic wallet birthday detection
 //! - Requires seed phrase security
+//! - Uses memory-only storage when keys provided
 //!
 //! **View Key Mode:**
 //! - View-only access with encrypted data decryption
 //! - Starts from genesis by default (can be overridden)
 //! - More secure for monitoring purposes
 //! - View key format: 64-character hex string (32 bytes)
+//! - Uses memory-only storage when keys provided
+//!
+//! **Database Resume Mode:**
+//! - No keys required - loads from stored wallet
+//! - Automatically resumes from last scanned block
+//! - Persistent transaction history
 
 #[cfg(feature = "grpc")]
 use clap::Parser;
@@ -138,14 +132,14 @@ use tokio::time::Instant;
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct CliArgs {
-    /// Seed phrase for the wallet (required unless --view-key is provided or --resume with --database)
-    #[arg(short, long, help = "Seed phrase for the wallet")]
+    /// Seed phrase for the wallet (uses memory-only storage when provided)
+    #[arg(short, long, help = "Seed phrase for the wallet (uses memory-only storage)")]
     seed_phrase: Option<String>,
 
-    /// Private view key in hex format (alternative to seed phrase)
+    /// Private view key in hex format (alternative to seed phrase, uses memory-only storage)
     #[arg(
         long,
-        help = "Private view key in hex format (64 characters). Alternative to --seed-phrase. Not required when resuming from database"
+        help = "Private view key in hex format (64 characters). Uses memory-only storage. Not required when resuming from database"
     )]
     view_key: Option<String>,
 
@@ -161,7 +155,7 @@ struct CliArgs {
     /// Starting block height for scanning
     #[arg(
         long,
-        help = "Starting block height (defaults to wallet birthday or 0 for view-key mode)"
+        help = "Starting block height (defaults to wallet birthday or last scanned block)"
     )]
     from_block: Option<u64>,
 
@@ -197,30 +191,13 @@ struct CliArgs {
     )]
     format: String,
 
-    /// Enable detailed profiling output
-    #[arg(long, help = "Enable detailed performance profiling")]
-    profile: bool,
-
-    /// Database file path for storing transactions (optional, enables persistence)
+    /// Database file path for storing transactions
     #[arg(
         long,
-        help = "SQLite database file path for storing transactions. If not provided, transactions are only stored in memory"
+        default_value = "./wallet.db",
+        help = "SQLite database file path for storing transactions. Only used when no keys are provided"
     )]
-    database: Option<String>,
-
-    /// Clear existing database before scanning
-    #[arg(
-        long,
-        help = "Clear all existing transactions from database before starting scan"
-    )]
-    clear_database: bool,
-
-    /// Resume scan from last processed block in database
-    #[arg(
-        long,
-        help = "Resume scanning from the highest block height stored in database"
-    )]
-    resume: bool,
+    database: String,
 
     /// Wallet name to use for scanning (when using database storage)
     #[arg(
@@ -241,12 +218,10 @@ pub struct ScanConfig {
     pub quiet: bool,
     pub output_format: OutputFormat,
     pub batch_size: usize,
-    pub enable_profiling: bool,
     pub database_path: Option<String>,
-    pub clear_database: bool,
-    pub resume: bool,
     pub wallet_name: Option<String>,
     pub explicit_from_block: Option<u64>,
+    pub use_database: bool,
 }
 
 /// Output format options
@@ -300,7 +275,6 @@ impl ScannerStorage {
     #[cfg(feature = "storage")]
     pub async fn new_with_database(
         database_path: &str,
-        clear_database: bool,
     ) -> LightweightWalletResult<Self> {
         let storage: Box<dyn WalletStorage> = if database_path == ":memory:" {
             Box::new(SqliteStorage::new_in_memory().await?)
@@ -309,10 +283,6 @@ impl ScannerStorage {
         };
 
         storage.initialize().await?;
-
-        if clear_database {
-            storage.clear_all_transactions().await?;
-        }
 
         Ok(Self {
             database: Some(storage),
@@ -576,9 +546,6 @@ impl ScannerStorage {
         if let Some(_storage) = &self.database {
             if let Some(db_path) = &config.database_path {
                 println!("💾 Using SQLite database: {}", db_path);
-                if config.clear_database {
-                    println!("🗑️  Database cleared before scanning");
-                }
             } else {
                 println!("💾 Using in-memory database");
             }
@@ -617,18 +584,16 @@ impl ScannerStorage {
                 "💾 Database updated: {} total transactions stored",
                 format_number(stats.total_transactions)
             );
-            if config.resume {
-                println!(
-                    "📍 Next scan can resume from block {}",
-                    format_number(stats.highest_block.unwrap_or(0) + 1)
-                );
-            }
+            println!(
+                "📍 Next scan can resume from block {}",
+                format_number(stats.highest_block.unwrap_or(0) + 1)
+            );
 
             // Also show UTXO output count if available
             let utxo_count = self.get_unspent_outputs_count().await?;
             if utxo_count > 0 {
                 println!(
-                    "🔗 UTXO outputs stored: {} (ready for transaction creation)",
+                    "🔗 UTXO outputs stored: {}",
                     format_number(utxo_count)
                 );
             }
@@ -786,12 +751,10 @@ impl BlockHeightRange {
             quiet: args.quiet,
             output_format,
             batch_size: args.batch_size,
-            enable_profiling: args.profile,
-            database_path: args.database.clone(),
-            clear_database: args.clear_database,
-            resume: args.resume,
+            database_path: Some(args.database.clone()),
             wallet_name: args.wallet_name.clone(),
             explicit_from_block: args.from_block,
+            use_database: args.seed_phrase.is_none() && args.view_key.is_none(),
         })
     }
 }
@@ -833,16 +796,16 @@ fn handle_scan_error(
                 let remaining_blocks_str: Vec<String> =
                     remaining_blocks.iter().map(|b| b.to_string()).collect();
                 if remaining_blocks_str.len() <= 20 {
-                    println!("   cargo run --example scanner --features grpc -- --seed-phrase \"your seed phrase\" --blocks {}", 
+                    println!("   cargo run --bin scanner --features grpc-storage -- --seed-phrase \"your seed phrase\" --blocks {}", 
                         remaining_blocks_str.join(","));
                 } else {
                     // For large lists, show range instead
                     let first_block = remaining_blocks.first().unwrap_or(&error_block_height);
                     let last_block = remaining_blocks.last().unwrap_or(&to_block);
-                    println!("   cargo run --example scanner --features grpc -- --seed-phrase \"your seed phrase\" --from-block {} --to-block {}", format_number(*first_block), format_number(*last_block));
+                    println!("   cargo run --bin scanner --features grpc-storage -- --seed-phrase \"your seed phrase\" --from-block {} --to-block {}", format_number(*first_block), format_number(*last_block));
                 }
             } else {
-                println!("   cargo run --example scanner --features grpc -- --seed-phrase \"your seed phrase\" --from-block {} --to-block {}", format_number(error_block_height), format_number(to_block));
+                println!("   cargo run --bin scanner --features grpc-storage -- --seed-phrase \"your seed phrase\" --from-block {} --to-block {}", format_number(error_block_height), format_number(to_block));
             }
             false // Abort
         }
@@ -852,8 +815,8 @@ fn handle_scan_error(
 /// Result type that can indicate if scan was interrupted
 #[cfg(feature = "grpc")]
 pub enum ScanResult {
-    Completed(WalletState, ProfileData),
-    Interrupted(WalletState, ProfileData),
+    Completed(WalletState),
+    Interrupted(WalletState),
 }
 
 /// Derive entropy from a seed phrase string
@@ -1308,65 +1271,38 @@ async fn scan_wallet_across_blocks_with_cancellation(
 ) -> LightweightWalletResult<ScanResult> {
     let has_specific_blocks = config.block_heights.is_some();
 
-    // Handle resume functionality for database storage
-    let (from_block, to_block) = if config.resume {
+    // Handle automatic resume functionality for database storage
+    let (from_block, to_block) = if config.use_database && config.explicit_from_block.is_none() && config.block_heights.is_none() {
         #[cfg(feature = "storage")]
         if let Some(wallet_id) = storage_backend.wallet_id {
-            // Check if user explicitly provided --from-block (takes precedence over database resume)
-            if let Some(explicit_from_block) = config.explicit_from_block {
+            // Get the wallet to check its resume block
+            if let Some(wallet_birthday) = storage_backend.get_wallet_birthday().await? {
                 if !config.quiet {
                     println!(
-                        "📄 Using explicit --from-block {} (overriding database resume)",
-                        format_number(explicit_from_block)
+                        "📄 Resuming wallet from last scanned block {}",
+                        format_number(wallet_birthday)
                     );
                 }
-                (explicit_from_block, config.to_block)
+                (wallet_birthday, config.to_block)
             } else {
-                // Get the wallet to check its resume block
-                if let Some(wallet_birthday) = storage_backend.get_wallet_birthday().await? {
-                    if !config.quiet {
-                        if let Some(last_scanned) = storage_backend.wallet_id {
-                            println!(
-                                "📄 Resuming wallet '{}' from block {} (last scanned: {})",
-                                "wallet",
-                                format_number(wallet_birthday),
-                                format_number(last_scanned)
-                            );
-                        } else {
-                            println!(
-                                "📄 Starting wallet '{}' from birthday block {}",
-                                "wallet",
-                                format_number(wallet_birthday)
-                            );
-                        }
-                    }
-                    (wallet_birthday, config.to_block)
-                } else {
-                    if !config.quiet {
-                        println!("📄 Wallet not found, starting from configuration");
-                    }
-                    (config.from_block, config.to_block)
+                if !config.quiet {
+                    println!("📄 Wallet not found, starting from configuration");
                 }
+                (config.from_block, config.to_block)
             }
         } else {
             if !config.quiet {
-                if storage_backend.is_memory_only {
-                    println!("⚠️  Resume option requires database storage, ignoring");
-                } else {
-                    println!("⚠️  Resume requires a selected wallet");
-                }
+                println!("⚠️  Resume requires a selected wallet");
             }
             (config.from_block, config.to_block)
         }
 
         #[cfg(not(feature = "storage"))]
         {
-            if !config.quiet {
-                println!("⚠️  Resume option requires storage feature, ignoring");
-            }
             (config.from_block, config.to_block)
         }
     } else {
+        // Use explicit from_block or default from_block
         (config.from_block, config.to_block)
     };
 
@@ -1383,10 +1319,6 @@ async fn scan_wallet_across_blocks_with_cancellation(
     let _progress = ScanProgress::new(block_heights.len());
     let batch_size = config.batch_size;
 
-    // Initialize profiling
-    let mut profile_data = ProfileData::new();
-    let scan_start_time = Instant::now();
-
     // Process blocks in batches
     for (batch_index, batch_heights) in block_heights.chunks(batch_size).enumerate() {
         // Check for cancellation at the start of each batch
@@ -1394,17 +1326,10 @@ async fn scan_wallet_across_blocks_with_cancellation(
             if !config.quiet {
                 println!("\n🛑 Scan cancelled - returning partial results...");
             }
-            profile_data.total_scan_time = scan_start_time.elapsed();
-            return Ok(ScanResult::Interrupted(wallet_state, profile_data));
+            return Ok(ScanResult::Interrupted(wallet_state));
         }
 
         let batch_start_index = batch_index * batch_size;
-        let batch_start_time = Instant::now();
-
-        // Record memory usage if profiling is enabled
-        if config.enable_profiling {
-            profile_data.record_memory_usage();
-        }
 
         // Display progress at the start of each batch
         if !config.quiet && batch_index % config.progress_frequency == 0 {
@@ -1418,38 +1343,16 @@ async fn scan_wallet_across_blocks_with_cancellation(
             std::io::Write::flush(&mut std::io::stdout()).unwrap();
         }
 
-        // Time the GRPC call to fetch blocks
-        let grpc_start_time = Instant::now();
+        // Fetch blocks via GRPC
         let batch_results = match scanner.get_blocks_by_heights(batch_heights.to_vec()).await {
-            Ok(blocks) => {
-                let grpc_duration = grpc_start_time.elapsed();
-                if config.enable_profiling {
-                    profile_data.add_grpc_time(grpc_duration);
-                    if !config.quiet {
-                        println!(
-                            "\n⏱️  GRPC batch fetch: {:.3}s for {} blocks",
-                            grpc_duration.as_secs_f64(),
-                            format_number(batch_heights.len())
-                        );
-                    }
-                }
-                blocks
-            }
+            Ok(blocks) => blocks,
             Err(e) => {
-                let grpc_duration = grpc_start_time.elapsed();
-                if config.enable_profiling {
-                    profile_data.add_grpc_time(grpc_duration);
-                }
                 println!(
                     "\n❌ Error scanning batch starting at block {}: {}",
                     batch_heights[0], e
                 );
                 println!("   Batch heights: {:?}", batch_heights);
                 println!("   Error details: {:?}", e);
-                println!(
-                    "   GRPC call took: {:.3}s before failing",
-                    grpc_duration.as_secs_f64()
-                );
 
                 let remaining_blocks = &block_heights[batch_start_index..];
                 if handle_scan_error(
@@ -1460,12 +1363,10 @@ async fn scan_wallet_across_blocks_with_cancellation(
                 ) {
                     // Check for cancellation before continuing
                     if *cancel_rx.borrow() {
-                        profile_data.total_scan_time = scan_start_time.elapsed();
-                        return Ok(ScanResult::Interrupted(wallet_state, profile_data));
+                        return Ok(ScanResult::Interrupted(wallet_state));
                     }
                     continue; // Continue to next batch
                 } else {
-                    profile_data.total_scan_time = scan_start_time.elapsed();
                     return Err(e); // Abort
                 }
             }
@@ -1489,25 +1390,15 @@ async fn scan_wallet_across_blocks_with_cancellation(
                 }
             };
 
-            // Time block processing with detailed breakdown
-            let block_start_time = Instant::now();
-
             // Process block using the Block struct
             let block = Block::from_block_info(block_info);
 
-            // Time output processing separately
-            let output_start_time = Instant::now();
             let found_outputs = block.process_outputs(
                 &scan_context.view_key,
                 &scan_context.entropy,
                 &mut wallet_state,
             );
-            let output_duration = output_start_time.elapsed();
-
-            // Time input processing separately
-            let input_start_time = Instant::now();
             let spent_outputs = block.process_inputs(&mut wallet_state);
-            let input_duration = input_start_time.elapsed();
 
             let scan_result = match (found_outputs, spent_outputs) {
                 (Ok(found), Ok(spent)) => Ok((found, spent)),
@@ -1516,10 +1407,6 @@ async fn scan_wallet_across_blocks_with_cancellation(
 
             let (_found_outputs, spent_outputs_count) = match scan_result {
                 Ok(result) => {
-                    let block_duration = block_start_time.elapsed();
-                    if config.enable_profiling {
-                        profile_data.add_block_processing_time(*block_height, block_duration);
-                    }
 
                     // Note: Spent output tracking is handled automatically by wallet_state.mark_output_spent()
                     // called from block.process_inputs() - and we also update the database below
@@ -1571,7 +1458,7 @@ async fn scan_wallet_across_blocks_with_cancellation(
                                 let inbound_count = all_transactions.iter().filter(|tx| tx.transaction_direction == TransactionDirection::Inbound).count();
                                 let outbound_count = all_transactions.iter().filter(|tx| tx.transaction_direction == TransactionDirection::Outbound).count();
                                 
-                                if !config.quiet && config.enable_profiling {
+                                if !config.quiet {
                                     println!("\n💾 Saved {} total transactions to database ({} inbound, {} outbound)", 
                                         format_number(all_transactions.len()), 
                                         format_number(inbound_count), format_number(outbound_count));
@@ -1606,7 +1493,7 @@ async fn scan_wallet_across_blocks_with_cancellation(
                                             println!("\n⚠️  Warning: Failed to save {} UTXO outputs from block {} to database: {}", 
                                                 format_number(utxo_outputs.len()), format_number(*block_height), e);
                                         }
-                                    } else if !config.quiet && config.enable_profiling {
+                                    } else if !config.quiet {
                                         let unspent_utxos = utxo_outputs.iter().filter(|o| o.status == (OutputStatus::Unspent as u32)).count();
                                         let spent_utxos = utxo_outputs.iter().filter(|o| o.status == (OutputStatus::Spent as u32)).count();
                                         println!("\n🔗 Saved {} UTXO outputs for block {} ({} unspent, {} spent)", 
@@ -1636,17 +1523,9 @@ async fn scan_wallet_across_blocks_with_cancellation(
                     result
                 }
                 Err(e) => {
-                    let block_duration = block_start_time.elapsed();
-                    if config.enable_profiling {
-                        profile_data.add_block_processing_time(*block_height, block_duration);
-                    }
                     println!("\n❌ Error processing block {}: {}", block_height, e);
                     println!("   Block height: {}", block_height);
                     println!("   Error details: {:?}", e);
-                    println!(
-                        "   Block processing took: {:.3}s before failing",
-                        block_duration.as_secs_f64()
-                    );
 
                     let remaining_blocks = &block_heights[global_block_index..];
                     if handle_scan_error(
@@ -1657,32 +1536,17 @@ async fn scan_wallet_across_blocks_with_cancellation(
                     ) {
                         // Check for cancellation before continuing
                         if *cancel_rx.borrow() {
-                            profile_data.total_scan_time = scan_start_time.elapsed();
-                            return Ok(ScanResult::Interrupted(wallet_state, profile_data));
+                            return Ok(ScanResult::Interrupted(wallet_state));
                         }
                         continue; // Continue to next block
                     } else {
-                        profile_data.total_scan_time = scan_start_time.elapsed();
                         return Err(e); // Abort
                     }
                 }
             };
         }
 
-        // Record batch processing time
-        let batch_duration = batch_start_time.elapsed();
-        if config.enable_profiling {
-            profile_data.add_batch_time(batch_duration);
-            if !config.quiet {
-                println!(
-                    "\n⏱️  Batch {}: {:.3}s total ({} blocks, avg: {:.3}s per block)",
-                    format_number(batch_index + 1),
-                    batch_duration.as_secs_f64(),
-                    format_number(batch_heights.len()),
-                    batch_duration.as_secs_f64() / batch_heights.len() as f64
-                );
-            }
-        }
+
 
         // Update wallet scanned block at the end of each batch (for progress tracking)
         #[cfg(feature = "storage")]
@@ -1714,9 +1578,6 @@ async fn scan_wallet_across_blocks_with_cancellation(
         }
     }
 
-    // Record total scan time
-    profile_data.total_scan_time = scan_start_time.elapsed();
-
     // Final wallet scanned block update (ensure highest processed block is recorded)
     #[cfg(feature = "storage")]
     if storage_backend.wallet_id.is_some() {
@@ -1725,7 +1586,7 @@ async fn scan_wallet_across_blocks_with_cancellation(
                 if !config.quiet {
                     println!("\n⚠️  Warning: Failed to final update wallet scanned block to {}: {}", format_number(*highest_block), e);
                 }
-            } else if !config.quiet && config.enable_profiling {
+            } else if !config.quiet {
                 println!("\n💾 Final wallet scanned block updated to: {}", format_number(*highest_block));
             }
         }
@@ -1741,9 +1602,8 @@ async fn scan_wallet_across_blocks_with_cancellation(
         );
         println!("\r{}", final_progress_bar);
 
-        let scan_elapsed = profile_data.total_scan_time;
         let (inbound_count, outbound_count, _) = wallet_state.get_direction_counts();
-        println!("\n✅ Scan complete in {:.2}s!", scan_elapsed.as_secs_f64());
+        println!("\n✅ Scan complete!");
         println!(
             "📊 Total: {} outputs found, {} outputs spent",
             format_number(inbound_count),
@@ -1751,7 +1611,7 @@ async fn scan_wallet_across_blocks_with_cancellation(
         );
     }
 
-    Ok(ScanResult::Completed(wallet_state, profile_data))
+    Ok(ScanResult::Completed(wallet_state))
 }
 
 /// Display scan configuration information
@@ -1815,7 +1675,7 @@ fn display_wallet_activity(wallet_state: &WalletState, from_block: u64, to_block
         );
         if from_block > 1 {
             println!("   ⚠️  Note: Scanning from block {} - wallet history before this block was not checked", format_number(from_block));
-            println!("   💡 For complete history, try: cargo run --example scanner --features grpc -- --seed-phrase \"your seed phrase\" --from-block 1");
+            println!("   💡 For complete history, try: cargo run --bin scanner --features grpc-storage -- --seed-phrase \"your seed phrase\" --from-block 1");
         }
         return;
     }
@@ -2098,9 +1958,8 @@ async fn main() -> LightweightWalletResult<()> {
 
 
 
-    // Validate input arguments (required for scanning operations, unless resuming from database)
+    // Validate input arguments
     let keys_provided = args.seed_phrase.is_some() || args.view_key.is_some();
-    let can_resume_from_db = args.resume && args.database.is_some();
 
     match (&args.seed_phrase, &args.view_key) {
         (Some(_), Some(_)) => {
@@ -2108,15 +1967,10 @@ async fn main() -> LightweightWalletResult<()> {
             std::process::exit(1);
         }
         (None, None) => {
-            if !can_resume_from_db {
-                eprintln!("❌ Error: Must specify either --seed-phrase or --view-key.");
-                eprintln!("💡 Use --help for usage information.");
-                eprintln!(
-                    "💡 Or use --resume --database <path> to resume from stored wallet keys."
-                );
-                std::process::exit(1);
+            // Allow no keys - will try to load from database
+            if !args.quiet {
+                println!("🔑 No keys provided - will load from database...");
             }
-            // Allow no keys when resuming from database
         }
         _ => {} // Valid: exactly one is provided
     }
@@ -2190,18 +2044,20 @@ async fn main() -> LightweightWalletResult<()> {
     let temp_block_height_range = BlockHeightRange::new(0, to_block, args.blocks.clone());
     let temp_config = temp_block_height_range.into_scan_config(&args)?;
 
-    // Create storage backend
-    let mut storage_backend = if let Some(db_path) = &temp_config.database_path {
+    // Create storage backend - use database when no keys provided, memory when keys provided
+    let mut storage_backend = if keys_provided {
+        // Keys provided - use memory-only storage
+        ScannerStorage::new_memory()
+    } else {
+        // No keys provided - use database storage
         #[cfg(feature = "storage")]
         {
-            ScannerStorage::new_with_database(db_path, temp_config.clear_database).await?
+            ScannerStorage::new_with_database(&args.database).await?
         }
         #[cfg(not(feature = "storage"))]
         {
             ScannerStorage::new_memory()
         }
-    } else {
-        ScannerStorage::new_memory()
     };
 
     // Handle wallet operations for database storage
@@ -2287,7 +2143,7 @@ async fn main() -> LightweightWalletResult<()> {
     };
 
     match scan_result {
-        Some(Ok(ScanResult::Completed(wallet_state, profile_data))) => {
+        Some(Ok(ScanResult::Completed(wallet_state))) => {
             // Display results based on output format
             match config.output_format {
                 OutputFormat::Json => display_json_results(&wallet_state),
@@ -2295,12 +2151,6 @@ async fn main() -> LightweightWalletResult<()> {
                 OutputFormat::Detailed => {
                     display_wallet_activity(&wallet_state, config.from_block, config.to_block)
                 }
-            }
-
-            // Display profiling information if enabled
-            if config.enable_profiling {
-                profile_data.display_profile(config.quiet);
-                profile_data.display_recommendations(config.quiet);
             }
 
                 // Display storage completion info and verify data integrity
@@ -2320,7 +2170,7 @@ async fn main() -> LightweightWalletResult<()> {
         }
     }
         }
-        Some(Ok(ScanResult::Interrupted(wallet_state, profile_data))) => {
+        Some(Ok(ScanResult::Interrupted(wallet_state))) => {
             if !args.quiet {
                 println!("⚠️  Scan was interrupted but collected partial data:\n");
             }
@@ -2334,18 +2184,9 @@ async fn main() -> LightweightWalletResult<()> {
                 }
             }
 
-            // Display profiling information (especially valuable for interrupted scans)
-            if config.enable_profiling {
-                profile_data.display_profile(config.quiet);
-                profile_data.display_recommendations(config.quiet);
-                if !args.quiet {
-                    println!("\n💡 This partial profiling data can help optimize future scans!");
-                }
-            }
-
             if !args.quiet {
                 println!("\n🔄 To resume scanning from where you left off, use:");
-                println!("   cargo run --example scanner --features grpc -- <your-options> --from-block {}", 
+                println!("   cargo run --bin scanner --features grpc-storage -- <your-options> --from-block {}", 
                     format_number(wallet_state.transactions.iter()
                         .map(|tx| tx.block_height)
                         .max()
@@ -2434,262 +2275,11 @@ fn display_summary_results(wallet_state: &WalletState, config: &ScanConfig) {
     println!("Spent outputs: {}", format_number(spent_count));
 }
 
-/// Performance profiling data
-#[cfg(feature = "grpc")]
-#[derive(Debug, Default)]
-pub struct ProfileData {
-    pub total_scan_time: std::time::Duration,
-    pub grpc_call_times: Vec<std::time::Duration>,
-    pub block_processing_times: Vec<(u64, std::time::Duration)>,
-    pub batch_processing_times: Vec<std::time::Duration>,
-    pub total_grpc_time: std::time::Duration,
-    pub total_processing_time: std::time::Duration,
-    pub memory_usage: Vec<usize>,
-}
 
-#[cfg(feature = "grpc")]
-impl ProfileData {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn add_grpc_time(&mut self, duration: std::time::Duration) {
-        self.grpc_call_times.push(duration);
-        self.total_grpc_time += duration;
-    }
-
-    pub fn add_block_processing_time(&mut self, block_height: u64, duration: std::time::Duration) {
-        self.block_processing_times.push((block_height, duration));
-        self.total_processing_time += duration;
-    }
-
-    pub fn add_batch_time(&mut self, duration: std::time::Duration) {
-        self.batch_processing_times.push(duration);
-    }
-
-    pub fn record_memory_usage(&mut self) {
-        // Simple memory estimation based on current process
-        #[cfg(target_os = "linux")]
-        {
-            if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
-                for line in status.lines() {
-                    if line.starts_with("VmRSS:") {
-                        if let Some(kb_str) = line.split_whitespace().nth(1) {
-                            if let Ok(kb) = kb_str.parse::<usize>() {
-                                self.memory_usage.push(kb * 1024); // Convert to bytes
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        #[cfg(not(target_os = "linux"))]
-        {
-            // Fallback for non-Linux systems - just record timestamp
-            self.memory_usage.push(
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs() as usize,
-            );
-        }
-    }
-
-    pub fn display_profile(&self, quiet: bool) {
-        if quiet {
-            return;
-        }
-
-        println!("\n📊 PERFORMANCE PROFILE");
-        println!("======================");
-        println!(
-            "Total scan time: {:.3}s",
-            self.total_scan_time.as_secs_f64()
-        );
-        println!(
-            "Total GRPC time: {:.3}s ({:.1}%)",
-            self.total_grpc_time.as_secs_f64(),
-            (self.total_grpc_time.as_secs_f64() / self.total_scan_time.as_secs_f64()) * 100.0
-        );
-        println!(
-            "Total processing time: {:.3}s ({:.1}%)",
-            self.total_processing_time.as_secs_f64(),
-            (self.total_processing_time.as_secs_f64() / self.total_scan_time.as_secs_f64()) * 100.0
-        );
-
-        if !self.grpc_call_times.is_empty() {
-            let avg_grpc = self.total_grpc_time.as_secs_f64() / self.grpc_call_times.len() as f64;
-            let max_grpc = self.grpc_call_times.iter().max().unwrap().as_secs_f64();
-            let min_grpc = self.grpc_call_times.iter().min().unwrap().as_secs_f64();
-            println!(
-                "GRPC calls: {} total, avg: {:.3}s, min: {:.3}s, max: {:.3}s",
-                format_number(self.grpc_call_times.len()),
-                avg_grpc,
-                min_grpc,
-                max_grpc
-            );
-        }
-
-        if !self.block_processing_times.is_empty() {
-            let avg_processing =
-                self.total_processing_time.as_secs_f64() / self.block_processing_times.len() as f64;
-            let max_processing = self
-                .block_processing_times
-                .iter()
-                .map(|(_, d)| d)
-                .max()
-                .unwrap()
-                .as_secs_f64();
-            let min_processing = self
-                .block_processing_times
-                .iter()
-                .map(|(_, d)| d)
-                .min()
-                .unwrap()
-                .as_secs_f64();
-            println!(
-                "Block processing: {} blocks, avg: {:.3}s, min: {:.3}s, max: {:.3}s",
-                format_number(self.block_processing_times.len()),
-                avg_processing,
-                min_processing,
-                max_processing
-            );
-
-            // Show slowest blocks
-            let mut sorted_blocks = self.block_processing_times.clone();
-            sorted_blocks.sort_by(|a, b| b.1.cmp(&a.1));
-            if sorted_blocks.len() > 5 {
-                println!("Slowest blocks:");
-                for (block_height, duration) in sorted_blocks.iter().take(5) {
-                    println!(
-                        "  Block {}: {:.3}s",
-                        format_number(*block_height),
-                        duration.as_secs_f64()
-                    );
-                }
-            }
-        }
-
-        if !self.batch_processing_times.is_empty() {
-            let avg_batch = self
-                .batch_processing_times
-                .iter()
-                .sum::<std::time::Duration>()
-                .as_secs_f64()
-                / self.batch_processing_times.len() as f64;
-            let max_batch = self
-                .batch_processing_times
-                .iter()
-                .max()
-                .unwrap()
-                .as_secs_f64();
-            let min_batch = self
-                .batch_processing_times
-                .iter()
-                .min()
-                .unwrap()
-                .as_secs_f64();
-            println!(
-                "Batch processing: {} batches, avg: {:.3}s, min: {:.3}s, max: {:.3}s",
-                format_number(self.batch_processing_times.len()),
-                avg_batch,
-                min_batch,
-                max_batch
-            );
-        }
-
-        // Calculate overhead (time not accounted for by GRPC or processing)
-        let accounted_time = self.total_grpc_time + self.total_processing_time;
-        let overhead = self.total_scan_time.saturating_sub(accounted_time);
-        if overhead.as_secs_f64() > 0.1 {
-            println!(
-                "Overhead/Other: {:.3}s ({:.1}%)",
-                overhead.as_secs_f64(),
-                (overhead.as_secs_f64() / self.total_scan_time.as_secs_f64()) * 100.0
-            );
-        }
-
-        if !self.memory_usage.is_empty() && cfg!(target_os = "linux") {
-            let max_mem = self.memory_usage.iter().max().unwrap_or(&0);
-            let min_mem = self.memory_usage.iter().min().unwrap_or(&0);
-            println!(
-                "Memory usage: min: {:.1} MB, max: {:.1} MB",
-                *min_mem as f64 / 1024.0 / 1024.0,
-                *max_mem as f64 / 1024.0 / 1024.0
-            );
-        }
-    }
-
-    pub fn display_recommendations(&self, quiet: bool) {
-        if quiet {
-            return;
-        }
-
-        println!("\n💡 PERFORMANCE RECOMMENDATIONS");
-        println!("==============================");
-
-        let grpc_percentage =
-            (self.total_grpc_time.as_secs_f64() / self.total_scan_time.as_secs_f64()) * 100.0;
-        let processing_percentage =
-            (self.total_processing_time.as_secs_f64() / self.total_scan_time.as_secs_f64()) * 100.0;
-
-        if grpc_percentage > 60.0 {
-            println!(
-                "🌐 GRPC calls are the main bottleneck ({:.1}% of time)",
-                grpc_percentage
-            );
-            println!("   → Consider increasing --batch-size to reduce number of GRPC calls");
-            println!(
-                "   → Made {} GRPC calls total",
-                format_number(self.grpc_call_times.len())
-            );
-            println!("   → Check network latency to the base node");
-            println!("   → Consider using a local base node for faster access");
-        } else if processing_percentage > 60.0 {
-            println!(
-                "⚙️  Block processing is the main bottleneck ({:.1}% of time)",
-                processing_percentage
-            );
-            println!("   → Check if running on a fast CPU with good single-thread performance");
-        } else {
-            println!("⚖️  Balanced performance - no major bottlenecks detected");
-            println!(
-                "   → GRPC: {:.1}%, Processing: {:.1}%",
-                grpc_percentage, processing_percentage
-            );
-        }
-
-        if !self.block_processing_times.is_empty() {
-            let avg_processing =
-                self.total_processing_time.as_secs_f64() / self.block_processing_times.len() as f64;
-            if avg_processing > 0.1 {
-                println!(
-                    "🐌 Block processing is slow (avg: {:.3}s per block)",
-                    avg_processing
-                );
-                println!("   → Large blocks with many transactions take longer to process");
-                println!("   → Consider scanning smaller ranges or using view-key mode");
-            }
-        }
-
-        if !self.grpc_call_times.is_empty() {
-            let avg_grpc = self.total_grpc_time.as_secs_f64() / self.grpc_call_times.len() as f64;
-            if avg_grpc > 2.0 {
-                println!(
-                    "🌐 GRPC calls are very slow (avg: {:.3}s per batch)",
-                    avg_grpc
-                );
-                println!("   → Network issues or base node performance problems");
-                println!("   → Try reducing --batch-size or using a different base node");
-            }
-        }
-    }
-}
 
 #[cfg(not(feature = "grpc"))]
 fn main() {
     eprintln!("This example requires the 'grpc' feature to be enabled.");
-    eprintln!("Run with: cargo run --example scanner --features grpc");
+    eprintln!("Run with: cargo run --bin scanner --features grpc");
     std::process::exit(1);
 }

@@ -176,17 +176,17 @@ The scanner provides comprehensive blockchain analysis with multiple scanning mo
 // The scanner example demonstrates advanced features like:
 // 
 // 1. Seed phrase OR view key scanning
-// cargo run --example scanner --features grpc -- --seed-phrase "your seed phrase"
-// cargo run --example scanner --features grpc -- --view-key "64_char_hex_view_key"
+// cargo run --bin scanner --features grpc -- --seed-phrase "your seed phrase"
+// cargo run --bin scanner --features grpc -- --view-key "64_char_hex_view_key"
 //
 // 2. Flexible block range scanning
-// cargo run --example scanner --features grpc -- --from-block 1000 --to-block 2000
-// cargo run --example scanner --features grpc -- --blocks 1000,1500,2000,2500
+// cargo run --bin scanner --features grpc -- --from-block 1000 --to-block 2000
+// cargo run --bin scanner --features grpc -- --blocks 1000,1500,2000,2500
 //
 // 3. Multiple output formats
-// cargo run --example scanner --features grpc -- --format detailed  # Full transaction history
-// cargo run --example scanner --features grpc -- --format summary   # Compact overview  
-// cargo run --example scanner --features grpc -- --format json      # Machine-readable
+// cargo run --bin scanner --features grpc -- --format detailed  # Full transaction history
+// cargo run --bin scanner --features grpc -- --format summary   # Compact overview  
+// cargo run --bin scanner --features grpc -- --format json      # Machine-readable
 //
 // 4. Error recovery and resume functionality
 // When errors occur, the scanner provides interactive options and resume commands
@@ -255,22 +255,22 @@ Check out the [`examples/`](examples/) directory for complete working examples:
 Run examples:
 ```bash
 # Create new wallet with seed phrase
-cargo run --example wallet new-wallet
+cargo run --bin wallet new-wallet
 
 # Generate address from existing seed phrase
-cargo run --example wallet new-address "your 24-word seed phrase here"
+cargo run --bin wallet new-address "your 24-word seed phrase here"
 
 # Create wallet with payment ID and custom network
-cargo run --example wallet new-wallet --network stagenet --payment-id "my-payment-123"
+cargo run --bin wallet new-wallet --network stagenet --payment-id "my-payment-123"
 
 # Comprehensive blockchain scanning (requires running Tari base node)
-cargo run --example scanner --features grpc -- --seed-phrase "your seed phrase"
+cargo run --bin scanner --features grpc -- --seed-phrase "your seed phrase"
 
 # Scan specific block range with view key
-cargo run --example scanner --features grpc -- --view-key "your_64_char_hex_view_key" --from-block 1000 --to-block 2000
+cargo run --bin scanner --features grpc -- --view-key "your_64_char_hex_view_key" --from-block 1000 --to-block 2000
 
 # Scan with multiple output formats
-cargo run --example scanner --features grpc -- --seed-phrase "your seed phrase" --format summary --quiet
+cargo run --bin scanner --features grpc -- --seed-phrase "your seed phrase" --format summary --quiet
 ```
 
 ## 🔒 **Security Features**
