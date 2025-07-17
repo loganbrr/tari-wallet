@@ -64,15 +64,12 @@ num_cpus = "1.16"
 
 # Async support for scanning (optional for WASM compatibility)
 async-trait = { version = "0.1", optional = true }
-tokio = { version = "1.0", features = ["full"], optional = true }
+
 tracing = { version = "0.1", optional = true }
 
 # GRPC dependencies for blockchain scanning
 tonic = { version = "0.10", features = ["tls", "tls-roots", "prost"], optional = true }
 prost = { version = "0.12", optional = true }
-
-# HTTP client dependencies for blockchain scanning
-reqwest = { version = "0.11", features = ["json"], optional = true, default-features = false }
 
 # CLI argument parsing for examples
 clap = { version = "4.4", features = ["derive"], optional = true }
@@ -84,6 +81,21 @@ tracing-subscriber = { version = "0.3", optional = true }
 rusqlite = { version = "0.31", features = ["chrono", "serde_json", "blob"], optional = true }
 tokio-rusqlite = { version = "0.5", optional = true }
 
+
+# Native targets (non-WASM) - Full reqwest with all features
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+reqwest = { version = "0.12.22", features = ["json", "stream", "gzip"], optional = true }
+tokio = { version = "1.0", features = ["full"], optional = true }
+
+# WASM targets - Use web-sys instead of reqwest for HTTP functionality
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-sys = { version = "0.3", features = ["console", "Request", "Response", "Headers", "RequestInit", "RequestMode", "Window"], optional = true }
+js-sys = { version = "0.3", optional = true }
+serde-wasm-bindgen = { version = "0.6", optional = true }
+getrandom = { version = "0.2", features = ["js"] }
+wasm-bindgen-futures = { version = "0.4", optional = true }
+
+
 [dev-dependencies]
 # Test dependencies
 serde_json = "1.0"
@@ -94,18 +106,12 @@ tonic-build = "0.10"
 
 [features]
 default = ["http"]
-wasm = ["getrandom/js"]
 grpc = ["rayon", "tonic", "prost", "clap", "async-trait", "tokio", "tracing", "tracing-subscriber"]
-http = ["reqwest", "async-trait", "tokio", "tracing"]
-http-wasm = ["reqwest", "async-trait"]
+http = ["async-trait", "tokio", "tracing", "reqwest", "web-sys", "js-sys", "serde-wasm-bindgen", "wasm-bindgen-futures"]
 storage = ["rusqlite", "tokio-rusqlite", "async-trait", "tokio"]
 grpc-storage = ["grpc", "storage"]
 http-storage = ["http", "storage"]
 
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-getrandom = { version = "0.2", features = ["js"] }
-web-sys = { version = "0.3", features = ["console"] }
-wasm-bindgen-futures = "0.4" 
 
 
 [lib]

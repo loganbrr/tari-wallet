@@ -581,6 +581,18 @@ impl From<&str> for LightweightWalletError {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
+impl From<wasm_bindgen::JsValue> for LightweightWalletError {
+    fn from(err: wasm_bindgen::JsValue) -> Self {
+        let message = if let Some(string) = err.as_string() {
+            string
+        } else {
+            format!("{:?}", err)
+        };
+        LightweightWalletError::NetworkError(format!("WASM error: {}", message))
+    }
+}
+
 // Convenience methods for creating common errors
 impl LightweightWalletError {
     /// Create an invalid argument error

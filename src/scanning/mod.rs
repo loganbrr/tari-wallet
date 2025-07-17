@@ -7,6 +7,7 @@
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     data_structures::{
@@ -25,6 +26,7 @@ use crate::{
     key_management::{self, KeyManager, KeyStore},
 };
 use tari_utilities::ByteArray;
+#[cfg(feature = "tracing")]
 use tracing::{debug,info};
 use blake2::{Blake2b, Digest};
 use tari_crypto::{
@@ -64,7 +66,7 @@ pub struct ScanProgress {
 }
 
 /// Configuration for blockchain scanning
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanConfig {
     /// Starting block height (wallet birthday)
     pub start_height: u64,
@@ -73,9 +75,32 @@ pub struct ScanConfig {
     /// Maximum number of blocks to scan in one request
     pub batch_size: u64,
     /// Timeout for requests
+    #[serde(with = "duration_serde")]
     pub request_timeout: Duration,
-    /// Extraction configuration
+    /// Extraction configuration (excluded from serialization for security)
+    #[serde(skip)]
     pub extraction_config: ExtractionConfig,
+}
+
+// Helper module for Duration serialization
+mod duration_serde {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use std::time::Duration;
+
+    pub fn serialize<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        duration.as_secs().serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Duration, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let secs = u64::deserialize(deserializer)?;
+        Ok(Duration::from_secs(secs))
+    }
 }
 
 impl ScanConfig {
@@ -211,7 +236,7 @@ pub struct WalletScanResult {
 }
 
 /// Chain tip information
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TipInfo {
     /// Current best block height
     pub best_block_height: u64,
@@ -226,7 +251,7 @@ pub struct TipInfo {
 }
 
 /// Result of a block scan operation
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlockScanResult {
     /// Block height
     pub height: u64,
@@ -262,7 +287,7 @@ pub struct BlockInfo {
 /// This trait provides a lightweight interface that can be implemented by
 /// different backend providers (gRPC, HTTP, etc.) without requiring heavy
 /// dependencies in the core library.
-#[async_trait]
+#[async_trait(?Send)]
 pub trait BlockchainScanner: Send + Sync {
     /// Scan for wallet outputs in the specified block range
     async fn scan_blocks(
@@ -302,7 +327,7 @@ pub trait BlockchainScanner: Send + Sync {
 /// 
 /// This trait extends the basic blockchain scanner with wallet-specific
 /// functionality for scanning with key management.
-#[async_trait]
+#[async_trait(?Send)]
 pub trait WalletScanner: Send + Sync {
     /// Scan for wallet outputs using wallet keys
     async fn scan_wallet(
@@ -374,6 +399,7 @@ impl DefaultScanningLogic {
         // Try to decrypt the encrypted data
         match EncryptedData::decrypt_data(&encryption_key, transaction_output.commitment(), transaction_output.encrypted_data()) {
             Ok((value, _mask, payment_id)) => {
+                #[cfg(feature = "tracing")]
                 info!(
                     "Successfully decrypted output with DH approach: value={}, payment_id={:?}",
                     value.as_u64(),
@@ -385,13 +411,14 @@ impl DefaultScanningLogic {
                 match extract_wallet_output(transaction_output, &extraction_config) {
                     Ok(wallet_output) => Ok(Some(wallet_output)),
                     Err(_) => {
-                        // If extraction fails, create a basic wallet output
+                        #[cfg(feature = "tracing")]
                         info!("Extraction failed, but decryption succeeded - creating basic wallet output");
                         Ok(None) // For now, return None to avoid constructor complexity
                     }
                 }
             },
             Err(e) => {
+                #[cfg(feature = "tracing")]
                 debug!("DH decryption failed: {}", e);
                 Ok(None)
             }
@@ -455,6 +482,7 @@ impl DefaultScanningLogic {
                     Ok(wallet_output) => wallet_outputs.push(wallet_output),
                     Err(e) => {
                         // Log error but continue processing other outputs
+                        #[cfg(feature = "tracing")]
                         tracing::debug!("Failed to extract wallet output: {}", e);
                     }
                 }
@@ -756,7 +784,7 @@ impl MockBlockchainScanner {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl BlockchainScanner for MockBlockchainScanner {
     async fn scan_blocks(
         &mut self,

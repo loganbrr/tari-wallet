@@ -22,24 +22,55 @@ use crate::{
 };
 
 // Only import HTTP scanner types when available
-#[cfg(any(feature = "http", feature = "http-wasm"))]
+#[cfg(feature = "http")]
 use crate::scanning::{
     http_scanner::{HttpBlockchainScanner, HttpBlockResponse, HttpBlockData, HttpOutputData},
-    ScanConfig,
+    ScanConfig, BlockchainScanner,
 };
 
-#[cfg(any(feature = "http", feature = "http-wasm"))]
+#[cfg(feature = "http")]
 use crate::extraction::ExtractionConfig;
 
+/// Simplified block info for WASM serialization
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct WasmBlockInfo {
+    /// Block height
+    pub height: u64,
+    /// Block hash (hex encoded)
+    pub hash: String,
+    /// Block timestamp
+    pub timestamp: u64,
+    /// Number of outputs in this block
+    pub output_count: usize,
+    /// Number of inputs in this block
+    pub input_count: usize,
+    /// Number of kernels in this block
+    pub kernel_count: usize,
+}
+
+#[cfg(feature = "http")]
+impl From<crate::scanning::BlockInfo> for WasmBlockInfo {
+    fn from(block_info: crate::scanning::BlockInfo) -> Self {
+        Self {
+            height: block_info.height,
+            hash: hex::encode(&block_info.hash),
+            timestamp: block_info.timestamp,
+            output_count: block_info.outputs.len(),
+            input_count: block_info.inputs.len(),
+            kernel_count: block_info.kernels.len(),
+        }
+    }
+}
+
 // HTTP data structures for WASM (when HTTP scanner is not available or for legacy compatibility)
-#[cfg(not(any(feature = "http", feature = "http-wasm")))]
+#[cfg(not(feature = "http"))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HttpBlockResponse {
     pub blocks: Vec<HttpBlockData>,
     pub has_next_page: bool,
 }
 
-#[cfg(not(any(feature = "http", feature = "http-wasm")))]
+#[cfg(not(feature = "http"))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HttpBlockData {
     pub header_hash: Vec<u8>,
@@ -48,7 +79,7 @@ pub struct HttpBlockData {
     pub mined_timestamp: u64,
 }
 
-#[cfg(not(any(feature = "http", feature = "http-wasm")))]
+#[cfg(not(feature = "http"))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HttpOutputData {
     pub output_hash: Vec<u8>,
@@ -70,7 +101,7 @@ pub fn derive_public_key_hex(master_key: &[u8]) -> Result<String, JsValue> {
 /// WASM-compatible wallet scanner
 #[wasm_bindgen]
 pub struct WasmScanner {
-    #[cfg(any(feature = "http", feature = "http-wasm"))]
+    #[cfg(feature = "http")]
     http_scanner: Option<HttpBlockchainScanner>,
     view_key: PrivateKey,
     entropy: [u8; 16],
@@ -194,7 +225,7 @@ impl WasmScanner {
             .map_err(|_| "Failed to convert view key".to_string())?);
         
         Ok(Self {
-            #[cfg(any(feature = "http", feature = "http-wasm"))]
+            #[cfg(feature = "http")]
             http_scanner: None, // Will be initialized when needed
             view_key,
             entropy: entropy_array,
@@ -218,7 +249,7 @@ impl WasmScanner {
         let entropy = [0u8; 16]; // Default entropy for view-key only mode
         
         Ok(Self {
-            #[cfg(any(feature = "http", feature = "http-wasm"))]
+            #[cfg(feature = "http")]
             http_scanner: None, // Will be initialized when needed
             view_key,
             entropy,
@@ -227,7 +258,7 @@ impl WasmScanner {
     }
 
     /// Initialize HTTP scanner with base URL (if not already initialized)
-    #[cfg(any(feature = "http", feature = "http-wasm"))]
+    #[cfg(feature = "http")]
     pub async fn initialize_http_scanner(&mut self, base_url: &str) -> Result<(), String> {
         if self.http_scanner.is_none() {
             let scanner = HttpBlockchainScanner::new(base_url.to_string()).await
@@ -238,7 +269,7 @@ impl WasmScanner {
     }
 
     /// Process HTTP block response using the new HTTP scanner
-    #[cfg(any(feature = "http", feature = "http-wasm"))]
+    #[cfg(feature = "http")]
     pub async fn process_http_blocks_async(&mut self, http_response_json: &str, base_url: Option<&str>) -> ScanResult {
         // Initialize scanner if needed
         if let Some(url) = base_url {
@@ -359,9 +390,9 @@ impl WasmScanner {
     /// Process single HTTP block using the new HTTP scanner if available, otherwise fallback to legacy method
     fn process_single_http_block(&mut self, http_block: &HttpBlockData) -> Result<(usize, usize), String> {
         // If we have an HTTP scanner, try to use it for better integration
-        #[cfg(any(feature = "http", feature = "http-wasm"))]
-        if let Some(ref scanner) = self.http_scanner {
-            return self.process_single_http_block_with_scanner(http_block, scanner);
+        #[cfg(feature = "http")]
+        if self.http_scanner.is_some() {
+            return self.process_single_http_block_with_scanner(http_block);
         }
         
         // Fallback to legacy processing
@@ -369,8 +400,8 @@ impl WasmScanner {
     }
 
     /// Process single HTTP block using HTTP scanner (new method)
-    #[cfg(any(feature = "http", feature = "http-wasm"))]
-    fn process_single_http_block_with_scanner(&mut self, http_block: &HttpBlockData, _scanner: &HttpBlockchainScanner) -> Result<(usize, usize), String> {
+    #[cfg(feature = "http")]
+    fn process_single_http_block_with_scanner(&mut self, http_block: &HttpBlockData) -> Result<(usize, usize), String> {
         // Convert HTTP block to our internal format and process
         // For now, use the same conversion logic but with better integration potential
         self.process_single_http_block_legacy(http_block)
@@ -458,9 +489,9 @@ impl WasmScanner {
                     if !sent_hashes.is_empty() {
                         debug_stats.4 += 1; // with_sent_hashes
                         
-                        for (hash_index, sent_hash) in sent_hashes.iter().enumerate() {
-                            let commitment_hex = hex::encode(sent_hash.as_bytes());
-                            console::log_1(&format!("    Hash {}: {}", hash_index, commitment_hex).into());
+                        for (_hash_index, sent_hash) in sent_hashes.iter().enumerate() {
+                            let _commitment_hex = hex::encode(sent_hash.as_bytes());
+                            console::log_1(&format!("    Hash {}: {}", _hash_index, _commitment_hex).into());
                             
                             // Create a synthetic TransactionInput from the sent output hash
                             let synthetic_input = TransactionInput::new(
@@ -486,7 +517,7 @@ impl WasmScanner {
             // Also try one-sided decryption if sender offset key is available
             else if !output.sender_offset_public_key.as_bytes().iter().all(|&b| b == 0) {
                     
-                if let Ok((value, _mask, payment_id)) = EncryptedData::decrypt_one_sided_data(
+                if let Ok((_value, _mask, payment_id)) = EncryptedData::decrypt_one_sided_data(
                     &self.view_key,
                     &output.commitment,
                     &output.sender_offset_public_key,
@@ -504,8 +535,8 @@ impl WasmScanner {
                         if !sent_hashes.is_empty() {
                             debug_stats.4 += 1; // with_sent_hashes
                             
-                            for (hash_index, sent_hash) in sent_hashes.iter().enumerate() {
-                                let commitment_hex = hex::encode(sent_hash.as_bytes());
+                            for (_hash_index, sent_hash) in sent_hashes.iter().enumerate() {
+                                let _commitment_hex = hex::encode(sent_hash.as_bytes());
                                 
                                 // Create a synthetic TransactionInput from the sent output hash
                                 let synthetic_input = TransactionInput::new(
@@ -535,7 +566,7 @@ impl WasmScanner {
     }
 
     /// Log detailed information about a PaymentID
-    fn log_payment_id_details(&self, payment_id: &PaymentId, block_height: u64, output_index: usize, decrypt_method: &str) {
+    fn log_payment_id_details(&self, payment_id: &PaymentId, _block_height: u64, _output_index: usize, decrypt_method: &str) {
         console::log_1(&format!("  💳 PaymentID Details ({})", decrypt_method).into());
         
         // Log the discriminant (variant type)
@@ -1059,7 +1090,7 @@ pub fn create_wasm_scanner(data: &str) -> Result<WasmScanner, JsValue> {
 }
 
 /// Initialize HTTP scanner (WASM export) - Returns a Promise
-#[cfg(any(feature = "http", feature = "http-wasm"))]
+#[cfg(feature = "http")]
 #[wasm_bindgen]
 pub async fn initialize_http_scanner(scanner: &mut WasmScanner, base_url: &str) -> Result<(), JsValue> {
     scanner.initialize_http_scanner(base_url).await
@@ -1067,7 +1098,7 @@ pub async fn initialize_http_scanner(scanner: &mut WasmScanner, base_url: &str) 
 }
 
 /// Process HTTP block response with async support (WASM export)
-#[cfg(any(feature = "http", feature = "http-wasm"))]
+#[cfg(feature = "http")]
 #[wasm_bindgen] 
 pub async fn process_http_blocks_async(scanner: &mut WasmScanner, http_response_json: &str, base_url: Option<String>) -> Result<String, JsValue> {
     let result = scanner.process_http_blocks_async(http_response_json, base_url.as_deref()).await;
@@ -1139,7 +1170,7 @@ pub fn reset_scanner(scanner: &mut WasmScanner) {
 }
 
 /// Get tip info from HTTP scanner (WASM export)
-#[cfg(any(feature = "http", feature = "http-wasm"))]
+#[cfg(feature = "http")]
 #[wasm_bindgen]
 pub async fn get_tip_info(scanner: &mut WasmScanner) -> Result<String, JsValue> {
     if let Some(ref mut http_scanner) = scanner.http_scanner {
@@ -1153,7 +1184,7 @@ pub async fn get_tip_info(scanner: &mut WasmScanner) -> Result<String, JsValue> 
     }
 }
 /// Fetch specific blocks by height using HTTP scanner (WASM export)
-#[cfg(any(feature = "http", feature = "http-wasm"))]
+#[cfg(feature = "http")]
 #[wasm_bindgen]
 pub async fn fetch_blocks_by_heights(scanner: &mut WasmScanner, heights_json: &str) -> Result<String, JsValue> {
     if let Some(ref mut http_scanner) = scanner.http_scanner {
@@ -1163,7 +1194,10 @@ pub async fn fetch_blocks_by_heights(scanner: &mut WasmScanner, heights_json: &s
         let blocks = http_scanner.get_blocks_by_heights(heights).await
             .map_err(|e| JsValue::from_str(&format!("Failed to fetch blocks: {}", e)))?;
         
-        serde_json::to_string(&blocks)
+        // Convert to WASM-serializable format
+        let wasm_blocks: Vec<WasmBlockInfo> = blocks.into_iter().map(|block| block.into()).collect();
+        
+        serde_json::to_string(&wasm_blocks)
             .map_err(|e| JsValue::from_str(&format!("Failed to serialize blocks: {}", e)))
     } else {
         Err(JsValue::from_str("HTTP scanner not initialized"))
@@ -1171,7 +1205,7 @@ pub async fn fetch_blocks_by_heights(scanner: &mut WasmScanner, heights_json: &s
 }
 
 /// Search for UTXOs by commitment using HTTP scanner (WASM export)
-#[cfg(any(feature = "http", feature = "http-wasm"))]
+#[cfg(feature = "http")]
 #[wasm_bindgen]
 pub async fn search_utxos(scanner: &mut WasmScanner, commitments_json: &str) -> Result<String, JsValue> {
     if let Some(ref mut http_scanner) = scanner.http_scanner {
@@ -1189,7 +1223,7 @@ pub async fn search_utxos(scanner: &mut WasmScanner, commitments_json: &str) -> 
 }
 
 /// Create scan config for HTTP scanner (WASM export)
-#[cfg(any(feature = "http", feature = "http-wasm"))]
+#[cfg(feature = "http")]
 #[wasm_bindgen]
 pub fn create_scan_config(scanner: &WasmScanner, start_height: u64, end_height: Option<u64>) -> Result<String, JsValue> {
     let scan_config = ScanConfig {
@@ -1197,7 +1231,7 @@ pub fn create_scan_config(scanner: &WasmScanner, start_height: u64, end_height: 
         end_height,
         batch_size: 100,
         request_timeout: std::time::Duration::from_secs(30),
-        extraction_config: ExtractionConfig::with_private_key(scanner.view_key),
+        extraction_config: ExtractionConfig::with_private_key(scanner.view_key.clone()),
     };
     
     serde_json::to_string(&scan_config)
