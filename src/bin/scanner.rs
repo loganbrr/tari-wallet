@@ -71,12 +71,6 @@
 //! cargo run --example scanner --features grpc-storage -- --seed-phrase "your seed phrase" --database ":memory:"
 //!
 //! # *** WALLET MANAGEMENT FEATURES ***
-//! # List all wallets in database
-//! cargo run --example scanner --features grpc-storage -- --database wallet.db --list-wallets
-//!
-//! # Create a new wallet in database
-//! cargo run --example scanner --features grpc-storage -- --seed-phrase "your seed phrase" --database wallet.db --create-wallet --wallet-name "my-wallet"
-//!
 //! # Use specific wallet for scanning
 //! cargo run --example scanner --features grpc-storage -- --database wallet.db --wallet-name "my-wallet" --resume
 //!
@@ -85,6 +79,10 @@
 //!
 //! # Resume specific wallet without providing keys (loads keys from database)
 //! cargo run --example scanner --features grpc-storage -- --database wallet.db --wallet-name "my-wallet" --resume
+//!
+//! # NOTE: To list or create wallets, use the wallet binary:
+//! cargo run --bin wallet --features storage list-wallets
+//! cargo run --bin wallet --features storage create-wallet "seed phrase" --name "wallet-name"
 //!
 //! # Show help
 //! cargo run --example scanner --features grpc -- --help
@@ -230,17 +228,6 @@ struct CliArgs {
         help = "Wallet name to use for scanning. If not provided with database, will prompt for selection or creation"
     )]
     wallet_name: Option<String>,
-
-    /// Create a new wallet in the database
-    #[arg(
-        long,
-        help = "Create a new wallet in the database with the provided name"
-    )]
-    create_wallet: bool,
-
-    /// List available wallets in the database
-    #[arg(long, help = "List all available wallets in the database and exit")]
-    list_wallets: bool,
 }
 
 /// Configuration for wallet scanning
@@ -259,8 +246,6 @@ pub struct ScanConfig {
     pub clear_database: bool,
     pub resume: bool,
     pub wallet_name: Option<String>,
-    pub create_wallet: bool,
-    pub list_wallets: bool,
     pub explicit_from_block: Option<u64>,
 }
 
@@ -359,94 +344,7 @@ impl ScannerStorage {
             None => return Ok(None), // Memory-only mode
         };
 
-        // Handle list wallets command
-        if config.list_wallets {
-            let wallets = storage.list_wallets().await?;
-            if wallets.is_empty() {
-                println!("📂 No wallets found in database");
-            } else {
-                println!("📂 Available wallets:");
-                for wallet in &wallets {
-                    let wallet_type = if wallet.has_seed_phrase() {
-                        "Full (seed phrase)"
-                    } else if wallet.can_spend() {
-                        "Full (keys)"
-                    } else {
-                        "View-only"
-                    };
 
-                    println!(
-                        "  • {} - {} (birthday: block {})",
-                        wallet.name,
-                        wallet_type,
-                        format_number(wallet.birthday_block)
-                    );
-                }
-            }
-            return Ok(None); // Exit after listing
-        }
-
-        // Handle wallet creation
-        if config.create_wallet {
-            let wallet_name = config.wallet_name.as_ref().ok_or_else(|| {
-                LightweightWalletError::InvalidArgument {
-                    argument: "wallet_name".to_string(),
-                    value: "None".to_string(),
-                    message: "Wallet name is required when creating a wallet".to_string(),
-                }
-            })?;
-
-            // Check if wallet name already exists
-            if storage.wallet_name_exists(wallet_name).await? {
-                return Err(LightweightWalletError::InvalidArgument {
-                    argument: "wallet_name".to_string(),
-                    value: wallet_name.clone(),
-                    message: "Wallet name already exists".to_string(),
-                });
-            }
-
-            // Create new wallet from scan context
-            let wallet = if let Some(seed_phrase) = original_seed_phrase {
-                // Create from seed phrase - derive and store all keys
-                if let Some(scan_ctx) = scan_context {
-                    let view_key = scan_ctx.view_key.clone();
-                    // For now, use view key as spend key - this should be properly derived from seed in production
-                    let spend_key = view_key.clone();
-
-                    StoredWallet::from_seed_phrase(
-                        wallet_name.clone(),
-                        seed_phrase.to_string(),
-                        view_key,
-                        spend_key,
-                        0, // Default birthday
-                    )
-                } else {
-                    return Err(LightweightWalletError::InvalidArgument {
-                        argument: "scan_context".to_string(),
-                        value: "None".to_string(),
-                        message: "Scan context is required when creating wallet from seed phrase"
-                            .to_string(),
-                    });
-                }
-            } else if let Some(scan_ctx) = scan_context {
-                StoredWallet::view_only(
-                    wallet_name.clone(),
-                    scan_ctx.view_key.clone(),
-                    0, // Default birthday
-                )
-            } else {
-                return Err(LightweightWalletError::InvalidArgument {
-                    argument: "scan_context".to_string(),
-                    value: "None".to_string(),
-                    message: "Scan context is required when creating wallet".to_string(),
-                });
-            };
-
-            let wallet_id = storage.save_wallet(&wallet).await?;
-            self.wallet_id = Some(wallet_id);
-            println!("✅ Created wallet '{}' with ID {}", wallet_name, wallet_id);
-            return Ok(None);
-        }
 
         // Handle wallet selection and loading
         self.wallet_id = self.select_or_create_wallet(config, scan_context).await?;
@@ -893,8 +791,6 @@ impl BlockHeightRange {
             clear_database: args.clear_database,
             resume: args.resume,
             wallet_name: args.wallet_name.clone(),
-            create_wallet: args.create_wallet,
-            list_wallets: args.list_wallets,
             explicit_from_block: args.from_block,
         })
     }
@@ -2200,50 +2096,7 @@ async fn main() -> LightweightWalletResult<()> {
 
     let args = CliArgs::parse();
 
-    // Handle wallet listing without requiring keys
-    if args.list_wallets {
-        #[cfg(feature = "storage")]
-        {
-            // Create configuration and storage for wallet listing
-            let block_height_range = BlockHeightRange::new(0, 0, None); // Dummy range for wallet listing
-            let config = block_height_range.into_scan_config(&args)?;
-            
-            let storage_backend = if let Some(db_path) = &config.database_path {
-                ScannerStorage::new_with_database(db_path, config.clear_database).await?
-            } else {
-                ScannerStorage::new_memory()
-            };
 
-            let wallets = storage_backend.list_wallets().await?;
-            if wallets.is_empty() {
-                println!("📂 No wallets found in database");
-            } else {
-                println!("📂 Available wallets:");
-                for wallet in &wallets {
-                    let wallet_type = if wallet.has_seed_phrase() {
-                        "Full (seed phrase)"
-                    } else if wallet.can_spend() {
-                        "Full (keys)"
-                    } else {
-                        "View-only"
-                    };
-
-                    println!(
-                        "  • {} - {} (birthday: block {})",
-                        wallet.name,
-                        wallet_type,
-                        format_number(wallet.birthday_block)
-                    );
-                }
-            }
-        }
-        #[cfg(not(feature = "storage"))]
-        {
-            println!("❌ Error: Wallet listing requires the 'storage' feature to be enabled.");
-            println!("💡 Run with: cargo run --example scanner --features grpc-storage -- --list-wallets");
-        }
-        return Ok(());
-    }
 
     // Validate input arguments (required for scanning operations, unless resuming from database)
     let keys_provided = args.seed_phrase.is_some() || args.view_key.is_some();
@@ -2360,15 +2213,7 @@ async fn main() -> LightweightWalletResult<()> {
             args.seed_phrase.as_deref(),
         ).await?;
 
-        // If listing wallets or creating wallet without scanning, exit here
-        if temp_config.list_wallets
-            || (temp_config.create_wallet
-                && !temp_config.resume
-                && temp_config.block_heights.is_none()
-                && temp_config.from_block == 0)
-        {
-            return Ok(());
-        }
+
 
         // Get wallet birthday if we have a wallet
         let wallet_birthday = if args.from_block.is_none() {
