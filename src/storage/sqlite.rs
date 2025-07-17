@@ -754,6 +754,7 @@ impl WalletStorage for SqliteStorage {
                         transaction.block_height,
                         transaction.output_index.unwrap_or(0),
                         transaction.commitment.clone(),
+                        transaction.output_hash.clone(), // Include stored output hash
                         transaction.value,
                         transaction.payment_id.clone(),
                         transaction.transaction_status,

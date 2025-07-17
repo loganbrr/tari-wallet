@@ -9,7 +9,7 @@
 
 use crate::{
     data_structures::{
-        types::{PrivateKey, CompressedCommitment},
+        types::PrivateKey,
         encrypted_data::EncryptedData,
         payment_id::PaymentId,
         transaction::{TransactionStatus, TransactionDirection},
@@ -126,6 +126,7 @@ impl Block {
                 self.height,
                 result.output_index,
                 self.outputs[result.output_index].commitment.clone(),
+                Some(self.outputs[result.output_index].hash().to_vec()), // Include calculated output hash
                 result.value,
                 result.payment_id,
                 result.transaction_status,
@@ -287,12 +288,24 @@ impl Block {
         let mut spent_outputs = 0;
 
         for (input_index, input) in self.inputs.iter().enumerate() {
-            // Convert input commitment to CompressedCommitment
-            let input_commitment = CompressedCommitment::new(input.commitment);
+            let mut found_spent = false;
 
-            // Try to mark the output as spent
-            if wallet_state.mark_output_spent(&input_commitment, self.height, input_index) {
-                spent_outputs += 1;
+            // Try to match by output hash first (for HTTP API)
+            // Only attempt if output_hash is not all zeros (HTTP API provides real output hashes)
+            if !input.output_hash.iter().all(|&b| b == 0) {
+                if wallet_state.mark_output_spent_by_hash(&input.output_hash, self.height, input_index) {
+                    spent_outputs += 1;
+                    found_spent = true;
+                }
+            }
+
+            // If output hash matching failed or output_hash is all zeros, try commitment matching (for GRPC API)
+            if !found_spent && !input.commitment.iter().all(|&b| b == 0) {
+                use crate::data_structures::types::CompressedCommitment;
+                let commitment = CompressedCommitment::new(input.commitment);
+                if wallet_state.mark_output_spent(&commitment, self.height, input_index) {
+                    spent_outputs += 1;
+                }
             }
         }
 
@@ -356,6 +369,7 @@ impl Block {
                 self.height,
                 output_index,
                 output.commitment.clone(),
+                Some(output.hash().to_vec()), // Include calculated output hash
                 coinbase_value,
                 PaymentId::Empty, // Coinbase outputs typically have no payment ID
                 if is_mature { 
@@ -390,6 +404,7 @@ impl Block {
                 self.height,
                 output_index,
                 output.commitment.clone(),
+                Some(output.hash().to_vec()), // Include calculated output hash
                 value_u64,
                 payment_id,
                 TransactionStatus::MinedConfirmed,
@@ -421,6 +436,7 @@ impl Block {
                     self.height,
                     output_index,
                     output.commitment.clone(),
+                    Some(output.hash().to_vec()), // Include calculated output hash
                     value_u64,
                     payment_id,
                     TransactionStatus::OneSidedConfirmed,
@@ -534,5 +550,150 @@ mod tests {
         assert_eq!(block.height, 1000);
         assert_eq!(block.hash, vec![1, 2, 3, 4]);
         assert_eq!(block.timestamp, 1234567890);
+    }
+
+    #[test]
+    fn test_process_inputs_http_and_grpc_compatibility() {
+        use crate::data_structures::{
+            transaction_input::TransactionInput,
+            types::{CompressedCommitment, CompressedPublicKey, MicroMinotari},
+            wallet_transaction::WalletState,
+            payment_id::PaymentId,
+            transaction::{TransactionStatus, TransactionDirection},
+        };
+
+        let mut wallet_state = WalletState::new();
+        let commitment = CompressedCommitment::new([1u8; 32]);
+        let output_hash = [2u8; 32];
+
+        // Add a received output to wallet state (using both commitment and output hash)
+        wallet_state.add_received_output(
+            100,
+            0,
+            commitment.clone(),
+            Some(output_hash.to_vec()),
+            1000,
+            PaymentId::Empty,
+            TransactionStatus::MinedConfirmed,
+            TransactionDirection::Inbound,
+            true,
+        );
+
+        // Test 1: HTTP-style input (has output hash, zero commitment)
+        let http_input = TransactionInput::new(
+            1,
+            0,
+            [0u8; 32], // Zero commitment (HTTP doesn't provide this)
+            [0u8; 64],
+            CompressedPublicKey::default(),
+            Vec::new(),
+            crate::data_structures::transaction_input::LightweightExecutionStack::new(),
+            output_hash, // Valid output hash from HTTP API
+            0,
+            [0u8; 64],
+            0,
+            MicroMinotari::new(0),
+        );
+
+        let block_http = Block::new(
+            200,
+            vec![1, 2, 3],
+            123456789,
+            vec![],
+            vec![http_input],
+        );
+
+        // Should find the spent output using output hash matching
+        let spent_count = block_http.process_inputs(&mut wallet_state).unwrap();
+        assert_eq!(spent_count, 1);
+        let (_, _, _, _, spent_count_after) = wallet_state.get_summary();
+        assert_eq!(spent_count_after, 1);
+
+        // Reset wallet state for next test
+        let mut wallet_state = WalletState::new();
+        wallet_state.add_received_output(
+            100,
+            0,
+            commitment.clone(),
+            Some(output_hash.to_vec()),
+            1000,
+            PaymentId::Empty,
+            TransactionStatus::MinedConfirmed,
+            TransactionDirection::Inbound,
+            true,
+        );
+
+        // Test 2: GRPC-style input (has commitment, may have output hash too)
+        let grpc_input = TransactionInput::new(
+            1,
+            0,
+            commitment.as_bytes().try_into().unwrap(), // Valid commitment from GRPC
+            [0u8; 64],
+            CompressedPublicKey::default(),
+            Vec::new(),
+            crate::data_structures::transaction_input::LightweightExecutionStack::new(),
+            [0u8; 32], // Zero output hash (or could be valid, but we test commitment fallback)
+            0,
+            [0u8; 64],
+            0,
+            MicroMinotari::new(0),
+        );
+
+        let block_grpc = Block::new(
+            200,
+            vec![1, 2, 3],
+            123456789,
+            vec![],
+            vec![grpc_input],
+        );
+
+        // Should find the spent output using commitment matching
+        let spent_count = block_grpc.process_inputs(&mut wallet_state).unwrap();
+        assert_eq!(spent_count, 1);
+        let (_, _, _, _, spent_count_after) = wallet_state.get_summary();
+        assert_eq!(spent_count_after, 1);
+
+        // Test 3: GRPC-style input with both valid commitment and output hash
+        let mut wallet_state = WalletState::new();
+        wallet_state.add_received_output(
+            100,
+            0,
+            commitment.clone(),
+            Some(output_hash.to_vec()),
+            1000,
+            PaymentId::Empty,
+            TransactionStatus::MinedConfirmed,
+            TransactionDirection::Inbound,
+            true,
+        );
+
+        let grpc_input_both = TransactionInput::new(
+            1,
+            0,
+            commitment.as_bytes().try_into().unwrap(), // Valid commitment from GRPC
+            [0u8; 64],
+            CompressedPublicKey::default(),
+            Vec::new(),
+            crate::data_structures::transaction_input::LightweightExecutionStack::new(),
+            output_hash, // Also has valid output hash
+            0,
+            [0u8; 64],
+            0,
+            MicroMinotari::new(0),
+        );
+
+        let block_grpc_both = Block::new(
+            200,
+            vec![1, 2, 3],
+            123456789,
+            vec![],
+            vec![grpc_input_both],
+        );
+
+        // Should find the spent output using output hash matching (preferred method)
+        let spent_count = block_grpc_both.process_inputs(&mut wallet_state).unwrap();
+        assert_eq!(spent_count, 1);
+        let (_, _, _, _, spent_count_after) = wallet_state.get_summary();
+        assert_eq!(spent_count_after, 1);
     }
 } 

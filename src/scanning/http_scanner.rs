@@ -80,14 +80,25 @@ pub struct HttpBlockResponse {
     pub has_next_page: bool,
 }
 
+/// HTTP API input data structure - SIMPLIFIED for actual API response
+/// The API returns inputs as simple arrays of 32-byte output hashes that have been spent
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpInputData {
+    /// This is just the 32-byte commitment/output hash that was spent
+    /// The API returns inputs as Vec<Vec<u8>> where each inner Vec is 32 bytes
+    pub commitment: Vec<u8>,
+}
+
 /// HTTP API block data structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HttpBlockData {
     pub header_hash: Vec<u8>,
     pub height: u64,
     pub outputs: Vec<HttpOutputData>,
+    /// Inputs are now just arrays of 32-byte hashes (commitments) that have been spent
+    /// This is optional for backward compatibility with older API versions
     #[serde(default)]
-    pub inputs: Option<Vec<HttpInputData>>,
+    pub inputs: Option<Vec<Vec<u8>>>,
     pub mined_timestamp: u64,
 }
 
@@ -104,21 +115,6 @@ pub struct HttpOutputData {
     pub covenant: Option<Vec<u8>>,
     pub minimum_value_promise: Option<u64>,
     pub range_proof: Option<Vec<u8>>,
-}
-
-/// HTTP API input data structure
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HttpInputData {
-    pub commitment: Vec<u8>,
-    pub script_signature: Option<Vec<u8>>,
-    pub sender_offset_public_key: Option<Vec<u8>>,
-    pub covenant: Option<Vec<u8>>,
-    pub input_data: Option<Vec<u8>>,
-    pub output_hash: Option<Vec<u8>>,
-    pub features: Option<u8>,
-    pub metadata_signature: Option<Vec<u8>>,
-    pub maturity: Option<u64>,
-    pub value: Option<u64>,
 }
 
 /// HTTP API output features structure
@@ -348,84 +344,48 @@ impl HttpBlockchainScanner {
         ))
     }
 
-    /// Convert HTTP input data to TransactionInput
-    fn convert_http_input_to_lightweight(http_input: &HttpInputData) -> LightweightWalletResult<TransactionInput> {
-        // Parse commitment
-        if http_input.commitment.len() != 32 {
+    /// Convert HTTP input data to TransactionInput - SIMPLIFIED VERSION
+    /// Since the API only provides output hashes, we create minimal TransactionInput objects
+    /// Note: The HTTP inputs array contains OUTPUT HASHES of spent outputs, not commitments
+    fn convert_http_input_to_lightweight(output_hash_bytes: &[u8]) -> LightweightWalletResult<TransactionInput> {
+        // Parse output hash
+        if output_hash_bytes.len() != 32 {
             return Err(LightweightWalletError::ConversionError(
-                "Invalid input commitment length, expected 32 bytes".to_string()
+                "Invalid output hash length, expected 32 bytes".to_string()
             ));
         }
-        let mut commitment = [0u8; 32];
-        commitment.copy_from_slice(&http_input.commitment);
-
-        // Parse script signature
-        let mut script_signature = [0u8; 64];
-        if let Some(ref sig) = http_input.script_signature {
-            if sig.len() >= 64 {
-                script_signature.copy_from_slice(&sig[..64]);
-            }
-        }
-
-        // Parse sender offset public key
-        let sender_offset_public_key = if let Some(ref pk) = http_input.sender_offset_public_key {
-            if pk.len() == 32 {
-                let mut bytes = [0u8; 32];
-                bytes.copy_from_slice(pk);
-                CompressedPublicKey::new(bytes)
-            } else {
-                CompressedPublicKey::default()
-            }
-        } else {
-            CompressedPublicKey::default()
-        };
-
-        // Convert input data to execution stack
-        let input_data = crate::data_structures::transaction_input::LightweightExecutionStack {
-            items: vec![http_input.input_data.clone().unwrap_or_default()],
-        };
-
-        // Parse output hash
         let mut output_hash = [0u8; 32];
-        if let Some(ref hash) = http_input.output_hash {
-            if hash.len() >= 32 {
-                output_hash.copy_from_slice(&hash[..32]);
-            }
-        }
+        output_hash.copy_from_slice(output_hash_bytes);
 
-        // Parse metadata signature
-        let mut output_metadata_signature = [0u8; 64];
-        if let Some(ref sig) = http_input.metadata_signature {
-            if sig.len() >= 64 {
-                output_metadata_signature.copy_from_slice(&sig[..64]);
-            }
-        }
-
+        // Create minimal TransactionInput with the output hash
+        // We don't have the commitment from the HTTP API, so we use zeros as placeholder
+        // The important field is output_hash which we use for matching spent outputs
         Ok(TransactionInput::new(
             1, // version
-            http_input.features.unwrap_or(0),
-            commitment,
-            script_signature,
-            sender_offset_public_key,
-            http_input.covenant.clone().unwrap_or_default(),
-            input_data,
-            output_hash,
-            0, // output_features
-            output_metadata_signature,
-            http_input.maturity.unwrap_or(0),
-            MicroMinotari::new(http_input.value.unwrap_or(0)),
+            0, // features (default)
+            [0u8; 32], // commitment (not available from HTTP API, use placeholder)
+            [0u8; 64], // script_signature (not available)
+            CompressedPublicKey::default(), // sender_offset_public_key (not available)
+            Vec::new(), // covenant (not available)
+            crate::data_structures::transaction_input::LightweightExecutionStack::new(), // input_data (not available)
+            output_hash, // output_hash (this is the actual data from HTTP API)
+            0, // output_features (not available)
+            [0u8; 64], // output_metadata_signature (not available)
+            0, // maturity (not available)
+            MicroMinotari::new(0), // value (not available)
         ))
     }
 
-    /// Convert HTTP block data to BlockInfo
+    /// Convert HTTP block data to BlockInfo - UPDATED for simplified inputs
     fn convert_http_block_to_block_info(http_block: &HttpBlockData) -> LightweightWalletResult<BlockInfo> {
         let outputs = http_block.outputs.iter()
             .map(Self::convert_http_output_to_lightweight)
             .collect::<LightweightWalletResult<Vec<_>>>()?;
 
+        // Handle simplified inputs structure
         let inputs = http_block.inputs.as_ref()
-            .map(|inputs| inputs.iter()
-                .map(Self::convert_http_input_to_lightweight)
+            .map(|input_hashes| input_hashes.iter()
+                .map(|hash_bytes| Self::convert_http_input_to_lightweight(hash_bytes))
                 .collect::<LightweightWalletResult<Vec<_>>>())
             .transpose()?
             .unwrap_or_default();

@@ -25,6 +25,8 @@ pub struct WalletTransaction {
     pub input_index: Option<usize>,
     /// Commitment of the output/input
     pub commitment: CompressedCommitment,
+    /// Output hash from HTTP response (for identification and matching)
+    pub output_hash: Option<Vec<u8>>,
     /// Value in microMinotari
     pub value: u64,
     /// Associated payment ID
@@ -50,6 +52,7 @@ impl WalletTransaction {
         output_index: Option<usize>,
         input_index: Option<usize>,
         commitment: CompressedCommitment,
+        output_hash: Option<Vec<u8>>,
         value: u64,
         payment_id: PaymentId,
         transaction_status: TransactionStatus,
@@ -61,6 +64,7 @@ impl WalletTransaction {
             output_index,
             input_index,
             commitment,
+            output_hash,
             value,
             payment_id,
             is_spent: false,
@@ -93,6 +97,11 @@ impl WalletTransaction {
     pub fn commitment_hex(&self) -> String {
         hex::encode(self.commitment.as_bytes())
     }
+
+    /// Get the output hash as hex string (if available)
+    pub fn output_hash_hex(&self) -> Option<String> {
+        self.output_hash.as_ref().map(|hash| hex::encode(hash))
+    }
 }
 
 /// Wallet state tracking all transactions and balances
@@ -105,6 +114,10 @@ pub struct WalletState {
     #[serde(skip)]
     #[borsh(skip)]
     outputs_by_commitment: HashMap<Vec<u8>, usize>,
+    /// Map from output hash bytes to transaction index for fast lookup
+    #[serde(skip)]
+    #[borsh(skip)]
+    outputs_by_hash: HashMap<Vec<u8>, usize>,
     /// Running balance in microMinotari (can be negative)
     running_balance: i64,
     /// Total received in microMinotari
@@ -129,6 +142,7 @@ impl WalletState {
         Self {
             transactions: Vec::new(),
             outputs_by_commitment: HashMap::new(),
+            outputs_by_hash: HashMap::new(),
             running_balance: 0,
             total_received: 0,
             total_spent: 0,
@@ -140,8 +154,15 @@ impl WalletState {
     /// Rebuild the commitment index from transactions
     fn rebuild_commitment_index(&mut self) {
         self.outputs_by_commitment.clear();
+        self.outputs_by_hash.clear();
         for (index, transaction) in self.transactions.iter().enumerate() {
+            // Index by commitment
             self.outputs_by_commitment.insert(transaction.commitment.as_bytes().to_vec(), index);
+            
+            // Index by output hash if available
+            if let Some(ref output_hash) = transaction.output_hash {
+                self.outputs_by_hash.insert(output_hash.clone(), index);
+            }
         }
     }
 
@@ -151,6 +172,7 @@ impl WalletState {
         block_height: u64,
         output_index: usize,
         commitment: CompressedCommitment,
+        output_hash: Option<Vec<u8>>,
         value: u64,
         payment_id: PaymentId,
         transaction_status: TransactionStatus,
@@ -162,6 +184,7 @@ impl WalletState {
             Some(output_index),
             None,
             commitment.clone(),
+            output_hash.clone(),
             value,
             payment_id,
             transaction_status,
@@ -170,7 +193,15 @@ impl WalletState {
         );
 
         let tx_index = self.transactions.len();
+        
+        // Index by commitment
         self.outputs_by_commitment.insert(commitment.as_bytes().to_vec(), tx_index);
+        
+        // Index by output hash if available
+        if let Some(hash) = output_hash {
+            self.outputs_by_hash.insert(hash, tx_index);
+        }
+        
         self.transactions.push(transaction);
         
         self.total_received += value;
@@ -207,6 +238,53 @@ impl WalletState {
                         None, // No output index for spending
                         Some(input_index),
                         commitment.clone(),
+                        None, // No output_hash for spending
+                        spent_value,
+                        transaction.payment_id.clone(),
+                        TransactionStatus::MinedConfirmed, // Spending is confirmed when mined
+                        TransactionDirection::Outbound,
+                        true, // Always mature since we're spending
+                    );
+                    
+                    self.transactions.push(outbound_transaction);
+                    
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Mark an output as spent by output hash and create an outbound transaction record
+    /// This is used when we have the output hash from HTTP inputs array
+    pub fn mark_output_spent_by_hash(
+        &mut self,
+        output_hash: &[u8],
+        block_height: u64,
+        input_index: usize,
+    ) -> bool {
+        if let Some(&tx_index) = self.outputs_by_hash.get(output_hash) {
+            if let Some(transaction) = self.transactions.get_mut(tx_index) {
+                if !transaction.is_spent {
+                    transaction.mark_spent(block_height, input_index);
+                    
+                    // Use the value from our stored transaction, not the input
+                    let spent_value = transaction.value;
+                    
+                    // Update balance and counters for the spent inbound transaction
+                    self.total_spent += spent_value;
+                    self.running_balance -= spent_value as i64;
+                    self.unspent_count -= 1;
+                    self.spent_count += 1;
+                    
+                    // Create an outbound transaction record for the spending
+                    // (this is just for tracking/display, doesn't affect balance)
+                    let outbound_transaction = WalletTransaction::new(
+                        block_height,
+                        None, // No output index for spending
+                        Some(input_index),
+                        transaction.commitment.clone(),
+                        Some(output_hash.to_vec()), // Include the output hash that was spent
                         spent_value,
                         transaction.payment_id.clone(),
                         TransactionStatus::MinedConfirmed, // Spending is confirmed when mined
@@ -328,6 +406,7 @@ impl From<WalletStateSerde> for WalletState {
         let mut state = WalletState {
             transactions: serde_state.transactions,
             outputs_by_commitment: HashMap::new(),
+            outputs_by_hash: HashMap::new(),
             running_balance: serde_state.running_balance,
             total_received: serde_state.total_received,
             total_spent: serde_state.total_spent,
@@ -356,6 +435,7 @@ mod tests {
             Some(0),
             None,
             commitment.clone(),
+            None,
             1000000,
             PaymentId::Empty,
             TransactionStatus::MinedConfirmed,
@@ -379,6 +459,7 @@ mod tests {
             Some(0),
             None,
             commitment,
+            None,
             1000000,
             PaymentId::Empty,
             TransactionStatus::MinedConfirmed,
@@ -416,6 +497,7 @@ mod tests {
             100,
             0,
             commitment,
+            None, // No output_hash in test
             1000000,
             PaymentId::Empty,
             TransactionStatus::MinedConfirmed,
@@ -444,6 +526,7 @@ mod tests {
             100,
             0,
             commitment.clone(),
+            None, // No output_hash in test
             1000000,
             PaymentId::Empty,
             TransactionStatus::MinedConfirmed,
@@ -510,11 +593,11 @@ mod tests {
         
         // Add two outputs
         state.add_received_output(
-            100, 0, commitment1.clone(), 1000000, PaymentId::Empty,
+            100, 0, commitment1.clone(), None, 1000000, PaymentId::Empty,
             TransactionStatus::MinedConfirmed, TransactionDirection::Inbound, true,
         );
         state.add_received_output(
-            200, 1, commitment2, 2000000, PaymentId::Empty,
+            200, 1, commitment2, None, 2000000, PaymentId::Empty,
             TransactionStatus::MinedConfirmed, TransactionDirection::Inbound, true,
         );
 
@@ -534,12 +617,12 @@ mod tests {
     fn test_wallet_transaction_coinbase_detection() {
         let commitment = CompressedCommitment::new([1u8; 32]);
         let coinbase_tx = WalletTransaction::new(
-            100, Some(0), None, commitment.clone(), 1000000, PaymentId::Empty,
+            100, Some(0), None, commitment.clone(), None, 1000000, PaymentId::Empty,
             TransactionStatus::CoinbaseConfirmed, TransactionDirection::Inbound, true,
         );
         
         let regular_tx = WalletTransaction::new(
-            100, Some(0), None, commitment, 1000000, PaymentId::Empty,
+            100, Some(0), None, commitment, None, 1000000, PaymentId::Empty,
             TransactionStatus::MinedConfirmed, TransactionDirection::Inbound, true,
         );
 
@@ -555,11 +638,11 @@ mod tests {
         
         // Add inbound transactions
         state.add_received_output(
-            100, 0, commitment1.clone(), 1000000, PaymentId::Empty,
+            100, 0, commitment1.clone(), None, 1000000, PaymentId::Empty,
             TransactionStatus::MinedConfirmed, TransactionDirection::Inbound, true,
         );
         state.add_received_output(
-            200, 1, commitment2.clone(), 2000000, PaymentId::Empty,
+            200, 1, commitment2.clone(), None, 2000000, PaymentId::Empty,
             TransactionStatus::MinedConfirmed, TransactionDirection::Inbound, true,
         );
 
@@ -592,7 +675,7 @@ mod tests {
         let commitment = CompressedCommitment::new([1u8; 32]);
         
         state.add_received_output(
-            100, 0, commitment, 1000000, PaymentId::Empty,
+            100, 0, commitment, None, 1000000, PaymentId::Empty,
             TransactionStatus::MinedConfirmed, TransactionDirection::Inbound, true,
         );
 

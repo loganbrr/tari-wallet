@@ -76,6 +76,10 @@ pub struct HttpBlockData {
     pub header_hash: Vec<u8>,
     pub height: u64,
     pub outputs: Vec<HttpOutputData>,
+    /// Inputs are now just arrays of 32-byte hashes (commitments) that have been spent
+    /// This matches the actual API response format
+    #[serde(default)]
+    pub inputs: Option<Vec<Vec<u8>>>,
     pub mined_timestamp: u64,
 }
 
@@ -171,6 +175,7 @@ pub struct ScanResult {
 /// Transaction summary for results
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransactionSummary {
+    pub hash: String,
     pub block_height: u64,
     pub value: u64,
     pub direction: String,
@@ -339,6 +344,7 @@ impl WasmScanner {
                         .skip(block_start_tx_count)
                         .map(|tx| {
                             TransactionSummary {
+                                hash: tx.output_hash_hex().unwrap_or_else(|| tx.commitment_hex()),
                                 block_height: tx.block_height,
                                 value: tx.value,
                                 direction: match tx.transaction_direction {
@@ -410,250 +416,82 @@ impl WasmScanner {
     /// Process single HTTP block using legacy method
     /// 
     /// This method converts HTTP block data to the Block struct and uses the same
-    /// `process_outputs()` method. For inputs, it extracts spending information from
-    /// payment IDs since HTTP API doesn't provide actual input data.
+    /// `process_outputs()` method. For inputs, it now handles the simplified structure
+    /// where inputs are just arrays of 32-byte commitment hashes.
     fn process_single_http_block_legacy(&mut self, http_block: &HttpBlockData) -> Result<(usize, usize), String> {
         // Convert HTTP outputs to LightweightTransactionOutput (same as scanner.rs expects)
         let outputs = self.convert_http_outputs_to_lightweight(&http_block.outputs)?;
         
-        // Extract synthetic inputs from payment IDs (HTTP API limitation workaround)
-        let synthetic_inputs = self.extract_synthetic_inputs_from_payment_ids(&outputs, http_block.height)?;
+        // Handle simplified inputs structure - just convert the commitment hashes to TransactionInput objects
+        let inputs = self.convert_simplified_inputs_to_lightweight(&http_block.inputs)?;
 
-        // Create Block using the same constructor as scanner.rs
-        let block = Block::new(
-            http_block.height,
-            http_block.header_hash.clone(),
-            http_block.mined_timestamp,
-            outputs,
-            synthetic_inputs,
-        );
+        // Process outputs manually to preserve output_hash from HTTP response
+        let mut found_outputs = 0;
+        for (output_index, (http_output, lightweight_output)) in http_block.outputs.iter().zip(outputs.iter()).enumerate() {
+            // Try to decrypt and extract wallet output
+            if let Ok((value, _mask, payment_id)) = crate::data_structures::encrypted_data::EncryptedData::decrypt_data(
+                &self.view_key,
+                &lightweight_output.commitment,
+                &lightweight_output.encrypted_data,
+            ) {
+                // Add to wallet state with the original output_hash from HTTP response
+                self.wallet_state.add_received_output(
+                    http_block.height,
+                    output_index,
+                    lightweight_output.commitment.clone(),
+                    Some(http_output.output_hash.clone()), // Preserve original output_hash from HTTP
+                    value.as_u64(),
+                    payment_id,
+                    crate::data_structures::transaction::TransactionStatus::MinedConfirmed,
+                    crate::data_structures::transaction::TransactionDirection::Inbound,
+                    true,
+                );
+                found_outputs += 1;
+                continue;
+            }
 
-        // Use the EXACT same processing methods as scanner.rs
-        let found_outputs = block.process_outputs(
-            &self.view_key,
-            &self.entropy,
-            &mut self.wallet_state,
-        ).map_err(|e| format!("Failed to process outputs: {}", e))?;
+            // Try one-sided decryption if available
+            if !lightweight_output.sender_offset_public_key.as_bytes().iter().all(|&b| b == 0) {
+                if let Ok((value, _mask, payment_id)) = crate::data_structures::encrypted_data::EncryptedData::decrypt_one_sided_data(
+                    &self.view_key,
+                    &lightweight_output.commitment,
+                    &lightweight_output.sender_offset_public_key,
+                    &lightweight_output.encrypted_data,
+                ) {
+                    // Add to wallet state with the original output_hash from HTTP response
+                    self.wallet_state.add_received_output(
+                        http_block.height,
+                        output_index,
+                        lightweight_output.commitment.clone(),
+                        Some(http_output.output_hash.clone()), // Preserve original output_hash from HTTP
+                        value.as_u64(),
+                        payment_id,
+                        crate::data_structures::transaction::TransactionStatus::OneSidedConfirmed,
+                        crate::data_structures::transaction::TransactionDirection::Inbound,
+                        true,
+                    );
+                    found_outputs += 1;
+                }
+            }
+        }
 
-        let spent_outputs = block.process_inputs(&mut self.wallet_state)
-            .map_err(|e| format!("Failed to process inputs: {}", e))?;
+        // Process inputs for spent detection
+        let mut spent_outputs = 0;
+        for input in &inputs {
+            // HTTP inputs contain output hashes, not commitments
+            // Use the output_hash field to match spent outputs
+            if self.wallet_state.mark_output_spent_by_hash(&input.output_hash, http_block.height, 0) {
+                spent_outputs += 1;
+            }
+        }
 
         Ok((found_outputs, spent_outputs))
     }
 
-    /// Extract synthetic transaction inputs from payment IDs containing sent_output_hashes
-    /// 
-    /// Since HTTP API doesn't provide input data, we extract spending information from
-    /// the payment IDs of outputs we can decrypt. This allows us to detect outbound transactions.
-    fn extract_synthetic_inputs_from_payment_ids(
-        &self,
-        outputs: &[LightweightTransactionOutput],
-        block_height: u64,
-    ) -> Result<Vec<TransactionInput>, String> {
-        use crate::data_structures::{
-            encrypted_data::EncryptedData,
-            transaction_input::{TransactionInput, LightweightExecutionStack},
-            types::{CompressedPublicKey, MicroMinotari},
-        };
-
-        let mut synthetic_inputs = Vec::new();
-        let mut debug_stats = (0, 0, 0, 0, 0); // (total_outputs, with_encrypted_data, decrypted_successfully, with_payment_ids, with_sent_hashes)
-
-
-        // Try to decrypt each output to extract payment IDs
-        for (output_index, output) in outputs.iter().enumerate() {
-            debug_stats.0 += 1; // total_outputs
-            
-            if output.encrypted_data.as_bytes().is_empty() {
-                continue;
-            }
-            debug_stats.1 += 1; // with_encrypted_data
-
-
-            // Try to decrypt with our view key to get the payment ID
-            if let Ok((value, _mask, payment_id)) = EncryptedData::decrypt_data(
-                &self.view_key,
-                &output.commitment,
-                &output.encrypted_data,
-            ) {
-                debug_stats.2 += 1; // decrypted_successfully
-                console::log_1(&format!("  ✅ Regular decryption successful! Value: {} μT {}", value.as_u64(), hex::encode(output.hash())).into());
-                
-                // Log detailed PaymentID information
-                self.log_payment_id_details(&payment_id, block_height, output_index, "regular");
-                
-                debug_stats.3 += 1; // with_payment_ids
-                
-                // Extract sent_output_hashes from TransactionInfo payment IDs
-                if let Some(sent_hashes) = payment_id.get_sent_hashes() {
-                    if !sent_hashes.is_empty() {
-                        debug_stats.4 += 1; // with_sent_hashes
-                        
-                        for (_hash_index, sent_hash) in sent_hashes.iter().enumerate() {
-                            let _commitment_hex = hex::encode(sent_hash.as_bytes());
-                            console::log_1(&format!("    Hash {}: {}", _hash_index, _commitment_hex).into());
-                            
-                            // Create a synthetic TransactionInput from the sent output hash
-                            let synthetic_input = TransactionInput::new(
-                                1, // version
-                                0, // features
-                                *sent_hash.as_bytes(), // commitment from hash
-                                [0u8; 64], // script_signature (not available)
-                                CompressedPublicKey::new([0u8; 32]), // sender_offset_public_key (not available)
-                                Vec::new(), // covenant (not available)
-                                LightweightExecutionStack::new(), // input_data (not available)
-                                *sent_hash.as_bytes(), // output_hash
-                                0, // output_features (not available)
-                                [0u8; 64], // output_metadata_signature (not available)
-                                0, // maturity (not available)
-                                MicroMinotari::from(0u64), // value (not available)
-                            );
-
-                            synthetic_inputs.push(synthetic_input);
-                        }
-                    } 
-                }
-            }
-            // Also try one-sided decryption if sender offset key is available
-            else if !output.sender_offset_public_key.as_bytes().iter().all(|&b| b == 0) {
-                    
-                if let Ok((_value, _mask, payment_id)) = EncryptedData::decrypt_one_sided_data(
-                    &self.view_key,
-                    &output.commitment,
-                    &output.sender_offset_public_key,
-                    &output.encrypted_data,
-                ) {
-                    debug_stats.2 += 1; // decrypted_successfully
-                    
-                    // Log detailed PaymentID information
-                    self.log_payment_id_details(&payment_id, block_height, output_index, "one-sided");
-                    
-                    debug_stats.3 += 1; // with_payment_ids
-                    
-                    // Extract sent_output_hashes from TransactionInfo payment IDs
-                    if let Some(sent_hashes) = payment_id.get_sent_hashes() {
-                        if !sent_hashes.is_empty() {
-                            debug_stats.4 += 1; // with_sent_hashes
-                            
-                            for (_hash_index, sent_hash) in sent_hashes.iter().enumerate() {
-                                let _commitment_hex = hex::encode(sent_hash.as_bytes());
-                                
-                                // Create a synthetic TransactionInput from the sent output hash
-                                let synthetic_input = TransactionInput::new(
-                                    1, // version
-                                    0, // features
-                                    *sent_hash.as_bytes(), // commitment from hash
-                                    [0u8; 64], // script_signature (not available)
-                                    CompressedPublicKey::new([0u8; 32]), // sender_offset_public_key (not available)
-                                    Vec::new(), // covenant (not available)
-                                    LightweightExecutionStack::new(), // input_data (not available)
-                                    *sent_hash.as_bytes(), // output_hash
-                                    0, // output_features (not available)
-                                    [0u8; 64], // output_metadata_signature (not available)
-                                    0, // maturity (not available)
-                                    MicroMinotari::from(0u64), // value (not available)
-                                );
-
-                                synthetic_inputs.push(synthetic_input);
-                            }
-                        } 
-                    } 
-                } 
-            }
-        }
-
-        Ok(synthetic_inputs)
-    }
-
-    /// Log detailed information about a PaymentID
-    fn log_payment_id_details(&self, payment_id: &PaymentId, _block_height: u64, _output_index: usize, decrypt_method: &str) {
-        console::log_1(&format!("  💳 PaymentID Details ({})", decrypt_method).into());
-        
-        // Log the discriminant (variant type)
-        let discriminant = std::mem::discriminant(payment_id);
-        console::log_1(&format!("    Variant discriminant: {:?}", discriminant).into());
-        
-        // Log the raw bytes
-        let payment_id_bytes = payment_id.to_bytes();
-        console::log_1(&format!("    Raw bytes ({} total): {}", payment_id_bytes.len(), hex::encode(&payment_id_bytes)).into());
-        
-        // Parse first byte for tag if present
-        if !payment_id_bytes.is_empty() {
-            console::log_1(&format!("    First byte (tag): 0x{:02x} ({})", payment_id_bytes[0], payment_id_bytes[0]).into());
-        }
-        
-        // Log detailed structure based on variant
-        match payment_id {
-            PaymentId::Empty => {
-                console::log_1(&format!("    Type: Empty").into());
-            },
-            PaymentId::U256(value) => {
-                console::log_1(&format!("    Type: U256").into());
-                console::log_1(&format!("    Value: {}", value).into());
-            },
-            PaymentId::Open { user_data, tx_type } => {
-                console::log_1(&format!("    Type: Open").into());
-                console::log_1(&format!("    TxType: {:?}", tx_type).into());
-                console::log_1(&format!("    User data ({} bytes): {}", user_data.len(), hex::encode(user_data)).into());
-                if let Ok(utf8_str) = std::str::from_utf8(user_data) {
-                    console::log_1(&format!("    User data (UTF-8): \"{}\"", utf8_str).into());
-                }
-            },
-            PaymentId::AddressAndData { 
-                sender_address, 
-                sender_one_sided, 
-                fee, 
-                tx_type, 
-                user_data 
-            } => {
-                console::log_1(&format!("    Type: AddressAndData").into());
-                console::log_1(&format!("    Sender address: {}", sender_address.to_base58()).into());
-                console::log_1(&format!("    Sender one-sided: {}", sender_one_sided).into());
-                console::log_1(&format!("    Fee: {} μT", fee.as_u64()).into());
-                console::log_1(&format!("    TxType: {:?}", tx_type).into());
-                console::log_1(&format!("    User data ({} bytes): {}", user_data.len(), hex::encode(user_data)).into());
-                if let Ok(utf8_str) = std::str::from_utf8(user_data) {
-                    console::log_1(&format!("    User data (UTF-8): \"{}\"", utf8_str).into());
-                }
-            },
-            PaymentId::TransactionInfo { 
-                recipient_address, 
-                sender_one_sided, 
-                amount, 
-                fee, 
-                tx_type, 
-                sent_output_hashes, 
-                user_data 
-            } => {
-                console::log_1(&format!("    Type: TransactionInfo").into());
-                console::log_1(&format!("    Recipient address: {}", recipient_address.to_base58()).into());
-                console::log_1(&format!("    Sender one-sided: {}", sender_one_sided).into());
-                console::log_1(&format!("    Amount: {} μT", amount.as_u64()).into());
-                console::log_1(&format!("    Fee: {} μT", fee.as_u64()).into());
-                console::log_1(&format!("    TxType: {:?}", tx_type).into());
-                console::log_1(&format!("    User data ({} bytes): {}", user_data.len(), hex::encode(user_data)).into());
-                if let Ok(utf8_str) = std::str::from_utf8(user_data) {
-                    console::log_1(&format!("    User data (UTF-8): \"{}\"", utf8_str).into());
-                }
-                console::log_1(&format!("    🎯 SENT OUTPUT HASHES: {} items", sent_output_hashes.len()).into());
-                for (i, hash) in sent_output_hashes.iter().enumerate() {
-                    console::log_1(&format!("      Hash {}: {}", i, hex::encode(hash.as_bytes())).into());
-                }
-                
-                // Check if this looks like a V1 vs V2 format
-                if sent_output_hashes.is_empty() {
-                    console::log_1(&format!("    ⚠️ WARNING: TransactionInfo has empty sent_output_hashes (likely V1 format)").into());
-                }
-            },
-            PaymentId::Raw(bytes) => {
-                console::log_1(&format!("    Type: Raw").into());
-                console::log_1(&format!("    Raw bytes ({} total): {}", bytes.len(), hex::encode(bytes)).into());
-            },
-        }
-        
-        // Log the display representation
-        console::log_1(&format!("    Display: {}", payment_id).into());
-    }
+    // NOTE: The extract_synthetic_inputs_from_payment_ids method has been removed
+    // as we now use the simplified HTTP inputs structure directly.
+    // Spent output tracking is now handled by the simplified inputs which contain
+    // just the 32-byte commitment hashes of outputs that have been spent.
 
     /// Convert HTTP output data to LightweightTransactionOutput (minimal viable format)
     fn convert_http_outputs_to_lightweight(&self, http_outputs: &[HttpOutputData]) -> Result<Vec<LightweightTransactionOutput>, String> {
@@ -914,6 +752,7 @@ impl WasmScanner {
             .filter(|tx| tx.block_height == block_data.height)
             .map(|tx| {
                 TransactionSummary {
+                    hash: tx.output_hash_hex().unwrap_or_else(|| tx.commitment_hex()),
                     block_height: tx.block_height,
                     value: tx.value,
                     direction: match tx.transaction_direction {
@@ -1033,6 +872,56 @@ impl WasmScanner {
         })
     }
 
+    /// Convert simplified inputs structure to TransactionInput objects
+    /// 
+    /// The HTTP API returns inputs as arrays of 32-byte OUTPUT HASHES (not commitment hashes).
+    /// We convert these to minimal TransactionInput objects for spent output tracking.
+    fn convert_simplified_inputs_to_lightweight(
+        &self,
+        inputs: &Option<Vec<Vec<u8>>>,
+    ) -> Result<Vec<TransactionInput>, String> {
+        use crate::data_structures::{
+            transaction_input::{TransactionInput, LightweightExecutionStack},
+            types::{CompressedPublicKey, MicroMinotari},
+        };
+
+        let mut transaction_inputs = Vec::new();
+
+        if let Some(input_hashes) = inputs {
+            for input_hash in input_hashes {
+                // Validate output hash length
+                if input_hash.len() != 32 {
+                    return Err(format!("Invalid output hash length: expected 32 bytes, got {}", input_hash.len()));
+                }
+
+                // Convert to 32-byte array for output_hash
+                let mut output_hash = [0u8; 32];
+                output_hash.copy_from_slice(input_hash);
+
+                // Create minimal TransactionInput with the output hash
+                // We don't have the commitment from HTTP API, so use placeholder
+                let transaction_input = TransactionInput::new(
+                    1, // version
+                    0, // features (default)
+                    [0u8; 32], // commitment (not available from HTTP API, use placeholder)
+                    [0u8; 64], // script_signature (not available)
+                    CompressedPublicKey::default(), // sender_offset_public_key (not available)
+                    Vec::new(), // covenant (not available)
+                    LightweightExecutionStack::new(), // input_data (not available)
+                    output_hash, // output_hash (this is the actual data from HTTP API)
+                    0, // output_features (not available)
+                    [0u8; 64], // output_metadata_signature (not available)
+                    0, // maturity (not available)
+                    MicroMinotari::from(0u64), // value (not available)
+                );
+
+                transaction_inputs.push(transaction_input);
+            }
+        }
+
+        Ok(transaction_inputs)
+    }
+
     /// Create scan result from processing results
     fn create_scan_result(&self, _found_outputs: usize, _spent_outputs: usize, blocks_processed: usize) -> ScanResult {
         let (total_received, _total_spent, balance, unspent_count, spent_count) = self.wallet_state.get_summary();
@@ -1040,6 +929,7 @@ impl WasmScanner {
         // Convert transactions to summary format
         let transactions: Vec<TransactionSummary> = self.wallet_state.transactions.iter().map(|tx| {
             TransactionSummary {
+                hash: tx.output_hash_hex().unwrap_or_else(|| tx.commitment_hex()),
                 block_height: tx.block_height,
                 value: tx.value,
                 direction: match tx.transaction_direction {
