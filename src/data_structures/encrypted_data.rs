@@ -636,7 +636,6 @@ mod test {
     #[cfg(feature = "grpc")]
     async fn test_decrypt_real_block_34926_output_97() {
         use crate::key_management::{key_derivation, seed_phrase::{mnemonic_to_bytes, CipherSeed}};
-        use crate::data_structures::types::{CompressedCommitment, CompressedPublicKey};
         use crate::scanning::{GrpcScannerBuilder, BlockchainScanner};
         
         println!("\n🎯 === ULTIMATE DECRYPTION TEST - BLOCK 34926 OUTPUT 97 ===");

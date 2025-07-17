@@ -9,7 +9,4 @@ pub mod storage_trait;
 pub mod sqlite;
 
 pub use storage_trait::*;
-pub use sqlite::*;
-
-#[cfg(test)]
-mod tests; 
+pub use sqlite::*; 

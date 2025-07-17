@@ -9,7 +9,7 @@
 //! to a specific wallet. To use wallet functionality:
 //! 
 //! ```rust,no_run
-//! use lightweight_wallet_libs::scanning::{GrpcBlockchainScanner, ScanConfig};
+//! use lightweight_wallet_libs::scanning::{GrpcBlockchainScanner, ScanConfig, BlockchainScanner};
 //! use lightweight_wallet_libs::wallet::Wallet;
 //! 
 //! async fn scan_with_wallet() -> Result<(), Box<dyn std::error::Error>> {

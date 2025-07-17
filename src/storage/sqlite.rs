@@ -240,6 +240,7 @@ impl SqliteStorage {
             output_index: row.get::<_, Option<i64>>("output_index")?.map(|i| i as usize),
             input_index: row.get::<_, Option<i64>>("input_index")?.map(|i| i as usize),
             commitment: CompressedCommitment::new(commitment_array),
+            output_hash: None, // Not stored in database, computed elsewhere when needed
             value: row.get::<_, i64>("value")? as u64,
             payment_id,
             is_spent: row.get("is_spent")?,
@@ -1379,6 +1380,7 @@ mod storage_tests {
             Some(0),
             None,
             commitment.clone(),
+            None,
             1000000,
             PaymentId::Empty,
             TransactionStatus::MinedConfirmed,
@@ -1387,7 +1389,7 @@ mod storage_tests {
         );
 
         // Save transaction
-        storage.save_transaction(&transaction).await.unwrap();
+        storage.save_transaction(0, &transaction).await.unwrap();
 
         // Retrieve by commitment
         let retrieved = storage.get_transaction_by_commitment(&commitment).await.unwrap();
@@ -1409,22 +1411,22 @@ mod storage_tests {
         let transactions = vec![
             WalletTransaction::new(
                 100, Some(0), None, CompressedCommitment::new([1u8; 32]),
-                1000000, PaymentId::Empty,
+                None, 1000000, PaymentId::Empty,
                 TransactionStatus::MinedConfirmed, TransactionDirection::Inbound, true,
             ),
             WalletTransaction::new(
                 200, Some(1), None, CompressedCommitment::new([2u8; 32]),
-                2000000, PaymentId::Empty,
+                None, 2000000, PaymentId::Empty,
                 TransactionStatus::MinedConfirmed, TransactionDirection::Inbound, true,
             ),
             WalletTransaction::new(
                 300, None, Some(0), CompressedCommitment::new([1u8; 32]),
-                1000000, PaymentId::Empty,
+                None, 1000000, PaymentId::Empty,
                 TransactionStatus::MinedConfirmed, TransactionDirection::Outbound, true,
             ),
         ];
 
-        storage.save_transactions(&transactions).await.unwrap();
+        storage.save_transactions(0, &transactions).await.unwrap();
 
         let all_transactions = storage.get_transactions(None).await.unwrap();
         assert_eq!(all_transactions.len(), 3);
@@ -1443,11 +1445,11 @@ mod storage_tests {
         let commitment = CompressedCommitment::new([1u8; 32]);
         let transaction = WalletTransaction::new(
             100, Some(0), None, commitment.clone(),
-            1000000, PaymentId::Empty,
+            None, 1000000, PaymentId::Empty,
             TransactionStatus::MinedConfirmed, TransactionDirection::Inbound, true,
         );
 
-        storage.save_transaction(&transaction).await.unwrap();
+        storage.save_transaction(0, &transaction).await.unwrap();
 
         // Mark as spent
         let marked = storage.mark_transaction_spent(&commitment, 200, 5).await.unwrap();
@@ -1473,22 +1475,22 @@ mod storage_tests {
         let transactions = vec![
             WalletTransaction::new(
                 100, Some(0), None, CompressedCommitment::new([1u8; 32]),
-                1000000, PaymentId::Empty,
+                None, 1000000, PaymentId::Empty,
                 TransactionStatus::MinedConfirmed, TransactionDirection::Inbound, true,
             ),
             WalletTransaction::new(
                 200, Some(1), None, CompressedCommitment::new([2u8; 32]),
-                2000000, PaymentId::Empty,
+                None, 2000000, PaymentId::Empty,
                 TransactionStatus::CoinbaseConfirmed, TransactionDirection::Inbound, true,
             ),
             WalletTransaction::new(
                 300, None, Some(0), CompressedCommitment::new([1u8; 32]),
-                1000000, PaymentId::Empty,
+                None, 1000000, PaymentId::Empty,
                 TransactionStatus::MinedConfirmed, TransactionDirection::Outbound, true,
             ),
         ];
 
-        storage.save_transactions(&transactions).await.unwrap();
+        storage.save_transactions(0, &transactions).await.unwrap();
 
         // Test filter by direction
         let inbound_filter = TransactionFilter::new().with_direction(TransactionDirection::Inbound);
@@ -1524,23 +1526,23 @@ mod storage_tests {
         // Add inbound transactions
         let inbound_tx1 = WalletTransaction::new(
             100, Some(0), None, commitment1.clone(),
-            1000000, PaymentId::Empty,
+            None, 1000000, PaymentId::Empty,
             TransactionStatus::MinedConfirmed, TransactionDirection::Inbound, true,
         );
         let inbound_tx2 = WalletTransaction::new(
             200, Some(1), None, commitment2.clone(),
-            2000000, PaymentId::Empty,
+            None, 2000000, PaymentId::Empty,
             TransactionStatus::MinedConfirmed, TransactionDirection::Inbound, true,
         );
 
-        storage.save_transaction(&inbound_tx1).await.unwrap();
-        storage.save_transaction(&inbound_tx2).await.unwrap();
+        storage.save_transaction(0, &inbound_tx1).await.unwrap();
+        storage.save_transaction(0, &inbound_tx2).await.unwrap();
 
         // Mark one as spent
         storage.mark_transaction_spent(&commitment1, 300, 0).await.unwrap();
 
         // Load wallet state
-        let wallet_state = storage.load_wallet_state().await.unwrap();
+        let wallet_state = storage.load_wallet_state(0).await.unwrap();
         
         // Verify the state
         let (total_received, total_spent, balance, unspent_count, spent_count) = wallet_state.get_summary();
@@ -1568,22 +1570,22 @@ mod storage_tests {
         let transactions = vec![
             WalletTransaction::new(
                 100, Some(0), None, CompressedCommitment::new([1u8; 32]),
-                1000000, PaymentId::Empty,
+                None, 1000000, PaymentId::Empty,
                 TransactionStatus::MinedConfirmed, TransactionDirection::Inbound, true,
             ),
             WalletTransaction::new(
                 500, Some(1), None, CompressedCommitment::new([2u8; 32]),
-                2000000, PaymentId::Empty,
+                None, 2000000, PaymentId::Empty,
                 TransactionStatus::MinedConfirmed, TransactionDirection::Inbound, true,
             ),
             WalletTransaction::new(
                 1000, Some(2), None, CompressedCommitment::new([3u8; 32]),
-                3000000, PaymentId::Empty,
+                None, 3000000, PaymentId::Empty,
                 TransactionStatus::MinedConfirmed, TransactionDirection::Inbound, true,
             ),
         ];
 
-        storage.save_transactions(&transactions).await.unwrap();
+        storage.save_transactions(0, &transactions).await.unwrap();
 
         // Test block range queries
         let range_txs = storage.get_transactions_by_block_range(200, 800).await.unwrap();
@@ -1605,10 +1607,10 @@ mod storage_tests {
         // Add some transactions
         let transaction = WalletTransaction::new(
             100, Some(0), None, CompressedCommitment::new([1u8; 32]),
-            1000000, PaymentId::Empty,
+            None, 1000000, PaymentId::Empty,
             TransactionStatus::MinedConfirmed, TransactionDirection::Inbound, true,
         );
-        storage.save_transaction(&transaction).await.unwrap();
+        storage.save_transaction(0, &transaction).await.unwrap();
 
         // Verify they exist
         let count = storage.get_transaction_count().await.unwrap();

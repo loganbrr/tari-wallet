@@ -499,11 +499,6 @@ impl std::fmt::Display for BlockSummary {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data_structures::{
-        types::MicroMinotari,
-        wallet_output::{LightweightOutputFeatures, LightweightRangeProof},
-        transaction_kernel::TransactionKernel,
-    };
 
     fn create_test_block() -> Block {
         Block::new(

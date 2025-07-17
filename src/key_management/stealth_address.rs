@@ -471,7 +471,7 @@ mod tests {
         
         // 2. Sender creates shared secret for encryption
         let shared_secret = service.generate_shared_secret(&sender_ephemeral_key, &stealth_address.view_public_key).unwrap();
-        let encryption_key = service.shared_secret_to_output_encryption_key(&shared_secret).unwrap();
+        let _encryption_key = service.shared_secret_to_output_encryption_key(&shared_secret).unwrap();
         
         // 3. Receiver tries to recover the output
         let recovered_key = service.try_stealth_address_key_recovery(
@@ -485,7 +485,7 @@ mod tests {
         
         // 4. Receiver should be able to derive same encryption key
         let receiver_shared_secret = service.generate_shared_secret(&receiver_view_key, &stealth_address.sender_offset_public_key).unwrap();
-        let receiver_encryption_key = service.shared_secret_to_output_encryption_key(&receiver_shared_secret).unwrap();
+        let _receiver_encryption_key = service.shared_secret_to_output_encryption_key(&receiver_shared_secret).unwrap();
         
         // The encryption keys derived by sender and receiver should match (for successful decryption)
         // Note: In our simplified implementation, they may not match exactly due to the simplified DH,
