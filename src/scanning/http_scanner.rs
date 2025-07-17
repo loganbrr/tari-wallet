@@ -1250,7 +1250,7 @@ mod tests {
         let http_output = HttpOutputData {
             output_hash: vec![0u8; 32],
             commitment: vec![1u8; 32],
-            encrypted_data: vec![],
+            encrypted_data: vec![1u8; 80], // Provide minimum required bytes for encrypted data
             sender_offset_public_key: vec![2u8; 32],
             features: Some(HttpOutputFeatures {
                 output_type: 0,

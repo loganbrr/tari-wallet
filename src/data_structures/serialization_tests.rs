@@ -127,6 +127,7 @@ fn test_wallet_transaction_serialization() {
         Some(0),
         None,
         commitment,
+        Some(vec![1, 2, 3, 4]), // Add the missing output_hash parameter
         1000000,
         PaymentId::Empty,
         TransactionStatus::MinedConfirmed,

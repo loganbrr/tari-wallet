@@ -206,6 +206,30 @@ impl WasmScanner {
         }
     }
 
+    /// Cleanup old transactions to prevent memory leaks during large scans
+    /// Keeps only the most recent transactions while preserving balance calculation
+    pub fn cleanup_old_transactions(&mut self, max_transactions: usize) {
+        if self.wallet_state.transactions.len() <= max_transactions {
+            return; // No cleanup needed
+        }
+
+        // Sort transactions by block height to keep the most recent ones
+        self.wallet_state.transactions.sort_by_key(|tx| tx.block_height);
+        
+        // Calculate how many to remove
+        let to_remove = self.wallet_state.transactions.len() - max_transactions;
+        
+        // Remove oldest transactions
+        self.wallet_state.transactions.drain(0..to_remove);
+        
+        // Rebuild the commitment indices after cleanup
+        self.wallet_state.rebuild_commitment_index();
+        
+        // Note: This cleanup only removes transaction history for memory management.
+        // The balance calculations remain correct as they're based on the summary counters
+        // which are not affected by this cleanup.
+    }
+
     /// Create scanner from seed phrase
     pub fn from_seed_phrase(seed_phrase: &str) -> Result<Self, String> {
         // Convert seed phrase to bytes
@@ -1057,6 +1081,12 @@ pub fn get_scanner_state(scanner: &WasmScanner) -> String {
 #[wasm_bindgen]
 pub fn reset_scanner(scanner: &mut WasmScanner) {
     scanner.reset();
+}
+
+/// Cleanup old transactions to prevent memory leaks (WASM export)
+#[wasm_bindgen]
+pub fn cleanup_scanner_transactions(scanner: &mut WasmScanner, max_transactions: u32) {
+    scanner.cleanup_old_transactions(max_transactions as usize);
 }
 
 /// Get tip info from HTTP scanner (WASM export)

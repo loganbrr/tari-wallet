@@ -627,7 +627,7 @@ mod tests {
         let grpc_input = TransactionInput::new(
             1,
             0,
-            commitment.as_bytes().try_into().unwrap(), // Valid commitment from GRPC
+            *commitment.as_bytes(), // Valid commitment from GRPC (copy the array, not convert reference)
             [0u8; 64],
             CompressedPublicKey::default(),
             Vec::new(),
@@ -670,7 +670,7 @@ mod tests {
         let grpc_input_both = TransactionInput::new(
             1,
             0,
-            commitment.as_bytes().try_into().unwrap(), // Valid commitment from GRPC
+            *commitment.as_bytes(), // Valid commitment from GRPC (copy the array, not convert reference)
             [0u8; 64],
             CompressedPublicKey::default(),
             Vec::new(),

@@ -152,7 +152,7 @@ impl WalletState {
     }
 
     /// Rebuild the commitment index from transactions
-    fn rebuild_commitment_index(&mut self) {
+    pub fn rebuild_commitment_index(&mut self) {
         self.outputs_by_commitment.clear();
         self.outputs_by_hash.clear();
         for (index, transaction) in self.transactions.iter().enumerate() {
