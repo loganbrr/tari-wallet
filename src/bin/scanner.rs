@@ -49,6 +49,7 @@
 //!
 //! # *** DATABASE STORAGE FEATURES (requires 'grpc-storage' feature) ***
 //! # Resume scanning from stored wallet (uses default database ./wallet.db)
+//! # If multiple wallets exist, scanner will show a list to choose from
 //! cargo run --bin scanner --features grpc-storage
 //!
 //! # Resume from specific database file
@@ -64,7 +65,10 @@
 //! # Use specific wallet for scanning
 //! cargo run --bin scanner --features grpc-storage -- --database wallet.db --wallet-name "my-wallet"
 //!
-//! # Scanner will auto-select wallet if only one exists, or create default wallet if none exist
+//! # Interactive wallet selection:
+//! # - If no wallet exists: prompts to create one (if keys provided) or shows error
+//! # - If one wallet exists: automatically uses it
+//! # - If multiple wallets exist: shows interactive list to choose from
 //! cargo run --bin scanner --features grpc-storage -- --database wallet.db
 //!
 //! # NOTE: To list or create wallets, use the wallet binary:
@@ -371,10 +375,74 @@ impl ScannerStorage {
             println!("📂 Using wallet: {}", wallet.name);
             return Ok(wallet.id);
         } else {
-            // Multiple wallets available - for now, use the first one
-            let wallet = &wallets[0];
-            println!("📂 Multiple wallets found, using: {}", wallet.name);
-            return Ok(wallet.id);
+            // Multiple wallets available - show list and let user choose
+            return self.prompt_wallet_selection(&wallets).await;
+        }
+    }
+
+    /// Prompt user to select a wallet from available options
+    #[cfg(feature = "storage")]
+    async fn prompt_wallet_selection(
+        &self,
+        wallets: &[StoredWallet],
+    ) -> LightweightWalletResult<Option<u32>> {
+        println!("\n📂 Available wallets in database:");
+        println!("================================");
+        
+        for (index, wallet) in wallets.iter().enumerate() {
+            let wallet_type = if wallet.has_seed_phrase() {
+                "Full wallet"
+            } else {
+                "View-only"
+            };
+            
+            let resume_info = if wallet.get_resume_block() > 0 {
+                format!(" (resume from block {})", format_number(wallet.get_resume_block()))
+            } else {
+                String::new()
+            };
+            
+            println!("{}. {} - {}{}", 
+                index + 1, 
+                wallet.name, 
+                wallet_type,
+                resume_info
+            );
+        }
+        
+        println!("\nSelect a wallet to use for scanning:");
+        print!("Enter wallet number (1-{}), or 'q' to quit: ", wallets.len());
+        std::io::Write::flush(&mut std::io::stdout()).unwrap();
+
+        let mut input = String::new();
+        if std::io::stdin().read_line(&mut input).is_err() {
+            return Err(LightweightWalletError::InvalidArgument {
+                argument: "user_input".to_string(),
+                value: "read_error".to_string(),
+                message: "Failed to read user input".to_string(),
+            });
+        }
+
+        let choice = input.trim().to_lowercase();
+        
+        if choice == "q" || choice == "quit" {
+            println!("👋 Exiting scanner.");
+            std::process::exit(0);
+        }
+
+        match choice.parse::<usize>() {
+            Ok(selection) if selection >= 1 && selection <= wallets.len() => {
+                let selected_wallet = &wallets[selection - 1];
+                println!("✅ Selected wallet: {}", selected_wallet.name);
+                Ok(selected_wallet.id)
+            }
+            _ => {
+                return Err(LightweightWalletError::InvalidArgument {
+                    argument: "wallet_selection".to_string(),
+                    value: choice,
+                    message: format!("Invalid selection. Please enter a number between 1 and {}, or 'q' to quit.", wallets.len()),
+                });
+            }
         }
     }
 
@@ -1646,18 +1714,7 @@ fn display_scan_info(config: &ScanConfig, block_heights: &[u64], has_specific_bl
         );
     }
 
-    // Warning about scanning limitations
-    if config.from_block > 1 && !has_specific_blocks {
-        println!(
-            "⚠️  WARNING: Starting scan from block {} (not genesis)",
-            format_number(config.from_block)
-        );
-        println!(
-            "   📍 This will MISS any wallet outputs received before block {}",
-            format_number(config.from_block)
-        );
-        println!("   💡 For complete transaction history, consider scanning from genesis (--from-block 1)");
-    }
+
     println!();
 }
 
