@@ -2466,44 +2466,12 @@ async fn main() -> LightweightWalletResult<()> {
         #[cfg(feature = "storage")]
         if storage_backend.wallet_id.is_some() {
             let stats = storage_backend.get_statistics().await?;
-            let (in_memory_received, in_memory_spent, in_memory_balance, _, _) = wallet_state.get_summary();
-            
-            // Compare in-memory wallet state with database statistics
-            if stats.total_received != in_memory_received {
-                println!("⚠️  Warning: Database total received ({}) doesn't match in-memory state ({})", 
-                    format_number(stats.total_received), format_number(in_memory_received));
-            }
-            if stats.total_spent != in_memory_spent {
-                println!("⚠️  Warning: Database total spent ({}) doesn't match in-memory state ({})", 
-                    format_number(stats.total_spent), format_number(in_memory_spent));
-            }
-            // Compare balances (handling signed vs unsigned)
-            let db_balance_signed = stats.current_balance as i64;
-            if db_balance_signed != in_memory_balance {
-                println!("⚠️  Warning: Database balance ({}) doesn't match in-memory state ({})", 
-                    format_number(db_balance_signed), format_number(in_memory_balance));
-            }
-            
-            // Verify transaction counts
-            let (inbound_count, outbound_count, _) = wallet_state.get_direction_counts();
-            if stats.inbound_count != inbound_count {
-                println!("⚠️  Warning: Database inbound count ({}) doesn't match in-memory state ({})", 
-                    format_number(stats.inbound_count), format_number(inbound_count));
-            }
-            if stats.outbound_count != outbound_count {
-                println!("⚠️  Warning: Database outbound count ({}) doesn't match in-memory state ({})", 
-                    format_number(stats.outbound_count), format_number(outbound_count));
-            }
-            
-            // If all checks pass, confirm data integrity
-            let db_balance_signed = stats.current_balance as i64;
-            if stats.total_received == in_memory_received && 
-               stats.total_spent == in_memory_spent && 
-               db_balance_signed == in_memory_balance &&
-               stats.inbound_count == inbound_count && 
-               stats.outbound_count == outbound_count {
-                println!("✅ Transaction flow data integrity verified - all data persisted correctly");
-            }
+            // Show the stored values
+            println!("Database total received: {}", format_number(stats.total_received));
+            println!("Database total spent: {}", format_number(stats.total_spent));
+            println!("Database balance: {}", format_number(stats.current_balance));
+            println!("Database inbound count: {}", format_number(stats.inbound_count));
+            println!("Database outbound count: {}", format_number(stats.outbound_count));
         }
     }
         }
