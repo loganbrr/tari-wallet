@@ -25,8 +25,8 @@ fn print_usage() {
     println!("Tari Wallet CLI");
     println!();
     println!("Usage:");
-    println!("  cargo run --example wallet_cli new-wallet [--network <network>] [--payment-id <string>] [--passphrase <passphrase>]");
-    println!("  cargo run --example wallet_cli new-address <seed_phrase> [--network <network>] [--payment-id <string>] [--passphrase <passphrase>]");
+    println!("  cargo run --bin wallet new-wallet [--network <network>] [--payment-id <string>] [--passphrase <passphrase>]");
+    println!("  cargo run --bin wallet new-address <seed_phrase> [--network <network>] [--payment-id <string>] [--passphrase <passphrase>]");
     println!();
     println!("Commands:");
     println!("  new-wallet     Generate a new wallet with seed phrase and one-sided address");
@@ -38,13 +38,13 @@ fn print_usage() {
     println!("  --passphrase   Optional passphrase for CipherSeed encryption/decryption");
     println!();
     println!("Examples:");
-    println!("  cargo run --example wallet_cli new-wallet");
-    println!("  cargo run --example wallet_cli new-wallet --network esmeralda");
-    println!("  cargo run --example wallet_cli new-wallet --payment-id \"my-payment-123\"");
-    println!("  cargo run --example wallet_cli new-wallet --passphrase \"my-secret-passphrase\"");
-    println!("  cargo run --example wallet_cli new-address \"word1 word2 ... word24\"");
-    println!("  cargo run --example wallet_cli new-address \"word1 word2 ... word24\" --network stagenet --payment-id \"order-456\"");
-    println!("  cargo run --example wallet_cli new-address \"word1 word2 ... word24\" --passphrase \"my-secret-passphrase\"");
+    println!("  cargo run --bin wallet new-wallet");
+    println!("  cargo run --bin wallet new-wallet --network esmeralda");
+    println!("  cargo run --bin wallet new-wallet --payment-id \"my-payment-123\"");
+    println!("  cargo run --bin wallet new-wallet --passphrase \"my-secret-passphrase\"");
+    println!("  cargo run --bin wallet new-address \"word1 word2 ... word24\"");
+    println!("  cargo run --bin wallet new-address \"word1 word2 ... word24\" --network stagenet --payment-id \"order-456\"");
+    println!("  cargo run --bin wallet new-address \"word1 word2 ... word24\" --passphrase \"my-secret-passphrase\"");
 }
 
 fn handle_new_wallet(args: &[String]) {
