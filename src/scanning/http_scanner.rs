@@ -86,7 +86,8 @@ pub struct HttpBlockData {
     pub header_hash: Vec<u8>,
     pub height: u64,
     pub outputs: Vec<HttpOutputData>,
-    pub inputs: Vec<HttpInputData>,
+    #[serde(default)]
+    pub inputs: Option<Vec<HttpInputData>>,
     pub mined_timestamp: u64,
 }
 
@@ -101,7 +102,7 @@ pub struct HttpOutputData {
     pub script: Option<Vec<u8>>,
     pub metadata_signature: Option<Vec<u8>>,
     pub covenant: Option<Vec<u8>>,
-    pub minimum_value_promise: u64,
+    pub minimum_value_promise: Option<u64>,
     pub range_proof: Option<Vec<u8>>,
 }
 
@@ -332,7 +333,7 @@ impl HttpBlockchainScanner {
         };
 
         // Convert minimum value promise
-        let minimum_value_promise = MicroMinotari::new(http_output.minimum_value_promise);
+        let minimum_value_promise = MicroMinotari::new(http_output.minimum_value_promise.unwrap_or(0));
 
         Ok(LightweightTransactionOutput::new_current_version(
             features,
@@ -422,9 +423,12 @@ impl HttpBlockchainScanner {
             .map(Self::convert_http_output_to_lightweight)
             .collect::<LightweightWalletResult<Vec<_>>>()?;
 
-        let inputs = http_block.inputs.iter()
-            .map(Self::convert_http_input_to_lightweight)
-            .collect::<LightweightWalletResult<Vec<_>>>()?;
+        let inputs = http_block.inputs.as_ref()
+            .map(|inputs| inputs.iter()
+                .map(Self::convert_http_input_to_lightweight)
+                .collect::<LightweightWalletResult<Vec<_>>>())
+            .transpose()?
+            .unwrap_or_default();
 
         Ok(BlockInfo {
             height: http_block.height,
@@ -1296,11 +1300,73 @@ mod tests {
             script: None,
             metadata_signature: None,
             covenant: None,
-            minimum_value_promise: 0,
+            minimum_value_promise: Some(0),
             range_proof: None,
         };
 
         let result = HttpBlockchainScanner::convert_http_output_to_lightweight(&http_output);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_http_block_data_json_parsing_without_inputs() {
+        // Test JSON without inputs field (current API)
+        let json_without_inputs = r#"{
+            "header_hash": [1, 2, 3, 4],
+            "height": 12345,
+            "outputs": [],
+            "mined_timestamp": 1748298680
+        }"#;
+
+        let result: Result<HttpBlockData, serde_json::Error> = serde_json::from_str(json_without_inputs);
+        assert!(result.is_ok());
+        let block_data = result.unwrap();
+        assert_eq!(block_data.height, 12345);
+        assert!(block_data.inputs.is_none());
+    }
+
+    #[test]
+    fn test_http_block_data_json_parsing_with_inputs() {
+        // Test JSON with inputs field (future API)
+        let json_with_inputs = r#"{
+            "header_hash": [1, 2, 3, 4],
+            "height": 12345,
+            "outputs": [],
+            "inputs": [],
+            "mined_timestamp": 1748298680
+        }"#;
+
+        let result: Result<HttpBlockData, serde_json::Error> = serde_json::from_str(json_with_inputs);
+        assert!(result.is_ok());
+        let block_data = result.unwrap();
+        assert_eq!(block_data.height, 12345);
+        assert!(block_data.inputs.is_some());
+        assert_eq!(block_data.inputs.unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_http_block_data_json_parsing_realistic() {
+        // Test with a structure more similar to the actual API response
+        let realistic_json = r#"{
+            "header_hash": [231, 255, 164, 211, 0, 70, 4, 43, 228, 117, 57, 30, 28, 158, 164, 27, 159, 146, 97, 112, 63, 88, 121, 180, 192, 8, 246, 238, 220, 113, 249, 98],
+            "height": 1234567,
+            "outputs": [
+                {
+                    "output_hash": [236, 175, 136, 57, 202, 44, 147, 168, 33, 102, 64, 24, 131, 245, 50, 123, 1, 193, 158, 192, 79, 168, 104, 180, 28, 101, 239, 255, 235, 137, 169, 231],
+                    "commitment": [236, 247, 186, 249, 183, 8, 249, 103, 238, 32, 98, 6, 234, 222, 124, 29, 39, 154, 86, 159, 235, 104, 243, 172, 19, 166, 60, 254, 63, 26, 191, 77],
+                    "encrypted_data": [172, 214, 115, 5, 92, 254, 168, 41, 177, 156, 217, 118, 48, 97, 148],
+                    "sender_offset_public_key": [178, 35, 220, 210, 106, 214, 63, 27, 83, 76, 53, 154, 208, 114, 162, 165, 134, 176, 107, 102, 49, 74, 191, 157, 91, 175, 68, 162, 107, 48, 99, 10]
+                }
+            ],
+            "mined_timestamp": 1748298680
+        }"#;
+
+        let result: Result<HttpBlockData, serde_json::Error> = serde_json::from_str(realistic_json);
+        assert!(result.is_ok());
+        let block_data = result.unwrap();
+        assert_eq!(block_data.height, 1234567);
+        assert!(block_data.inputs.is_none()); // No inputs field in the JSON
+        assert_eq!(block_data.outputs.len(), 1);
+        assert_eq!(block_data.mined_timestamp, 1748298680);
     }
 } 
