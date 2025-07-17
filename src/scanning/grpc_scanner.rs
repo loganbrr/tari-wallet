@@ -670,7 +670,7 @@ impl GrpcBlockchainScanner {
 }
 
 #[cfg(feature = "grpc")]
-#[async_trait]
+#[async_trait(?Send)]
 impl BlockchainScanner for GrpcBlockchainScanner {
     async fn scan_blocks(
         &mut self,
@@ -1007,7 +1007,7 @@ impl GrpcScannerBuilder {
 }
 
 #[cfg(feature = "grpc")]
-#[async_trait::async_trait]
+#[async_trait(?Send)]
 impl WalletScanner for GrpcBlockchainScanner {
     async fn scan_wallet(
         &mut self,
