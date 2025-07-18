@@ -6,6 +6,41 @@
 use crate::data_structures::address::Network;
 use crate::errors::LightweightWalletError;
 
+/// Format a number with thousands separators (e.g., 1,234,567)
+pub fn format_number<T: std::fmt::Display>(val: T) -> String {
+    let val_str = val.to_string();
+    let is_negative = val_str.starts_with('-');
+    let abs_str = if is_negative { &val_str[1..] } else { &val_str };
+    
+    // Split on decimal point if present
+    let parts: Vec<&str> = abs_str.split('.').collect();
+    let integer_part = parts[0];
+    
+    // Format the integer part with commas
+    let formatted_integer = integer_part
+        .as_bytes()
+        .rchunks(3)
+        .rev()
+        .map(str::from_utf8)
+        .collect::<Result<Vec<&str>, _>>()
+        .unwrap()
+        .join(",");
+    
+    // Reconstruct the number
+    let mut result = if parts.len() > 1 {
+        // Has decimal part - join with decimal point
+        format!("{}.{}", formatted_integer, parts[1])
+    } else {
+        // No decimal part
+        formatted_integer
+    };
+    
+    if is_negative {
+        result = format!("-{}", result);
+    }
+    result
+}
+
 /// Convert network string to Network enum
 pub fn string_to_network(network_str: &str) -> Network {
     match network_str.to_lowercase().as_str() {
@@ -102,5 +137,34 @@ mod tests {
             let parsed_network = string_to_network(&string_repr);
             assert_eq!(network, parsed_network);
         }
+    }
+
+    #[test]
+    fn test_format_number() {
+        // Test basic formatting
+        assert_eq!(format_number(123), "123");
+        assert_eq!(format_number(1234), "1,234");
+        assert_eq!(format_number(12345), "12,345");
+        assert_eq!(format_number(123456), "123,456");
+        assert_eq!(format_number(1234567), "1,234,567");
+        assert_eq!(format_number(12345678), "12,345,678");
+        assert_eq!(format_number(123456789), "123,456,789");
+
+        // Test negative numbers
+        assert_eq!(format_number(-123), "-123");
+        assert_eq!(format_number(-1234), "-1,234");
+        assert_eq!(format_number(-123456789), "-123,456,789");
+
+        // Test zero
+        assert_eq!(format_number(0), "0");
+
+        // Test decimals
+        assert_eq!(format_number(123.45), "123.45");
+        assert_eq!(format_number(1234.56), "1,234.56");
+        assert_eq!(format_number(-1234.56), "-1,234.56");
+
+        // Test different number types
+        assert_eq!(format_number(12345u64), "12,345");
+        assert_eq!(format_number(12345i32), "12,345");
     }
 }

@@ -103,6 +103,7 @@
 use clap::Parser;
 #[cfg(feature = "grpc")]
 use lightweight_wallet_libs::{
+    common::format_number,
     data_structures::{
         block::Block, payment_id::PaymentId, transaction::TransactionDirection,
         transaction_output::LightweightTransactionOutput, types::{PrivateKey, CompressedCommitment},
@@ -114,7 +115,6 @@ use lightweight_wallet_libs::{
         seed_phrase::{mnemonic_to_bytes, CipherSeed},
     },
     scanning::{BlockchainScanner, GrpcBlockchainScanner, GrpcScannerBuilder},
-    utils::number::format_number,
     wallet::Wallet,
     KeyManagementError,
     LightweightWalletError,
@@ -122,7 +122,6 @@ use lightweight_wallet_libs::{
 #[cfg(all(feature = "grpc", feature = "storage"))]
 use lightweight_wallet_libs::{
     storage::{OutputStatus, SqliteStorage, StoredOutput, WalletStorage, StoredWallet},
-    errors::ValidationError,
 };
 #[cfg(feature = "grpc")]
 use tari_utilities::ByteArray;
@@ -135,7 +134,7 @@ use tokio::time::Instant;
 #[cfg(feature = "grpc")]
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
-struct CliArgs {
+pub struct CliArgs {
     /// Seed phrase for the wallet (uses memory-only storage when provided)
     #[arg(short, long, help = "Seed phrase for the wallet (uses memory-only storage)")]
     seed_phrase: Option<String>,
@@ -311,15 +310,7 @@ impl ScannerStorage {
         &mut self,
         config: &ScanConfig,
         scan_context: Option<&ScanContext>,
-        original_seed_phrase: Option<&str>,
     ) -> LightweightWalletResult<Option<ScanContext>> {
-        let storage = match &self.database {
-            Some(storage) => storage,
-            None => return Ok(None), // Memory-only mode
-        };
-
-
-
         // Handle wallet selection and loading
         self.wallet_id = self.select_or_create_wallet(config, scan_context).await?;
 
@@ -1237,32 +1228,7 @@ fn generate_transaction_id(block_height: u64, input_index: usize) -> u64 {
     }
 }
 
-/// Validate that the extracted script data is reasonable
-#[cfg(all(feature = "grpc", feature = "storage"))]
-fn validate_script_data(input_data: &[u8], script_lock_height: u64) -> LightweightWalletResult<()> {
-    // Validate input data
-    if input_data.len() > 1024 {
-        return Err(LightweightWalletError::ValidationError(
-            ValidationError::ScriptValidationFailed(
-                format!("Input data too large: {} bytes (max 1024)", input_data.len())
-            )
-        ));
-    }
 
-    // Validate script lock height
-    if script_lock_height > 0 {
-        // Should be a reasonable block height
-        if script_lock_height > 100_000_000 {
-            return Err(LightweightWalletError::ValidationError(
-                ValidationError::ScriptValidationFailed(
-                    format!("Script lock height too large: {}", script_lock_height)
-                )
-            ));
-        }
-    }
-
-    Ok(())
-}
 
 /// Derive spending keys for a UTXO output using wallet entropy
 /// For view-key mode (entropy all zeros), returns placeholder keys
@@ -1342,7 +1308,7 @@ async fn scan_wallet_across_blocks_with_cancellation(
     // Handle automatic resume functionality for database storage
     let (from_block, to_block) = if config.use_database && config.explicit_from_block.is_none() && config.block_heights.is_none() {
         #[cfg(feature = "storage")]
-        if let Some(wallet_id) = storage_backend.wallet_id {
+        if let Some(_wallet_id) = storage_backend.wallet_id {
             // Get the wallet to check its resume block
             if let Some(wallet_birthday) = storage_backend.get_wallet_birthday().await? {
                 if !config.quiet {
@@ -1473,7 +1439,7 @@ async fn scan_wallet_across_blocks_with_cancellation(
                 (Err(e), _) | (_, Err(e)) => Err(e),
             };
 
-            let (_found_outputs, spent_outputs_count) = match scan_result {
+            let (_found_outputs, _spent_outputs_count) = match scan_result {
                 Ok(result) => {
 
                     // Note: Spent output tracking is handled automatically by wallet_state.mark_output_spent()
@@ -2123,7 +2089,6 @@ async fn main() -> LightweightWalletResult<()> {
         let loaded_context = storage_backend.handle_wallet_operations(
             &temp_config,
             scan_context.as_ref(),
-            args.seed_phrase.as_deref(),
         ).await?;
 
 
