@@ -8,7 +8,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use zeroize::Zeroize;
 use rand_core::{OsRng, RngCore};
 use crate::data_structures::SafeArray;
-use crate::data_structures::address::{TariAddress, DualAddress, SingleAddress, TariAddressFeatures, Network};
+use crate::common::string_to_network;
+use crate::data_structures::address::{TariAddress, DualAddress, SingleAddress, TariAddressFeatures};
 use crate::data_structures::types::{CompressedPublicKey, PrivateKey};
 use crate::errors::KeyManagementError;
 use crate::key_management::{mnemonic_to_master_key, bytes_to_mnemonic, CipherSeed};
@@ -217,12 +218,7 @@ impl Wallet {
         let spend_public_key = CompressedPublicKey::from_private_key(&spend_key);
         
         // Use the network from wallet metadata or default to Esmeralda
-        let network = match self.metadata.network.as_str() {
-            "mainnet" => Network::MainNet,
-            "stagenet" => Network::StageNet,
-            "localnet" => Network::LocalNet,
-            _ => Network::Esmeralda, // default
-        };
+        let network = string_to_network(&self.metadata.network);
         
         // Create dual address
         let dual_address = DualAddress::new(
@@ -248,12 +244,7 @@ impl Wallet {
         let spend_public_key = CompressedPublicKey::from_private_key(&spend_key);
         
         // Use the network from wallet metadata or default to Esmeralda
-        let network = match self.metadata.network.as_str() {
-            "mainnet" => Network::MainNet,
-            "stagenet" => Network::StageNet,
-            "localnet" => Network::LocalNet,
-            _ => Network::Esmeralda, // default
-        };
+        let network = string_to_network(&self.metadata.network);
         
         // Create single address
         let single_address = SingleAddress::new(

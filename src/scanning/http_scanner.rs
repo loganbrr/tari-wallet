@@ -664,14 +664,6 @@ impl HttpBlockchainScanner {
         }
         Ok(blocks)
     }
-
-    async fn get_block_by_height(
-        &mut self,
-        height: u64,
-    ) -> LightweightWalletResult<Option<BlockInfo>> {
-        let blocks = self.get_blocks_by_heights(vec![height]).await?;
-        Ok(blocks.into_iter().next())
-    }
 }
 
 #[cfg(feature = "http")]

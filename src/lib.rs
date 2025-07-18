@@ -3,6 +3,7 @@
 //! This crate provides lightweight wallet functionality for the Tari blockchain,
 //! including UTXO management, transaction validation, and key management.
 
+pub mod common;
 pub mod crypto;
 pub mod data_structures;
 pub mod errors;

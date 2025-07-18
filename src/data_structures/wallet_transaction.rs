@@ -12,7 +12,7 @@ use crate::data_structures::{
     payment_id::PaymentId,
     transaction::{TransactionStatus, TransactionDirection},
 };
-use crate::utils::number::format_number;
+// Simple number formatting (removed utils::number module)
 
 /// A wallet transaction representing either a received output or spent input
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
@@ -422,11 +422,11 @@ impl WalletState {
             bar, 
             progress_percent, 
             phase,
-            format_number(block_height),
+            block_height,
             balance_t,
             unspent_t, 
             spent_t,
-            format_number(self.transactions.len())
+            self.transactions.len()
         )
     }
 }

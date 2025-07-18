@@ -49,7 +49,6 @@ pub struct Block {
 #[derive(Debug, Clone)]
 struct OutputProcessingResult {
     output_index: usize,
-    found: bool,
     value: u64,
     payment_id: PaymentId,
     transaction_status: TransactionStatus,
@@ -219,7 +218,6 @@ impl Block {
 
             return Some(OutputProcessingResult {
                 output_index,
-                found: true,
                 value: coinbase_value,
                 payment_id: PaymentId::Empty, // Coinbase outputs typically have no payment ID
                 transaction_status: if is_mature { 
@@ -248,7 +246,6 @@ impl Block {
         ) {
             return Some(OutputProcessingResult {
                 output_index,
-                found: true,
                 value: value.as_u64(),
                 payment_id,
                 transaction_status: TransactionStatus::MinedConfirmed,
@@ -273,7 +270,6 @@ impl Block {
         ) {
             return Some(OutputProcessingResult {
                 output_index,
-                found: true,
                 value: value.as_u64(),
                 payment_id,
                 transaction_status: TransactionStatus::OneSidedConfirmed,
@@ -326,128 +322,9 @@ impl Block {
         Ok((found_outputs, spent_outputs))
     }
 
-    /// Try to process a coinbase output with ownership verification
-    fn try_coinbase_output(
-        &self,
-        output: &LightweightTransactionOutput,
-        output_index: usize,
-        view_key: &PrivateKey,
-        wallet_state: &mut WalletState,
-    ) -> LightweightWalletResult<bool> {
-        let coinbase_value = output.minimum_value_promise.as_u64();
-        if coinbase_value == 0 {
-            return Ok(false);
-        }
 
-        // For coinbase outputs, verify ownership through encrypted data decryption
-        let mut is_ours = false;
 
-        if !output.encrypted_data.as_bytes().is_empty() {
-            // Try regular decryption for ownership verification
-            if EncryptedData::decrypt_data(view_key, &output.commitment, &output.encrypted_data).is_ok() {
-                is_ours = true;
-            }
-            // Try one-sided decryption for ownership verification
-            else if !output.sender_offset_public_key.as_bytes().is_empty() {
-                if EncryptedData::decrypt_one_sided_data(
-                    view_key, 
-                    &output.commitment, 
-                    &output.sender_offset_public_key, 
-                    &output.encrypted_data
-                ).is_ok() {
-                    is_ours = true;
-                }
-            }
-        }
 
-        // Only add to wallet if we can prove ownership
-        if is_ours {
-            // Check if coinbase is mature (can be spent)
-            let is_mature = self.height >= output.features.maturity;
-
-            wallet_state.add_received_output(
-                self.height,
-                output_index,
-                output.commitment.clone(),
-                Some(output.hash().to_vec()), // Include calculated output hash
-                coinbase_value,
-                PaymentId::Empty, // Coinbase outputs typically have no payment ID
-                if is_mature { 
-                    TransactionStatus::CoinbaseConfirmed 
-                } else { 
-                    TransactionStatus::CoinbaseUnconfirmed 
-                },
-                TransactionDirection::Inbound,
-                is_mature,
-            );
-            return Ok(true);
-        }
-
-        Ok(false)
-    }
-
-    /// Try regular encrypted data decryption
-    fn try_regular_decryption(
-        &self,
-        output: &LightweightTransactionOutput,
-        output_index: usize,
-        view_key: &PrivateKey,
-        wallet_state: &mut WalletState,
-    ) -> LightweightWalletResult<bool> {
-        if let Ok((value, _mask, payment_id)) = EncryptedData::decrypt_data(
-            view_key, 
-            &output.commitment, 
-            &output.encrypted_data
-        ) {
-            let value_u64 = value.as_u64();
-            wallet_state.add_received_output(
-                self.height,
-                output_index,
-                output.commitment.clone(),
-                Some(output.hash().to_vec()), // Include calculated output hash
-                value_u64,
-                payment_id,
-                TransactionStatus::MinedConfirmed,
-                TransactionDirection::Inbound,
-                true, // Regular payments are always mature
-            );
-            return Ok(true);
-        }
-        Ok(false)
-    }
-
-    /// Try one-sided encrypted data decryption
-    fn try_one_sided_decryption(
-        &self,
-        output: &LightweightTransactionOutput,
-        output_index: usize,
-        view_key: &PrivateKey,
-        wallet_state: &mut WalletState,
-    ) -> LightweightWalletResult<bool> {
-        if !output.sender_offset_public_key.as_bytes().is_empty() {
-            if let Ok((value, _mask, payment_id)) = EncryptedData::decrypt_one_sided_data(
-                view_key, 
-                &output.commitment, 
-                &output.sender_offset_public_key, 
-                &output.encrypted_data
-            ) {
-                let value_u64 = value.as_u64();
-                wallet_state.add_received_output(
-                    self.height,
-                    output_index,
-                    output.commitment.clone(),
-                    Some(output.hash().to_vec()), // Include calculated output hash
-                    value_u64,
-                    payment_id,
-                    TransactionStatus::OneSidedConfirmed,
-                    TransactionDirection::Inbound,
-                    true, // One-sided payments are always mature
-                );
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    }
 
     /// Get the number of outputs in this block
     pub fn output_count(&self) -> usize {

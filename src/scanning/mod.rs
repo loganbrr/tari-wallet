@@ -365,7 +365,11 @@ impl DefaultScanningLogic {
     ) -> Result<Option<LightweightWalletOutput>, LightweightWalletError> {
         // Derive view key using the same method as reference
         let (view_key_ristretto, _spend_key) = key_management::derive_view_and_spend_keys_from_entropy(&self.entropy)
-            .map_err(|e| LightweightWalletError::invalid_argument("entropy", "key_derivation", &format!("Key derivation failed: {}", e)))?;
+            .map_err(|e| LightweightWalletError::InvalidArgument {
+                argument: "entropy".to_string(),
+                value: "key_derivation".to_string(),
+                message: format!("Key derivation failed: {}", e),
+            })?;
         
         // Convert RistrettoSecretKey to PrivateKey
         let view_key_bytes = view_key_ristretto.as_bytes();
@@ -433,11 +437,19 @@ impl DefaultScanningLogic {
     ) -> Result<[u8; 32], LightweightWalletError> {
         // Convert private key to RistrettoSecretKey
         let secret_key = RistrettoSecretKey::from_canonical_bytes(&private_key.as_bytes())
-            .map_err(|e| LightweightWalletError::invalid_argument("private_key", "key_derivation", &format!("Invalid private key: {}", e)))?;
+            .map_err(|e| LightweightWalletError::InvalidArgument {
+                argument: "private_key".to_string(),
+                value: "key_derivation".to_string(),
+                message: format!("Invalid private key: {}", e),
+            })?;
         
         // Decompress public key to RistrettoPublicKey
         let pub_key = RistrettoPublicKey::from_canonical_bytes(&public_key.as_bytes())
-            .map_err(|e| LightweightWalletError::invalid_argument("public_key", "key_derivation", &format!("Invalid public key: {}", e)))?;
+            .map_err(|e| LightweightWalletError::InvalidArgument {
+                argument: "public_key".to_string(),
+                value: "key_derivation".to_string(),
+                message: format!("Invalid public key: {}", e),
+            })?;
         
         // Compute shared secret: private_key * public_key
         let shared_secret_point = pub_key * secret_key;
@@ -462,7 +474,11 @@ impl DefaultScanningLogic {
         
         let result = hasher.finalize();
         let key_bytes: [u8; 32] = result.as_slice().try_into()
-            .map_err(|_| LightweightWalletError::invalid_argument("shared_secret", "key_derivation", "Failed to convert hash to key"))?;
+            .map_err(|_| LightweightWalletError::InvalidArgument {
+                argument: "shared_secret".to_string(),
+                value: "key_derivation".to_string(),
+                message: "Failed to convert hash to key".to_string(),
+            })?;
         
         Ok(PrivateKey::new(key_bytes))
     }
