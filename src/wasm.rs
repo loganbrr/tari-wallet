@@ -1,7 +1,6 @@
 use wasm_bindgen::prelude::*;
 use serde::{Deserialize, Serialize};
 use tari_utilities::ByteArray;
-use web_sys::console;
 
 use crate::{
     data_structures::{
@@ -453,8 +452,6 @@ impl WasmScanner {
         // CRITICAL: We must use the exact output_hash from HTTP API for later spent detection
         let mut found_outputs = 0;
         for (output_index, (http_output, lightweight_output)) in http_block.outputs.iter().zip(outputs.iter()).enumerate() {
-            let output_hash_hex = hex::encode(&http_output.output_hash);
-            
             // Try to decrypt and extract wallet output
             if let Ok((value, _mask, payment_id)) = crate::data_structures::encrypted_data::EncryptedData::decrypt_data(
                 &self.view_key,
@@ -506,8 +503,6 @@ impl WasmScanner {
         // CRITICAL: HTTP API provides OUTPUT HASHES - we must match these exactly to track spending
         let mut spent_outputs = 0;
         for (input_index, input) in inputs.iter().enumerate() {
-            let input_hash_hex = hex::encode(&input.output_hash);
-            
             // Try to match by output hash - this is the primary method for HTTP API
             if self.wallet_state.mark_output_spent_by_hash(&input.output_hash, http_block.height, input_index) {
                 spent_outputs += 1;
