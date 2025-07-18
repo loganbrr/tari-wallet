@@ -59,11 +59,7 @@
 - **wasm**: WebAssembly compatibility with web-sys bindings
 - **Combined**: `grpc-storage`, `http-storage` for full functionality
 
-### Module Dependencies (⚠️ CIRCULAR DEPENDENCY ISSUES)
-**KNOWN PROBLEM**: data_structures → validation → extraction → data_structures
-- **Root cause**: data_structures imports ValidationError, validation imports data types
-- **Impact**: Compilation complexity, refactoring difficulty
-- **Solution needed**: Break cycle with core/primitives layer
+
 
 ### Database Architecture
 - **File**: `wallet.db` (SQLite)
@@ -80,10 +76,7 @@
 4. **Memory protection**: Use `SafeArray<N>` for fixed-size sensitive data
 5. **Feature gating**: Security-critical code must not depend on optional features
 
-### Current Security Issues (🚨 CRITICAL)
-- **Fake validation**: range_proofs.rs and metadata_signature.rs only check structure, not cryptographic validity
-- **Default insecure**: `full_verification: false` by default in validators
-- **TODO stubs**: Lines 84-86 in range_proofs.rs, lines 99-100 in metadata_signature.rs
+
 
 ### Zeroize Implementation Patterns
 ```rust
@@ -119,23 +112,13 @@ impl Zeroize for Wallet {
 - **Cyclomatic complexity**: Keep functions simple, extract helpers
 
 ### Current Quality Issues
-- **Excessive allows**: 9 instances of `#[allow(clippy::too_many_arguments)]`
-- **Dead code**: Functions marked `#[allow(dead_code)]` need removal
+- **Improved**: Reduced from 9 to 3 instances of `#[allow(clippy::too_many_arguments)]`
+- **Limited dead code**: Only 2 functions in types.rs marked `#[allow(dead_code)]` remain
 - **Monster functions**: Some test functions >300 lines
 
 ## Performance-Critical Code Paths
 
-### Scanning Operations (⚠️ HOTTEST PATHS)
-- **File**: `src/scanning/mod.rs` lines 650-730
-- **Issue**: O(n²) progress calculations - recalculates totals by iterating all previous results
-- **Impact**: Performance degrades quadratically with scan length
-- **Fix needed**: Maintain running counters instead of recalculating
 
-### Memory Usage Issues
-- **File**: `src/scanning/mod.rs` lines 520-570
-- **Issue**: Excessive `.clone()` calls on large Vec<Block> during batch processing
-- **Impact**: Memory exhaustion on long scans
-- **Fix needed**: Use `Arc<Vec<_>>` or references
 
 ### Batch Validation Duplication
 - **File**: `src/validation/batch.rs`
@@ -230,8 +213,6 @@ getrandom = { version = "0.2", features = ["js"] }
 
 ### Development Anti-Patterns (🚫 AVOID)
 - **Code duplication**: 3.7% of codebase currently duplicated
-- **Fake validation**: Structure-only checks instead of cryptographic verification
-- **Memory cloning**: Unnecessary `.clone()` in hot paths
 - **Monolithic functions**: >50 line functions should be split
 - **Feature coupling**: Don't make security depend on optional features
 
@@ -253,16 +234,11 @@ mod integration_tests {
 ## Technical Debt Priority
 
 ### Critical (Fix Immediately)
-1. **Security**: Implement real crypto validation (40 hours estimated)
-2. **Performance**: Fix O(n²) scanning progress (2 hours)
-3. **Memory**: Reduce cloning in scanning loops (4 hours)
-4. **Dead code**: Remove confirmed dead code (8 hours)
+1. **Testing**: Break down monster test functions (16 hours)
 
 ### High Priority (Fix This Quarter)
-1. **Architecture**: Break circular dependencies (32 hours)
-2. **Duplication**: Extract duplicate primitives (20 hours)
-3. **Testing**: Break down monster test functions (16 hours)
-4. **Validation**: Implement missing abstractions (20 hours)
+1. **Duplication**: Extract duplicate primitives (20 hours)
+2. **Validation**: Implement missing abstractions (20 hours)
 
 ### Maintenance Tasks
 - **Weekly**: Run `cargo machete` to detect unused dependencies
