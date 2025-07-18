@@ -3,22 +3,13 @@
 //! This module provides lightweight validation for UTXOs and transactions
 //! without requiring the full Tari crypto stack.
 
-pub mod batch;
+
 pub mod commitment;
 pub mod encrypted_data;
 pub mod minimum_value_promise;
 pub mod script_pattern;
 
-pub use batch::{
-    validate_output_batch,
-    BatchValidationResult,
-    BatchValidationOptions,
-    OutputValidationResult,
-    BatchValidationSummary,
-};
 
-#[cfg(feature = "grpc")]
-pub use batch::validate_output_batch_parallel;
 
 pub use commitment::LightweightCommitmentValidator;
 

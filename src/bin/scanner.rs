@@ -106,7 +106,8 @@ use lightweight_wallet_libs::{
     common::format_number,
     data_structures::{
         block::Block, payment_id::PaymentId, transaction::TransactionDirection,
-        types::PrivateKey,
+        types::{PrivateKey, CompressedCommitment},
+        transaction_output::LightweightTransactionOutput,
         wallet_transaction::WalletState,
     },
     errors::LightweightWalletResult,
@@ -311,6 +312,11 @@ impl ScannerStorage {
         config: &ScanConfig,
         scan_context: Option<&ScanContext>,
     ) -> LightweightWalletResult<Option<ScanContext>> {
+        // Only perform database operations if database is available
+        if self.database.is_none() {
+            return Ok(None);
+        }
+
         // Handle wallet selection and loading
         self.wallet_id = self.select_or_create_wallet(config, scan_context).await?;
 
@@ -1300,7 +1306,7 @@ async fn scan_wallet_across_blocks_with_cancellation(
     scanner: &mut GrpcBlockchainScanner,
     scan_context: &ScanContext,
     config: &ScanConfig,
-    _storage_backend: &mut ScannerStorage,
+    storage_backend: &mut ScannerStorage,
     cancel_rx: &mut tokio::sync::watch::Receiver<bool>,
 ) -> LightweightWalletResult<ScanResult> {
     let has_specific_blocks = config.block_heights.is_some();
@@ -2065,7 +2071,7 @@ async fn main() -> LightweightWalletResult<()> {
 
     // Create temporary config for storage operations (will be recreated with correct from_block later)
     let temp_block_height_range = BlockHeightRange::new(0, to_block, args.blocks.clone());
-    let _temp_config = temp_block_height_range.into_scan_config(&args)?;
+    let temp_config = temp_block_height_range.into_scan_config(&args)?;
 
     // Create storage backend - use database when no keys provided, memory when keys provided
     let mut storage_backend = if keys_provided {
@@ -2083,15 +2089,17 @@ async fn main() -> LightweightWalletResult<()> {
         }
     };
 
-    // Handle wallet operations for database storage
+    // Handle wallet operations for database storage (only when no keys provided)
     #[cfg(feature = "storage")]
-    let (loaded_scan_context, wallet_birthday) = {
+    let (loaded_scan_context, wallet_birthday) = if keys_provided {
+        // Keys provided directly - skip database operations entirely
+        (None, None)
+    } else {
+        // No keys provided - use database storage
         let loaded_context = storage_backend.handle_wallet_operations(
             &temp_config,
             scan_context.as_ref(),
         ).await?;
-
-
 
         // Get wallet birthday if we have a wallet
         let wallet_birthday = if args.from_block.is_none() {

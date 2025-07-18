@@ -13,6 +13,7 @@ pub mod stealth_address_key_recovery;
 
 
 pub mod corruption_detection;
+pub mod batch_validation;
 
 pub use encrypted_data_decryption::{
     EncryptedDataDecryptor,
@@ -48,6 +49,17 @@ pub use corruption_detection::{
     CorruptionDetectionResult,
     CorruptionType,
 };
+
+pub use batch_validation::{
+    validate_output_batch,
+    BatchValidationResult,
+    BatchValidationOptions,
+    OutputValidationResult,
+    BatchValidationSummary,
+};
+
+#[cfg(feature = "grpc")]
+pub use batch_validation::validate_output_batch_parallel;
 
 use crate::{
     data_structures::{transaction_output::LightweightTransactionOutput, wallet_output::LightweightWalletOutput},
