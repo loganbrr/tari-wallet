@@ -10,8 +10,8 @@ pub mod encrypted_data_decryption;
 pub mod payment_id_extraction;
 pub mod wallet_output_reconstruction;
 pub mod stealth_address_key_recovery;
-pub mod range_proof_extraction;
-pub mod special_output_handling;
+
+
 pub mod corruption_detection;
 
 pub use encrypted_data_decryption::{
@@ -39,17 +39,9 @@ pub use stealth_address_key_recovery::{
     StealthKeyRecoveryError,
 };
 
-pub use range_proof_extraction::{
-    RangeProofExtractor,
-    RangeProofExtractionResult,
-    RangeProofType,
-};
 
-pub use special_output_handling::{
-    SpecialOutputHandler,
-    SpecialOutputHandlingResult,
-    SpecialOutputType,
-};
+
+
 
 pub use corruption_detection::{
     CorruptionDetector,
@@ -61,7 +53,6 @@ use crate::{
     data_structures::{transaction_output::LightweightTransactionOutput, wallet_output::LightweightWalletOutput},
     errors::LightweightWalletResult,
     data_structures::types::{PrivateKey, CompressedPublicKey},
-    validation::{LightweightBulletProofPlusValidator, LightweightRevealedValueValidator},
     key_management::{KeyStore, ImportedPrivateKey},
 };
 
@@ -172,15 +163,8 @@ pub fn extract_wallet_output(
     let value = decryption_result.value.unwrap();
     let payment_id = decryption_result.payment_id.unwrap();
 
-    // Validate range proof if enabled - this ensures mathematical correctness
-    if config.validate_range_proofs {
-        validate_range_proof_real(transaction_output)?;
-    }
-
-    // Validate signatures if enabled  
-    if config.validate_signatures {
-        validate_signatures_real(transaction_output)?;
-    }
+    // Note: Range proof and signature validation removed - was providing false security
+    // Real cryptographic validation would require integration with tari_crypto
 
     // Create wallet output with the decrypted value and payment ID
     let wallet_output = LightweightWalletOutput::new(
@@ -205,60 +189,7 @@ pub fn extract_wallet_output(
 }
 
 /// Validate range proof using real validation logic
-fn validate_range_proof_real(transaction_output: &LightweightTransactionOutput) -> LightweightWalletResult<()> {
-    // Check if we have a range proof to validate
-    if let Some(range_proof) = &transaction_output.proof {
-        // Determine the proof type from the features
-        match &transaction_output.features.range_proof_type {
-            crate::data_structures::wallet_output::LightweightRangeProofType::BulletProofPlus => {
-                let validator = LightweightBulletProofPlusValidator::default();
-                validator.verify_single(
-                    &range_proof.bytes,
-                    transaction_output.commitment(),
-                    transaction_output.minimum_value_promise,
-                ).map_err(|e| crate::errors::LightweightWalletError::ValidationError(e))?;
-            },
-            crate::data_structures::wallet_output::LightweightRangeProofType::RevealedValue => {
-                let validator = LightweightRevealedValueValidator::default();
-                
-                // For RevealedValue proofs, we need to extract the metadata signature components
-                let metadata_sig = &transaction_output.metadata_signature;
-                
-                // Extract signature components from the bytes
-                let sig_validator = crate::validation::LightweightMetadataSignatureValidator::default();
-                let (_, _, u_a_bytes, _, _) = sig_validator.extract_signature_components(&metadata_sig.bytes)
-                    .map_err(|e| crate::errors::LightweightWalletError::ValidationError(e))?;
-                
-                // Convert u_a bytes to PrivateKey
-                let mut u_a_array = [0u8; 32];
-                u_a_array.copy_from_slice(&u_a_bytes[..32]);
-                let u_a = crate::data_structures::types::PrivateKey::new(u_a_array);
-                
-                // Build challenge from metadata signature
-                let challenge_bytes = sig_validator.build_metadata_signature_challenge(transaction_output)
-                    .map_err(|e| crate::errors::LightweightWalletError::ValidationError(e))?;
-                
-                validator.verify_revealed_value_proof(
-                    transaction_output.commitment(),
-                    transaction_output.minimum_value_promise,
-                    &u_a,
-                    &challenge_bytes,
-                ).map_err(|e| crate::errors::LightweightWalletError::ValidationError(e))?;
-            },
-        }
-    }
-    Ok(())
-}
 
-/// Validate signatures using real validation logic
-fn validate_signatures_real(transaction_output: &LightweightTransactionOutput) -> LightweightWalletResult<()> {
-    // Use the metadata signature validator
-    let validator = crate::validation::LightweightMetadataSignatureValidator::default();
-    validator.verify_metadata_signature(transaction_output)
-        .map_err(|e| crate::errors::LightweightWalletError::ValidationError(e))?;
-    
-    Ok(())
-}
 
 #[cfg(test)]
 mod tests {

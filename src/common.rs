@@ -16,15 +16,17 @@ pub fn format_number<T: std::fmt::Display>(val: T) -> String {
     let parts: Vec<&str> = abs_str.split('.').collect();
     let integer_part = parts[0];
     
-    // Format the integer part with commas
-    let formatted_integer = integer_part
+    // Format the integer part with commas - return "Invalid" on error
+    let formatted_integer = match integer_part
         .as_bytes()
         .rchunks(3)
         .rev()
         .map(str::from_utf8)
         .collect::<Result<Vec<&str>, _>>()
-        .unwrap()
-        .join(",");
+    {
+        Ok(chunks) => chunks.join(","),
+        Err(_) => return "Invalid".to_string(),
+    };
     
     // Reconstruct the number
     let mut result = if parts.len() > 1 {

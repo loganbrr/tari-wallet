@@ -129,21 +129,7 @@ pub fn validate_output_batch(
             }
         }
 
-        // Validate metadata signature
-        if options.validate_signatures {
-            if let Err(e) = validate_metadata_signature(output) {
-                errors.push(e);
-                is_valid = false;
-                if !options.continue_on_error || errors.len() >= options.max_errors_per_output {
-                    results.push(OutputValidationResult {
-                        index,
-                        is_valid,
-                        errors,
-                    });
-                    continue;
-                }
-            }
-        }
+        // Note: Metadata signature validation removed - was providing false security
 
         results.push(OutputValidationResult {
             index,
@@ -209,20 +195,7 @@ pub fn validate_output_batch_parallel(
                 }
             }
 
-            // Validate metadata signature
-            if options.validate_signatures {
-                if let Err(e) = validate_metadata_signature(output) {
-                    errors.push(e);
-                    is_valid = false;
-                    if !options.continue_on_error || errors.len() >= options.max_errors_per_output {
-                        return OutputValidationResult {
-                            index,
-                            is_valid,
-                            errors,
-                        };
-                    }
-                }
-            }
+            // Note: Metadata signature validation removed - was providing false security
 
             OutputValidationResult {
                 index,
@@ -287,24 +260,7 @@ fn validate_range_proof(
     Ok(())
 }
 
-fn validate_metadata_signature(output: &LightweightTransactionOutput) -> Result<(), ValidationError> {
-    // Basic metadata signature validation
-    let signature_bytes = &output.metadata_signature().bytes;
-    if signature_bytes.len() != 64 {
-        return Err(ValidationError::metadata_signature_validation_failed(
-            "Metadata signature must be 64 bytes",
-        ));
-    }
-    
-    // Check that signature is not all zeros
-    if signature_bytes.iter().all(|&b| b == 0) {
-        return Err(ValidationError::metadata_signature_validation_failed(
-            "Metadata signature cannot be all zeros",
-        ));
-    }
-    
-    Ok(())
-}
+
 
 #[cfg(test)]
 mod tests {

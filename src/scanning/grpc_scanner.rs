@@ -151,7 +151,13 @@ impl GrpcBlockchainScanner {
 
         // Convert Commitment - Tari GRPC returns 32-byte commitments, need to add compression prefix
         let commitment_bytes = if grpc_output.commitment.len() == 32 {
-            CompressedCommitment::new(grpc_output.commitment.as_bytes()[..32].try_into().unwrap())
+            match grpc_output.commitment.as_bytes()[..32].try_into() {
+                Ok(bytes) => CompressedCommitment::new(bytes),
+                Err(_) => {
+                    println!("ERROR: Invalid commitment bytes format, using zero commitment");
+                    CompressedCommitment::new([0u8; 32])
+                },
+            }
         } else {
             // Debug: Log unexpected sizes
             println!("DEBUG: Unexpected commitment size. Expected 32 or 33, got {}. Data: {}", 

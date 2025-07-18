@@ -106,7 +106,7 @@ use lightweight_wallet_libs::{
     common::format_number,
     data_structures::{
         block::Block, payment_id::PaymentId, transaction::TransactionDirection,
-        transaction_output::LightweightTransactionOutput, types::{PrivateKey, CompressedCommitment},
+        types::PrivateKey,
         wallet_transaction::WalletState,
     },
     errors::LightweightWalletResult,
@@ -1300,7 +1300,7 @@ async fn scan_wallet_across_blocks_with_cancellation(
     scanner: &mut GrpcBlockchainScanner,
     scan_context: &ScanContext,
     config: &ScanConfig,
-    storage_backend: &mut ScannerStorage,
+    _storage_backend: &mut ScannerStorage,
     cancel_rx: &mut tokio::sync::watch::Receiver<bool>,
 ) -> LightweightWalletResult<ScanResult> {
     let has_specific_blocks = config.block_heights.is_some();
@@ -1665,7 +1665,7 @@ fn display_scan_info(config: &ScanConfig, block_heights: &[u64], has_specific_bl
                 format!(
                     "{}..{} and {} others",
                     format_number(block_heights[0]),
-                    format_number(*block_heights.last().unwrap()),
+                    format_number(block_heights.last().copied().unwrap_or(0)),
                     format_number(block_heights.len() - 2)
                 )
             }
@@ -2065,7 +2065,7 @@ async fn main() -> LightweightWalletResult<()> {
 
     // Create temporary config for storage operations (will be recreated with correct from_block later)
     let temp_block_height_range = BlockHeightRange::new(0, to_block, args.blocks.clone());
-    let temp_config = temp_block_height_range.into_scan_config(&args)?;
+    let _temp_config = temp_block_height_range.into_scan_config(&args)?;
 
     // Create storage backend - use database when no keys provided, memory when keys provided
     let mut storage_backend = if keys_provided {

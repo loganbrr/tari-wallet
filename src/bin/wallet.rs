@@ -16,7 +16,7 @@ use lightweight_wallet_libs::{
         key_derivation,
         seed_phrase::{mnemonic_to_bytes, CipherSeed},
     },
-    utils::number::format_number,
+    common::format_number,
     LightweightWalletError,
 };
 
