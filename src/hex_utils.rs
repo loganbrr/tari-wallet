@@ -8,35 +8,6 @@ use thiserror::Error;
 pub mod serde_helpers {
     use super::*;
 
-    /// Serialize a 32-byte array as hex (this was incorrectly named serialize_array_33)
-    pub fn serialize_array_33<S>(bytes: &[u8; 32], serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let hex_string = hex::encode(bytes);
-        hex_string.serialize(serializer)
-    }
-
-    /// Deserialize a 32-byte array from hex (this was incorrectly named deserialize_array_33)
-    pub fn deserialize_array_33<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let hex_string = String::deserialize(deserializer)?;
-        let bytes = hex::decode(&hex_string).map_err(serde::de::Error::custom)?;
-
-        if bytes.len() != 32 {
-            return Err(serde::de::Error::custom(format!(
-                "Expected 32 bytes, got {}",
-                bytes.len()
-            )));
-        }
-
-        let mut array = [0u8; 32];
-        array.copy_from_slice(&bytes);
-        Ok(array)
-    }
-
     /// Serialize a 32-byte array as hex
     pub fn serialize_array_32<S>(bytes: &[u8; 32], serializer: S) -> Result<S::Ok, S::Error>
     where

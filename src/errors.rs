@@ -593,47 +593,7 @@ impl From<wasm_bindgen::JsValue> for LightweightWalletError {
     }
 }
 
-// Convenience methods for creating common errors
-impl LightweightWalletError {
-    /// Create an invalid argument error
-    pub fn invalid_argument(argument: &str, value: &str, message: &str) -> Self {
-        Self::InvalidArgument {
-            argument: argument.to_string(),
-            value: value.to_string(),
-            message: message.to_string(),
-        }
-    }
-    
-    /// Create a resource not found error
-    pub fn not_found(resource: &str) -> Self {
-        Self::ResourceNotFound(resource.to_string())
-    }
-    
-    /// Create an operation not supported error
-    pub fn not_supported(operation: &str) -> Self {
-        Self::OperationNotSupported(operation.to_string())
-    }
-    
-    /// Create an insufficient funds error
-    pub fn insufficient_funds(details: &str) -> Self {
-        Self::InsufficientFunds(details.to_string())
-    }
-    
-    /// Create a timeout error
-    pub fn timeout(operation: &str) -> Self {
-        Self::Timeout(operation.to_string())
-    }
-    
-    /// Create a network error
-    pub fn network_error(details: &str) -> Self {
-        Self::NetworkError(details.to_string())
-    }
-    
-    /// Create an internal error
-    pub fn internal_error(details: &str) -> Self {
-        Self::InternalError(details.to_string())
-    }
-}
+// Note: Convenience constructors will be generated via macros (see macros.rs)
 
 impl DataStructureError {
     /// Create an invalid output version error

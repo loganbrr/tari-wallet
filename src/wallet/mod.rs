@@ -305,29 +305,7 @@ impl Wallet {
         *self.master_key.as_bytes()
     }
 
-    #[allow(dead_code)]
-    fn string_to_network(&self, network_str: &str) -> Network {
-        match network_str.to_lowercase().as_str() {
-            "mainnet" => Network::MainNet,
-            "stagenet" => Network::StageNet,
-            "localnet" => Network::LocalNet,
-            "esmeralda" | "esme" => Network::Esmeralda,
-            _ => Network::Esmeralda, // Default to Esmeralda for unknown networks
-        }
-    }
 
-    /// Convert network to string representation
-    #[allow(dead_code)]
-    fn network_to_string(&self, network: Network) -> String {
-        match network {
-            Network::MainNet => "mainnet".to_string(),
-            Network::StageNet => "stagenet".to_string(),
-            Network::LocalNet => "localnet".to_string(),
-            Network::Esmeralda => "esmeralda".to_string(),
-            Network::NextNet => "nextnet".to_string(),
-            Network::Igor => "igor".to_string(),
-        }
-    }
 }
 
 impl Zeroize for Wallet {
