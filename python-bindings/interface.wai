@@ -1,0 +1,15 @@
+// Standalone utility functions
+derive-public-key-hex: func(master-key: list<u8>) -> expected<string, string>
+get-version: func() -> string
+
+// Scanner resource with methods
+resource wasm-scanner {
+  static create: func(data: string) -> expected<wasm-scanner, string>
+  
+  process-http-blocks: func(http-response-json: string) -> expected<string, string>
+  scan-block-data: func(block-data-json: string) -> expected<string, string>
+  scan-single-block: func(block-data-json: string) -> expected<string, string>
+  get-scanner-stats: func() -> expected<string, string>
+  get-scanner-state: func() -> string
+  reset-scanner: func()
+}

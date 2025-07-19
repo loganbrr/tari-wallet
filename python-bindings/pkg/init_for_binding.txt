@@ -1,0 +1,22 @@
+1. cargo build
+`
+cargo build --target wasm32-unknown-unknown --release --features wasm
+`
+
+---
+
+2. mv wasm module to py folder
+`
+cp 'target/wasm32-unknown-unknown/release/lightweight_wallet_libs.wasm' python-bindings/pkg/
+`
+
+---
+
+3. gen bindings using wai interface
+`
+wai-bindgen wasmer-py --import interface.wai --out-dir bindings
+`
+
+---
+
+loader becomes functional. test-loader needs 
