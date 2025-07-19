@@ -15,11 +15,9 @@ cp 'target/wasm32-unknown-unknown/release/lightweight_wallet_libs.wasm' python-b
 3. gen bindings using wai interface -> loader becomes functional.
 `
 wai-bindgen wasmer-py --import interface.wai --out-dir bindings
+wasmtime.bindgen --import python-bindings/pkg/lightweight_wallet_libs.wasm --out-dir the-bindings
 `
 
 ---
 TODO:
-
-## cannot use wasmer on m-series chips lol 
-## test-loader must be run to ensure basic lightweight_wallet_libs functions work via python
-## then populate interface wai with full function support
+## transition from wasmer to wasmtime -_- https://github.com/bytecodealliance/wasmtime-py
