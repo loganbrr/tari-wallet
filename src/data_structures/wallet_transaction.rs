@@ -280,7 +280,7 @@ impl WalletState {
                     let spent_value = transaction.value;
                     
                     // Update balance and counters for the spent inbound transaction
-                    let _old_total_spent = self.total_spent;
+                    let old_total_spent = self.total_spent;
                     self.total_spent += spent_value;
                     self.running_balance -= spent_value as i64;
                     self.unspent_count -= 1;
