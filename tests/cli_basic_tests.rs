@@ -195,7 +195,7 @@ async fn test_signing_generate_keypair() {
         .arg("grpc-storage")
         .arg("--")
         .arg("generate")
-        .arg("--print")
+        .arg("--stdout")
         .output()
         .expect("Failed to execute signing generate");
     

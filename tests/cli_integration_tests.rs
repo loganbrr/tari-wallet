@@ -220,20 +220,17 @@ mod signing_tests {
             secret_key,
             "--message",
             "Hello, Tari!",
+            "--format",
+            "json",
         ]);
 
-        // Extract signature and public key
-        let signature = sign_result
-            .stdout
-            .lines()
-            .find(|l| l.contains("Signature"))
-            .unwrap()
-            .split(':')
-            .nth(1)
-            .unwrap()
-            .trim();
+        // Parse JSON output to extract signature and nonce
+        let json: serde_json::Value = serde_json::from_str(&sign_result.stdout).unwrap();
+        let signature = json["signature"].as_str().unwrap();
+        let nonce = json["nonce"].as_str().unwrap();
 
-        let public_key = sign_result
+        // Get public key from secret key
+        let public_key = gen_result
             .stdout
             .lines()
             .find(|l| l.contains("Public Key"))
@@ -250,12 +247,14 @@ mod signing_tests {
             public_key,
             "--signature",
             signature,
+            "--nonce",
+            nonce,
             "--message",
             "Hello, Tari!",
         ]);
 
         result.assert_success();
-        assert!(result.contains_stdout("Signature is valid"));
+        assert!(result.contains_stdout("VALID"));
     }
 
     #[test]
@@ -297,7 +296,7 @@ mod signing_tests {
         // Test missing required argument
         let result = runner.run_signing(&["sign", "--message", "test"]);
         result.assert_failure();
-        assert!(result.contains_stderr("required") || result.contains_stderr("missing"));
+        assert!(result.contains_stderr("provide either") || result.contains_stderr("secret-key"));
 
         // Test invalid hex key
         let result =
@@ -595,8 +594,8 @@ mod error_handling_tests {
     fn test_malformed_arguments() {
         let runner = CliTestRunner::new();
 
-        // Test with malformed unicode
-        let _result = runner.run_signing(&["sign", "--message", "\x00\x01\x02"]);
+        // Test with malformed unicode (avoid null bytes which cause Command failures)
+        let _result = runner.run_signing(&["sign", "--message", "invalid\u{FFFD}chars"]);
         // Should handle gracefully without crashing
 
         // Test with very long arguments
@@ -611,11 +610,11 @@ mod error_handling_tests {
 
         // Each test should be isolated - run same command multiple times
         for _ in 0..3 {
-            let result = runner.run_signing(&["generate", "--print"]);
+            let result = runner.run_signing(&["generate", "--stdout"]);
             result.assert_success();
 
             // Each run should produce different keys
-            assert!(result.contains_stdout("Secret key"));
+            assert!(result.contains_stdout("Secret Key"));
         }
     }
 
