@@ -99,12 +99,14 @@ async fn test_scanner_missing_args() {
         .arg("--features")
         .arg("grpc-storage")
         .arg("--")
+        .arg("--database")
+        .arg("/nonexistent/path/wallet.db")
         .output()
-        .expect("Failed to execute scanner with no arguments");
+        .expect("Failed to execute scanner with nonexistent database");
     
-    // Scanner should fail without required arguments
+    // Scanner should fail when database path doesn't exist and no keys provided
     assert_ne!(output.status.code().unwrap_or(0), 0,
-        "Scanner should fail without required arguments\nstdout: {}\nstderr: {}",
+        "Scanner should fail with nonexistent database and no keys\nstdout: {}\nstderr: {}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
