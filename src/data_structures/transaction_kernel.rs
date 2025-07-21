@@ -1,4 +1,4 @@
-use crate::data_structures::types::{CompressedPublicKey, CompressedCommitment, MicroMinotari};
+use crate::data_structures::types::{CompressedCommitment, CompressedPublicKey, MicroMinotari};
 use crate::errors::DataStructureError;
 use borsh::{BorshDeserialize, BorshSerialize};
 use zeroize::Zeroize;
@@ -75,7 +75,9 @@ impl TransactionKernel {
 
     /// Get the burn commitment as a hex string if present
     pub fn burn_commitment_hex(&self) -> Option<String> {
-        self.burn_commitment.as_ref().map(|c| hex::encode(c.as_bytes()))
+        self.burn_commitment
+            .as_ref()
+            .map(|c| hex::encode(c.as_bytes()))
     }
 
     /// Check if this is a coinbase kernel
@@ -106,7 +108,8 @@ impl TransactionKernel {
 
     /// Deserialize from hex string
     pub fn from_hex(hex_str: &str) -> Result<Self, DataStructureError> {
-        let bytes = hex::decode(hex_str).map_err(|e| DataStructureError::InvalidDataFormat(e.to_string()))?;
+        let bytes = hex::decode(hex_str)
+            .map_err(|e| DataStructureError::InvalidDataFormat(e.to_string()))?;
         Self::from_bytes(&bytes)
     }
 }
@@ -159,20 +162,20 @@ mod tests {
     #[test]
     fn test_kernel_feature_flags() {
         let mut kernel = TransactionKernel::default();
-        
+
         // Test coinbase flag
         kernel.features = 0x01;
         assert!(kernel.is_coinbase());
         assert!(!kernel.is_burn());
-        
+
         // Test burn flag
         kernel.features = 0x02;
         assert!(!kernel.is_coinbase());
         assert!(kernel.is_burn());
-        
+
         // Test both flags
         kernel.features = 0x03;
         assert!(kernel.is_coinbase());
         assert!(kernel.is_burn());
     }
-} 
+}

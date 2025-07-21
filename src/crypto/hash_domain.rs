@@ -27,4 +27,4 @@ impl DomainSeparation for WalletMessageSigningDomain {
     fn domain() -> &'static str {
         "com.tari.base_layer.wallet.message_signing"
     }
-} 
+}

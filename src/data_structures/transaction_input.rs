@@ -152,7 +152,8 @@ impl TransactionInput {
 
     /// Deserialize from hex string
     pub fn from_hex(hex_str: &str) -> Result<Self, DataStructureError> {
-        let bytes = hex::decode(hex_str).map_err(|e| DataStructureError::InvalidDataFormat(e.to_string()))?;
+        let bytes = hex::decode(hex_str)
+            .map_err(|e| DataStructureError::InvalidDataFormat(e.to_string()))?;
         Self::from_bytes(&bytes)
     }
 }
@@ -162,7 +163,10 @@ impl Zeroize for TransactionInput {
         self.commitment.zeroize();
         self.script_signature.zeroize();
         self.covenant.zeroize();
-        self.input_data.items.iter_mut().for_each(|item| item.zeroize());
+        self.input_data
+            .items
+            .iter_mut()
+            .for_each(|item| item.zeroize());
         self.output_hash.zeroize();
         self.output_metadata_signature.zeroize();
     }
@@ -259,4 +263,4 @@ mod tests {
         assert_eq!(stack.get(0), Some(&vec![0x01, 0x02]));
         assert_eq!(stack.get(1), None);
     }
-} 
+}

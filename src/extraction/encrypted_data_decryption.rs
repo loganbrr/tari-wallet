@@ -5,13 +5,13 @@
 
 use crate::{
     data_structures::{
-        encrypted_data::{EncryptedData},
+        encrypted_data::EncryptedData,
         payment_id::PaymentId,
-        types::{CompressedCommitment, MicroMinotari, PrivateKey},
         transaction_output::LightweightTransactionOutput,
+        types::{CompressedCommitment, MicroMinotari, PrivateKey},
     },
-    errors::{LightweightWalletError, EncryptionError, KeyManagementError},
-    key_management::{ KeyStore, ImportedPrivateKey},
+    errors::{EncryptionError, KeyManagementError, LightweightWalletError},
+    key_management::{ImportedPrivateKey, KeyStore},
 };
 
 /// Options for encrypted data decryption
@@ -247,12 +247,8 @@ impl EncryptedDataDecryptor {
                 // Note: This is a simplified approach - in practice, you'd need
                 // the actual key derivation logic from the key manager
                 if let Ok(derived_key) = self.try_derive_key_at_index(key_index) {
-                    let result = self.decrypt_with_key(
-                        encrypted_data,
-                        commitment,
-                        &derived_key,
-                        options,
-                    )?;
+                    let result =
+                        self.decrypt_with_key(encrypted_data, commitment, &derived_key, options)?;
 
                     keys_tried += 1;
 
@@ -298,13 +294,17 @@ impl EncryptedDataDecryptor {
     /// # Returns
     /// * `Ok(PrivateKey)` if the key was successfully derived
     /// * `Err(LightweightWalletError)` if key derivation failed
-    fn try_derive_key_at_index(&self, _key_index: u64) -> Result<PrivateKey, LightweightWalletError> {
+    fn try_derive_key_at_index(
+        &self,
+        _key_index: u64,
+    ) -> Result<PrivateKey, LightweightWalletError> {
         // This is a simplified implementation
         // In practice, you'd need the actual key derivation logic from the key manager
         // For now, we'll return an error to indicate that this needs to be implemented
         Err(KeyManagementError::KeyDerivationFailed(
-            "Key derivation not yet implemented".to_string()
-        ).into())
+            "Key derivation not yet implemented".to_string(),
+        )
+        .into())
     }
 
     /// Validate decrypted data
@@ -332,9 +332,7 @@ impl EncryptedDataDecryptor {
 
         // Validate mask is not all zeros
         if mask.as_bytes().iter().all(|&b| b == 0) {
-            return Err(EncryptionError::decryption_failed(
-                "Decrypted mask is all zeros"
-            ).into());
+            return Err(EncryptionError::decryption_failed("Decrypted mask is all zeros").into());
         }
 
         // Validate payment ID structure
@@ -351,9 +349,9 @@ impl EncryptedDataDecryptor {
             PaymentId::AddressAndData { user_data, .. } => {
                 // Validate data is not empty
                 if user_data.is_empty() {
-                    return Err(EncryptionError::decryption_failed(
-                        "Payment ID data is empty"
-                    ).into());
+                    return Err(
+                        EncryptionError::decryption_failed("Payment ID data is empty").into(),
+                    );
                 }
             }
             PaymentId::TransactionInfo { .. } => {
@@ -362,9 +360,9 @@ impl EncryptedDataDecryptor {
             PaymentId::Raw(data) => {
                 // Validate raw data is not empty
                 if data.is_empty() {
-                    return Err(EncryptionError::decryption_failed(
-                        "Raw payment ID data is empty"
-                    ).into());
+                    return Err(
+                        EncryptionError::decryption_failed("Raw payment ID data is empty").into(),
+                    );
                 }
             }
         }
@@ -380,8 +378,12 @@ impl EncryptedDataDecryptor {
     /// # Returns
     /// * `Ok(())` if the key was added successfully
     /// * `Err(LightweightWalletError)` if adding the key failed
-    pub fn add_imported_key(&mut self, imported_key: ImportedPrivateKey) -> Result<(), LightweightWalletError> {
-        self.key_store.add_imported_key(imported_key)
+    pub fn add_imported_key(
+        &mut self,
+        imported_key: ImportedPrivateKey,
+    ) -> Result<(), LightweightWalletError> {
+        self.key_store
+            .add_imported_key(imported_key)
             .map_err(|e| e.into())
     }
 
@@ -394,8 +396,13 @@ impl EncryptedDataDecryptor {
     /// # Returns
     /// * `Ok(())` if the key was imported successfully
     /// * `Err(LightweightWalletError)` if importing the key failed
-    pub fn import_private_key_from_hex(&mut self, hex: &str, label: Option<String>) -> Result<(), LightweightWalletError> {
-        self.key_store.import_private_key_from_hex(hex, label)
+    pub fn import_private_key_from_hex(
+        &mut self,
+        hex: &str,
+        label: Option<String>,
+    ) -> Result<(), LightweightWalletError> {
+        self.key_store
+            .import_private_key_from_hex(hex, label)
             .map_err(|e| e.into())
     }
 
@@ -408,8 +415,13 @@ impl EncryptedDataDecryptor {
     /// # Returns
     /// * `Ok(())` if the key was imported successfully
     /// * `Err(LightweightWalletError)` if importing the key failed
-    pub fn import_private_key_from_bytes(&mut self, bytes: [u8; 32], label: Option<String>) -> Result<(), LightweightWalletError> {
-        self.key_store.import_private_key_from_bytes(bytes, label)
+    pub fn import_private_key_from_bytes(
+        &mut self,
+        bytes: [u8; 32],
+        label: Option<String>,
+    ) -> Result<(), LightweightWalletError> {
+        self.key_store
+            .import_private_key_from_bytes(bytes, label)
             .map_err(|e| e.into())
     }
 
@@ -450,13 +462,9 @@ mod tests {
         let mask = PrivateKey::random();
         let payment_id = PaymentId::Empty;
 
-        let encrypted_data = EncryptedData::encrypt_data(
-            &encryption_key,
-            &commitment,
-            value,
-            &mask,
-            payment_id,
-        ).unwrap();
+        let encrypted_data =
+            EncryptedData::encrypt_data(&encryption_key, &commitment, value, &mask, payment_id)
+                .unwrap();
 
         (encrypted_data, commitment, encryption_key)
     }
@@ -465,7 +473,7 @@ mod tests {
     fn test_decryptor_creation() {
         let key_store = KeyStore::default();
         let decryptor = EncryptedDataDecryptor::new(key_store);
-        
+
         assert_eq!(decryptor.imported_key_count(), 0);
         assert_eq!(decryptor.derived_key_count(), 0);
         assert_eq!(decryptor.total_key_count(), 0);
@@ -478,7 +486,9 @@ mod tests {
         let decryptor = EncryptedDataDecryptor::new(key_store);
         let options = DecryptionOptions::default();
 
-        let result = decryptor.decrypt_with_key(&encrypted_data, &commitment, &key, &options).unwrap();
+        let result = decryptor
+            .decrypt_with_key(&encrypted_data, &commitment, &key, &options)
+            .unwrap();
 
         assert!(result.is_success());
         assert_eq!(result.value.unwrap(), MicroMinotari::new(1000));
@@ -493,7 +503,9 @@ mod tests {
         let decryptor = EncryptedDataDecryptor::new(key_store);
         let options = DecryptionOptions::default();
 
-        let result = decryptor.decrypt_with_key(&encrypted_data, &commitment, &wrong_key, &options).unwrap();
+        let result = decryptor
+            .decrypt_with_key(&encrypted_data, &commitment, &wrong_key, &options)
+            .unwrap();
 
         assert!(!result.is_success());
         assert!(result.error_message().is_some());
@@ -506,11 +518,13 @@ mod tests {
         let mut key_store = KeyStore::default();
         let imported_key = ImportedPrivateKey::new(key.clone(), Some("test_key".to_string()));
         key_store.add_imported_key(imported_key).unwrap();
-        
+
         let decryptor = EncryptedDataDecryptor::new(key_store);
         let options = DecryptionOptions::default();
 
-        let result = decryptor.decrypt_with_all_keys(&encrypted_data, &commitment, Some(&options)).unwrap();
+        let result = decryptor
+            .decrypt_with_all_keys(&encrypted_data, &commitment, Some(&options))
+            .unwrap();
 
         assert!(result.is_success());
         assert_eq!(result.value.unwrap(), MicroMinotari::new(1000));
@@ -560,7 +574,8 @@ mod tests {
         let payment_id = PaymentId::Empty;
         let used_key = PrivateKey::random();
 
-        let result = DecryptionResult::success(value, mask.clone(), payment_id.clone(), used_key.clone(), 1);
+        let result =
+            DecryptionResult::success(value, mask.clone(), payment_id.clone(), used_key.clone(), 1);
 
         assert!(result.is_success());
         assert_eq!(result.value.unwrap(), value);
@@ -584,4 +599,4 @@ mod tests {
         assert_eq!(result.keys_tried, 5);
         assert_eq!(result.error_message().unwrap(), &error);
     }
-} 
+}

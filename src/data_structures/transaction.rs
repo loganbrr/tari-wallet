@@ -1,5 +1,5 @@
 //! Transaction metadata types for lightweight wallets
-//! 
+//!
 //! This module contains transaction status, direction, and import status types
 //! used for tracking transaction states and metadata in lightweight wallets.
 
@@ -9,14 +9,26 @@ use std::{
     fmt::{Display, Error, Formatter},
 };
 
+use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use borsh::{BorshDeserialize, BorshSerialize};
 
 /// Unique identifier for a transaction as a u64 integer
 pub type TxId = u64;
 
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[derive(
+    Default,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    BorshSerialize,
+    BorshDeserialize,
+)]
 #[borsh(use_discriminant = true)]
 pub enum TransactionStatus {
     /// This transaction has been completed between the parties but has not been broadcast to the base layer network.
@@ -56,63 +68,65 @@ impl TransactionStatus {
     pub fn is_imported_from_chain(&self) -> bool {
         matches!(
             self,
-            TransactionStatus::Imported | TransactionStatus::OneSidedUnconfirmed | TransactionStatus::OneSidedConfirmed
+            TransactionStatus::Imported
+                | TransactionStatus::OneSidedUnconfirmed
+                | TransactionStatus::OneSidedConfirmed
         )
     }
 
     pub fn is_coinbase(&self) -> bool {
         matches!(
             self,
-            TransactionStatus::CoinbaseUnconfirmed |
-                TransactionStatus::CoinbaseConfirmed |
-                TransactionStatus::CoinbaseNotInBlockChain
+            TransactionStatus::CoinbaseUnconfirmed
+                | TransactionStatus::CoinbaseConfirmed
+                | TransactionStatus::CoinbaseNotInBlockChain
         )
     }
 
     pub fn is_confirmed(&self) -> bool {
         matches!(
             self,
-            TransactionStatus::OneSidedConfirmed |
-                TransactionStatus::CoinbaseConfirmed |
-                TransactionStatus::MinedConfirmed
+            TransactionStatus::OneSidedConfirmed
+                | TransactionStatus::CoinbaseConfirmed
+                | TransactionStatus::MinedConfirmed
         )
     }
 
     pub fn mined_confirm(&self) -> Self {
         match self {
-            TransactionStatus::Completed |
-            TransactionStatus::Broadcast |
-            TransactionStatus::Pending |
-            TransactionStatus::Coinbase |
-            TransactionStatus::Rejected |
-            TransactionStatus::Queued |
-            TransactionStatus::MinedUnconfirmed |
-            TransactionStatus::MinedConfirmed => TransactionStatus::MinedConfirmed,
-            TransactionStatus::Imported |
-            TransactionStatus::OneSidedUnconfirmed |
-            TransactionStatus::OneSidedConfirmed => TransactionStatus::OneSidedConfirmed,
-            TransactionStatus::CoinbaseNotInBlockChain |
-            TransactionStatus::CoinbaseConfirmed |
-            TransactionStatus::CoinbaseUnconfirmed => TransactionStatus::CoinbaseConfirmed,
+            TransactionStatus::Completed
+            | TransactionStatus::Broadcast
+            | TransactionStatus::Pending
+            | TransactionStatus::Coinbase
+            | TransactionStatus::Rejected
+            | TransactionStatus::Queued
+            | TransactionStatus::MinedUnconfirmed
+            | TransactionStatus::MinedConfirmed => TransactionStatus::MinedConfirmed,
+            TransactionStatus::Imported
+            | TransactionStatus::OneSidedUnconfirmed
+            | TransactionStatus::OneSidedConfirmed => TransactionStatus::OneSidedConfirmed,
+            TransactionStatus::CoinbaseNotInBlockChain
+            | TransactionStatus::CoinbaseConfirmed
+            | TransactionStatus::CoinbaseUnconfirmed => TransactionStatus::CoinbaseConfirmed,
         }
     }
 
     pub fn mined_unconfirm(&self) -> Self {
         match self {
-            TransactionStatus::Completed |
-            TransactionStatus::Broadcast |
-            TransactionStatus::Pending |
-            TransactionStatus::Coinbase |
-            TransactionStatus::Rejected |
-            TransactionStatus::Queued |
-            TransactionStatus::MinedUnconfirmed |
-            TransactionStatus::MinedConfirmed => TransactionStatus::MinedUnconfirmed,
-            TransactionStatus::Imported |
-            TransactionStatus::OneSidedUnconfirmed |
-            TransactionStatus::OneSidedConfirmed => TransactionStatus::OneSidedUnconfirmed,
-            TransactionStatus::CoinbaseConfirmed |
-            TransactionStatus::CoinbaseUnconfirmed |
-            TransactionStatus::CoinbaseNotInBlockChain => TransactionStatus::CoinbaseUnconfirmed,
+            TransactionStatus::Completed
+            | TransactionStatus::Broadcast
+            | TransactionStatus::Pending
+            | TransactionStatus::Coinbase
+            | TransactionStatus::Rejected
+            | TransactionStatus::Queued
+            | TransactionStatus::MinedUnconfirmed
+            | TransactionStatus::MinedConfirmed => TransactionStatus::MinedUnconfirmed,
+            TransactionStatus::Imported
+            | TransactionStatus::OneSidedUnconfirmed
+            | TransactionStatus::OneSidedConfirmed => TransactionStatus::OneSidedUnconfirmed,
+            TransactionStatus::CoinbaseConfirmed
+            | TransactionStatus::CoinbaseUnconfirmed
+            | TransactionStatus::CoinbaseNotInBlockChain => TransactionStatus::CoinbaseUnconfirmed,
         }
     }
 }
@@ -229,7 +243,18 @@ impl fmt::Display for ImportStatus {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    Serialize,
+    Deserialize,
+    PartialEq,
+    Eq,
+    Hash,
+    BorshSerialize,
+    BorshDeserialize,
+)]
 pub enum TransactionDirection {
     Inbound,
     Outbound,
@@ -280,20 +305,62 @@ mod tests {
     #[test]
     fn test_transaction_status_conversion() {
         // Test valid conversions
-        assert_eq!(TransactionStatus::try_from(0).unwrap(), TransactionStatus::Completed);
-        assert_eq!(TransactionStatus::try_from(1).unwrap(), TransactionStatus::Broadcast);
-        assert_eq!(TransactionStatus::try_from(2).unwrap(), TransactionStatus::MinedUnconfirmed);
-        assert_eq!(TransactionStatus::try_from(3).unwrap(), TransactionStatus::Imported);
-        assert_eq!(TransactionStatus::try_from(4).unwrap(), TransactionStatus::Pending);
-        assert_eq!(TransactionStatus::try_from(5).unwrap(), TransactionStatus::Coinbase);
-        assert_eq!(TransactionStatus::try_from(6).unwrap(), TransactionStatus::MinedConfirmed);
-        assert_eq!(TransactionStatus::try_from(7).unwrap(), TransactionStatus::Rejected);
-        assert_eq!(TransactionStatus::try_from(8).unwrap(), TransactionStatus::OneSidedUnconfirmed);
-        assert_eq!(TransactionStatus::try_from(9).unwrap(), TransactionStatus::OneSidedConfirmed);
-        assert_eq!(TransactionStatus::try_from(10).unwrap(), TransactionStatus::Queued);
-        assert_eq!(TransactionStatus::try_from(11).unwrap(), TransactionStatus::CoinbaseUnconfirmed);
-        assert_eq!(TransactionStatus::try_from(12).unwrap(), TransactionStatus::CoinbaseConfirmed);
-        assert_eq!(TransactionStatus::try_from(13).unwrap(), TransactionStatus::CoinbaseNotInBlockChain);
+        assert_eq!(
+            TransactionStatus::try_from(0).unwrap(),
+            TransactionStatus::Completed
+        );
+        assert_eq!(
+            TransactionStatus::try_from(1).unwrap(),
+            TransactionStatus::Broadcast
+        );
+        assert_eq!(
+            TransactionStatus::try_from(2).unwrap(),
+            TransactionStatus::MinedUnconfirmed
+        );
+        assert_eq!(
+            TransactionStatus::try_from(3).unwrap(),
+            TransactionStatus::Imported
+        );
+        assert_eq!(
+            TransactionStatus::try_from(4).unwrap(),
+            TransactionStatus::Pending
+        );
+        assert_eq!(
+            TransactionStatus::try_from(5).unwrap(),
+            TransactionStatus::Coinbase
+        );
+        assert_eq!(
+            TransactionStatus::try_from(6).unwrap(),
+            TransactionStatus::MinedConfirmed
+        );
+        assert_eq!(
+            TransactionStatus::try_from(7).unwrap(),
+            TransactionStatus::Rejected
+        );
+        assert_eq!(
+            TransactionStatus::try_from(8).unwrap(),
+            TransactionStatus::OneSidedUnconfirmed
+        );
+        assert_eq!(
+            TransactionStatus::try_from(9).unwrap(),
+            TransactionStatus::OneSidedConfirmed
+        );
+        assert_eq!(
+            TransactionStatus::try_from(10).unwrap(),
+            TransactionStatus::Queued
+        );
+        assert_eq!(
+            TransactionStatus::try_from(11).unwrap(),
+            TransactionStatus::CoinbaseUnconfirmed
+        );
+        assert_eq!(
+            TransactionStatus::try_from(12).unwrap(),
+            TransactionStatus::CoinbaseConfirmed
+        );
+        assert_eq!(
+            TransactionStatus::try_from(13).unwrap(),
+            TransactionStatus::CoinbaseNotInBlockChain
+        );
 
         // Test invalid conversion
         assert!(TransactionStatus::try_from(99).is_err());
@@ -302,9 +369,18 @@ mod tests {
     #[test]
     fn test_transaction_direction_conversion() {
         // Test valid conversions
-        assert_eq!(TransactionDirection::try_from(0).unwrap(), TransactionDirection::Inbound);
-        assert_eq!(TransactionDirection::try_from(1).unwrap(), TransactionDirection::Outbound);
-        assert_eq!(TransactionDirection::try_from(2).unwrap(), TransactionDirection::Unknown);
+        assert_eq!(
+            TransactionDirection::try_from(0).unwrap(),
+            TransactionDirection::Inbound
+        );
+        assert_eq!(
+            TransactionDirection::try_from(1).unwrap(),
+            TransactionDirection::Outbound
+        );
+        assert_eq!(
+            TransactionDirection::try_from(2).unwrap(),
+            TransactionDirection::Unknown
+        );
 
         // Test invalid conversion
         assert!(TransactionDirection::try_from(99).is_err());
@@ -314,17 +390,38 @@ mod tests {
     fn test_transaction_status_display() {
         assert_eq!(TransactionStatus::Completed.to_string(), "Completed");
         assert_eq!(TransactionStatus::Broadcast.to_string(), "Broadcast");
-        assert_eq!(TransactionStatus::MinedUnconfirmed.to_string(), "Mined Unconfirmed");
-        assert_eq!(TransactionStatus::MinedConfirmed.to_string(), "Mined Confirmed");
+        assert_eq!(
+            TransactionStatus::MinedUnconfirmed.to_string(),
+            "Mined Unconfirmed"
+        );
+        assert_eq!(
+            TransactionStatus::MinedConfirmed.to_string(),
+            "Mined Confirmed"
+        );
         assert_eq!(TransactionStatus::Imported.to_string(), "Imported");
         assert_eq!(TransactionStatus::Pending.to_string(), "Pending");
         assert_eq!(TransactionStatus::Coinbase.to_string(), "Coinbase");
         assert_eq!(TransactionStatus::Rejected.to_string(), "Rejected");
-        assert_eq!(TransactionStatus::OneSidedUnconfirmed.to_string(), "One-Sided Unconfirmed");
-        assert_eq!(TransactionStatus::OneSidedConfirmed.to_string(), "One-Sided Confirmed");
-        assert_eq!(TransactionStatus::CoinbaseUnconfirmed.to_string(), "Coinbase Unconfirmed");
-        assert_eq!(TransactionStatus::CoinbaseConfirmed.to_string(), "Coinbase Confirmed");
-        assert_eq!(TransactionStatus::CoinbaseNotInBlockChain.to_string(), "Coinbase not mined");
+        assert_eq!(
+            TransactionStatus::OneSidedUnconfirmed.to_string(),
+            "One-Sided Unconfirmed"
+        );
+        assert_eq!(
+            TransactionStatus::OneSidedConfirmed.to_string(),
+            "One-Sided Confirmed"
+        );
+        assert_eq!(
+            TransactionStatus::CoinbaseUnconfirmed.to_string(),
+            "Coinbase Unconfirmed"
+        );
+        assert_eq!(
+            TransactionStatus::CoinbaseConfirmed.to_string(),
+            "Coinbase Confirmed"
+        );
+        assert_eq!(
+            TransactionStatus::CoinbaseNotInBlockChain.to_string(),
+            "Coinbase not mined"
+        );
         assert_eq!(TransactionStatus::Queued.to_string(), "Queued");
     }
 
@@ -339,10 +436,22 @@ mod tests {
     fn test_import_status_display() {
         assert_eq!(ImportStatus::Broadcast.to_string(), "Broadcast");
         assert_eq!(ImportStatus::Imported.to_string(), "Imported");
-        assert_eq!(ImportStatus::OneSidedUnconfirmed.to_string(), "OneSidedUnconfirmed");
-        assert_eq!(ImportStatus::OneSidedConfirmed.to_string(), "OneSidedConfirmed");
-        assert_eq!(ImportStatus::CoinbaseUnconfirmed.to_string(), "CoinbaseUnconfirmed");
-        assert_eq!(ImportStatus::CoinbaseConfirmed.to_string(), "CoinbaseConfirmed");
+        assert_eq!(
+            ImportStatus::OneSidedUnconfirmed.to_string(),
+            "OneSidedUnconfirmed"
+        );
+        assert_eq!(
+            ImportStatus::OneSidedConfirmed.to_string(),
+            "OneSidedConfirmed"
+        );
+        assert_eq!(
+            ImportStatus::CoinbaseUnconfirmed.to_string(),
+            "CoinbaseUnconfirmed"
+        );
+        assert_eq!(
+            ImportStatus::CoinbaseConfirmed.to_string(),
+            "CoinbaseConfirmed"
+        );
     }
 
     #[test]
@@ -369,14 +478,32 @@ mod tests {
     #[test]
     fn test_transaction_status_state_transitions() {
         // Test mined_confirm
-        assert_eq!(TransactionStatus::MinedUnconfirmed.mined_confirm(), TransactionStatus::MinedConfirmed);
-        assert_eq!(TransactionStatus::OneSidedUnconfirmed.mined_confirm(), TransactionStatus::OneSidedConfirmed);
-        assert_eq!(TransactionStatus::CoinbaseUnconfirmed.mined_confirm(), TransactionStatus::CoinbaseConfirmed);
+        assert_eq!(
+            TransactionStatus::MinedUnconfirmed.mined_confirm(),
+            TransactionStatus::MinedConfirmed
+        );
+        assert_eq!(
+            TransactionStatus::OneSidedUnconfirmed.mined_confirm(),
+            TransactionStatus::OneSidedConfirmed
+        );
+        assert_eq!(
+            TransactionStatus::CoinbaseUnconfirmed.mined_confirm(),
+            TransactionStatus::CoinbaseConfirmed
+        );
 
         // Test mined_unconfirm
-        assert_eq!(TransactionStatus::MinedConfirmed.mined_unconfirm(), TransactionStatus::MinedUnconfirmed);
-        assert_eq!(TransactionStatus::OneSidedConfirmed.mined_unconfirm(), TransactionStatus::OneSidedUnconfirmed);
-        assert_eq!(TransactionStatus::CoinbaseConfirmed.mined_unconfirm(), TransactionStatus::CoinbaseUnconfirmed);
+        assert_eq!(
+            TransactionStatus::MinedConfirmed.mined_unconfirm(),
+            TransactionStatus::MinedUnconfirmed
+        );
+        assert_eq!(
+            TransactionStatus::OneSidedConfirmed.mined_unconfirm(),
+            TransactionStatus::OneSidedUnconfirmed
+        );
+        assert_eq!(
+            TransactionStatus::CoinbaseConfirmed.mined_unconfirm(),
+            TransactionStatus::CoinbaseUnconfirmed
+        );
     }
 
     #[test]
@@ -421,6 +548,9 @@ mod tests {
     #[test]
     fn test_defaults() {
         assert_eq!(TransactionStatus::default(), TransactionStatus::Pending);
-        assert_eq!(TransactionDirection::default(), TransactionDirection::Unknown);
+        assert_eq!(
+            TransactionDirection::default(),
+            TransactionDirection::Unknown
+        );
     }
-} 
+}

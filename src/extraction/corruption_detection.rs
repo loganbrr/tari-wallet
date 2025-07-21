@@ -8,10 +8,10 @@ use crate::{
         encrypted_data::EncryptedData,
         payment_id::PaymentId,
         transaction_output::LightweightTransactionOutput,
-        wallet_output::LightweightWalletOutput,
         types::{CompressedCommitment, MicroMinotari},
+        wallet_output::LightweightWalletOutput,
     },
-    errors::{LightweightWalletError, DataStructureError},
+    errors::{DataStructureError, LightweightWalletError},
 };
 
 /// Result of corruption detection
@@ -186,7 +186,10 @@ impl CorruptionDetector {
         if encrypted_data.as_bytes().len() < 32 {
             return CorruptionDetectionResult::corrupted(
                 CorruptionType::InsufficientData,
-                format!("Encrypted data too small: {} bytes", encrypted_data.as_bytes().len()),
+                format!(
+                    "Encrypted data too small: {} bytes",
+                    encrypted_data.as_bytes().len()
+                ),
                 0.7,
                 false,
             );
@@ -221,7 +224,8 @@ impl CorruptionDetector {
         transaction_output: &LightweightTransactionOutput,
     ) -> CorruptionDetectionResult {
         // Check encrypted data corruption
-        let encrypted_data_result = self.detect_encrypted_data_corruption(transaction_output.encrypted_data());
+        let encrypted_data_result =
+            self.detect_encrypted_data_corruption(transaction_output.encrypted_data());
         if encrypted_data_result.is_corrupted() {
             return encrypted_data_result;
         }
@@ -241,7 +245,8 @@ impl CorruptionDetector {
         }
 
         // Check signature corruption
-        let signature_result = self.detect_signature_corruption(transaction_output.metadata_signature());
+        let signature_result =
+            self.detect_signature_corruption(transaction_output.metadata_signature());
         if signature_result.is_corrupted() {
             return signature_result;
         }
@@ -259,7 +264,8 @@ impl CorruptionDetector {
         }
 
         // Check value corruption
-        let value_result = self.detect_value_corruption(&transaction_output.minimum_value_promise());
+        let value_result =
+            self.detect_value_corruption(&transaction_output.minimum_value_promise());
         if value_result.is_corrupted() {
             return value_result;
         }
@@ -279,7 +285,8 @@ impl CorruptionDetector {
         wallet_output: &LightweightWalletOutput,
     ) -> CorruptionDetectionResult {
         // Check encrypted data corruption
-        let encrypted_data_result = self.detect_encrypted_data_corruption(wallet_output.encrypted_data());
+        let encrypted_data_result =
+            self.detect_encrypted_data_corruption(wallet_output.encrypted_data());
         if encrypted_data_result.is_corrupted() {
             return encrypted_data_result;
         }
@@ -308,7 +315,10 @@ impl CorruptionDetector {
     }
 
     /// Detect corruption in commitment
-    fn detect_commitment_corruption(&self, commitment: &CompressedCommitment) -> CorruptionDetectionResult {
+    fn detect_commitment_corruption(
+        &self,
+        commitment: &CompressedCommitment,
+    ) -> CorruptionDetectionResult {
         // Check if commitment is all zeros
         if commitment.as_bytes().iter().all(|&b| b == 0) {
             return CorruptionDetectionResult::corrupted(
@@ -333,7 +343,10 @@ impl CorruptionDetector {
     }
 
     /// Detect corruption in range proof
-    fn detect_range_proof_corruption(&self, proof: &crate::data_structures::wallet_output::LightweightRangeProof) -> CorruptionDetectionResult {
+    fn detect_range_proof_corruption(
+        &self,
+        proof: &crate::data_structures::wallet_output::LightweightRangeProof,
+    ) -> CorruptionDetectionResult {
         // Check if range proof is empty
         if proof.bytes.is_empty() {
             return CorruptionDetectionResult::corrupted(
@@ -368,7 +381,10 @@ impl CorruptionDetector {
     }
 
     /// Detect corruption in signature
-    fn detect_signature_corruption(&self, signature: &crate::data_structures::wallet_output::LightweightSignature) -> CorruptionDetectionResult {
+    fn detect_signature_corruption(
+        &self,
+        signature: &crate::data_structures::wallet_output::LightweightSignature,
+    ) -> CorruptionDetectionResult {
         // Check if signature is empty
         if signature.bytes.is_empty() {
             return CorruptionDetectionResult::corrupted(
@@ -393,13 +409,19 @@ impl CorruptionDetector {
     }
 
     /// Detect corruption in script
-    fn detect_script_corruption(&self, _script: &crate::data_structures::wallet_output::LightweightScript) -> CorruptionDetectionResult {
+    fn detect_script_corruption(
+        &self,
+        _script: &crate::data_structures::wallet_output::LightweightScript,
+    ) -> CorruptionDetectionResult {
         // Script can be empty, so no corruption detection needed
         CorruptionDetectionResult::clean()
     }
 
     /// Detect corruption in covenant
-    fn detect_covenant_corruption(&self, _covenant: &crate::data_structures::wallet_output::LightweightCovenant) -> CorruptionDetectionResult {
+    fn detect_covenant_corruption(
+        &self,
+        _covenant: &crate::data_structures::wallet_output::LightweightCovenant,
+    ) -> CorruptionDetectionResult {
         // Covenant can be empty, so no corruption detection needed
         CorruptionDetectionResult::clean()
     }
@@ -423,7 +445,10 @@ impl CorruptionDetector {
                 }
                 CorruptionDetectionResult::clean()
             }
-            PaymentId::Open { user_data, tx_type: _ } => {
+            PaymentId::Open {
+                user_data,
+                tx_type: _,
+            } => {
                 // Check if open data is empty
                 if user_data.is_empty() {
                     return CorruptionDetectionResult::corrupted(
@@ -482,7 +507,10 @@ impl CorruptionDetector {
     }
 
     /// Detect corruption in features
-    fn detect_features_corruption(&self, features: &crate::data_structures::wallet_output::LightweightOutputFeatures) -> CorruptionDetectionResult {
+    fn detect_features_corruption(
+        &self,
+        features: &crate::data_structures::wallet_output::LightweightOutputFeatures,
+    ) -> CorruptionDetectionResult {
         // Check if maturity is unreasonably large (more than 1 million blocks)
         if features.maturity > 1_000_000 {
             return CorruptionDetectionResult::corrupted(
@@ -535,20 +563,23 @@ impl CorruptionDetector {
         match corruption_result.corruption_type() {
             Some(CorruptionType::EmptyData) => {
                 return Err(DataStructureError::InvalidDataFormat(
-                    "Cannot recover from empty data".to_string()
-                ).into());
+                    "Cannot recover from empty data".to_string(),
+                )
+                .into());
             }
             Some(CorruptionType::InsufficientData) => {
                 return Err(DataStructureError::InvalidDataFormat(
-                    "Cannot recover from insufficient data".to_string()
-                ).into());
+                    "Cannot recover from insufficient data".to_string(),
+                )
+                .into());
             }
             Some(CorruptionType::ZeroData) => {
                 // Try to find non-zero data in surrounding context
                 // This is a placeholder - in practice, you'd need more context
                 return Err(DataStructureError::InvalidDataFormat(
-                    "Cannot recover from zero data without additional context".to_string()
-                ).into());
+                    "Cannot recover from zero data without additional context".to_string(),
+                )
+                .into());
             }
             _ => {
                 // For other corruption types, return original data
@@ -640,10 +671,13 @@ mod tests {
         let encrypted_data = EncryptedData::from_bytes(&vec![0u8; 80]).unwrap();
         let detector = CorruptionDetector::new();
         let result = detector.detect_encrypted_data_corruption(&encrypted_data);
-        
+
         assert!(result.is_corrupted());
         assert_eq!(result.corruption_type(), Some(&CorruptionType::ZeroData));
-        assert_eq!(result.error_message(), Some("Encrypted data contains only zeros"));
+        assert_eq!(
+            result.error_message(),
+            Some("Encrypted data contains only zeros")
+        );
         assert!(!result.is_recoverable());
     }
 
@@ -652,10 +686,13 @@ mod tests {
         let encrypted_data = EncryptedData::from_bytes(&vec![0u8; 80]).unwrap();
         let detector = CorruptionDetector::new();
         let result = detector.detect_encrypted_data_corruption(&encrypted_data);
-        
+
         assert!(result.is_corrupted());
         assert_eq!(result.corruption_type(), Some(&CorruptionType::ZeroData));
-        assert_eq!(result.error_message(), Some("Encrypted data contains only zeros"));
+        assert_eq!(
+            result.error_message(),
+            Some("Encrypted data contains only zeros")
+        );
         assert!(!result.is_recoverable());
     }
 
@@ -668,7 +705,7 @@ mod tests {
         let encrypted_data = EncryptedData::from_bytes(&test_data).unwrap();
         let detector = CorruptionDetector::new();
         let result = detector.detect_encrypted_data_corruption(&encrypted_data);
-        
+
         // This should not be corrupted since it's not a suspicious pattern
         assert!(!result.is_corrupted());
     }
@@ -676,21 +713,33 @@ mod tests {
     #[test]
     fn test_detect_payment_id_corruption_empty_open() {
         let detector = CorruptionDetector::new();
-        let payment_id = PaymentId::Open { user_data: vec![], tx_type: TxType::PaymentToOther };
+        let payment_id = PaymentId::Open {
+            user_data: vec![],
+            tx_type: TxType::PaymentToOther,
+        };
         let result = detector.detect_payment_id_corruption(&payment_id);
-        
+
         assert!(result.is_corrupted());
-        assert_eq!(result.corruption_type(), Some(&CorruptionType::PaymentIdCorruption));
-        assert_eq!(result.error_message(), Some("Open payment ID data is empty"));
+        assert_eq!(
+            result.corruption_type(),
+            Some(&CorruptionType::PaymentIdCorruption)
+        );
+        assert_eq!(
+            result.error_message(),
+            Some("Open payment ID data is empty")
+        );
         assert!(result.is_recoverable());
     }
 
     #[test]
     fn test_detect_payment_id_corruption_clean() {
         let detector = CorruptionDetector::new();
-        let payment_id = PaymentId::Open { user_data: b"test_data".to_vec(), tx_type: TxType::PaymentToOther };
+        let payment_id = PaymentId::Open {
+            user_data: b"test_data".to_vec(),
+            tx_type: TxType::PaymentToOther,
+        };
         let result = detector.detect_payment_id_corruption(&payment_id);
-        
+
         assert!(!result.is_corrupted());
         assert!(result.corruption_type().is_none());
         assert!(result.error_message().is_none());
@@ -702,9 +751,12 @@ mod tests {
         let detector = CorruptionDetector::new();
         let commitment = CompressedCommitment::new([0u8; 32]);
         let result = detector.detect_commitment_corruption(&commitment);
-        
+
         assert!(result.is_corrupted());
-        assert_eq!(result.corruption_type(), Some(&CorruptionType::CommitmentCorruption));
+        assert_eq!(
+            result.corruption_type(),
+            Some(&CorruptionType::CommitmentCorruption)
+        );
         assert_eq!(result.error_message(), Some("Commitment is all zeros"));
         assert!(!result.is_recoverable());
     }
@@ -714,9 +766,12 @@ mod tests {
         let detector = CorruptionDetector::new();
         let value = MicroMinotari::new(2_000_000_000_000_000); // 2 billion Tari
         let result = detector.detect_value_corruption(&value);
-        
+
         assert!(result.is_corrupted());
-        assert_eq!(result.corruption_type(), Some(&CorruptionType::ValueCorruption));
+        assert_eq!(
+            result.corruption_type(),
+            Some(&CorruptionType::ValueCorruption)
+        );
         assert_eq!(result.error_message(), Some("Value is unreasonably large"));
         assert!(result.is_recoverable());
     }
@@ -724,15 +779,15 @@ mod tests {
     #[test]
     fn test_detect_suspicious_patterns() {
         let detector = CorruptionDetector::new();
-        
+
         // Test repeated pattern
         let data = vec![1u8, 1u8, 1u8, 1u8, 2u8, 2u8, 2u8, 2u8, 3u8, 3u8, 3u8, 3u8];
         assert!(detector.detect_suspicious_patterns(&data));
-        
+
         // Test all same bytes
         let data = vec![5u8; 10];
         assert!(detector.detect_suspicious_patterns(&data));
-        
+
         // Test normal data
         let data = vec![1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8];
         assert!(!detector.detect_suspicious_patterns(&data));
@@ -747,8 +802,8 @@ mod tests {
             0.8,
             false,
         );
-        
+
         let result = detector.attempt_recovery(&corruption_result, &[1, 2, 3, 4]);
         assert!(result.is_err());
     }
-} 
+}

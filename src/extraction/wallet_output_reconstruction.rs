@@ -1,9 +1,7 @@
 use crate::data_structures::{
-    wallet_output::{
-        LightweightWalletOutput, LightweightKeyId, 
-    },
     payment_id::PaymentId,
-    types::{MicroMinotari, },
+    types::MicroMinotari,
+    wallet_output::{LightweightKeyId, LightweightWalletOutput},
 };
 use crate::errors::LightweightWalletError;
 
@@ -52,28 +50,28 @@ impl Default for WalletOutputReconstructionOptions {
 pub enum WalletOutputReconstructionError {
     #[error("Failed to decrypt encrypted data: {0}")]
     DecryptionFailed(#[from] LightweightWalletError),
-    
+
     #[error("Failed to extract payment ID: {0}")]
     PaymentIdExtractionFailed(String),
-    
+
     #[error("No suitable key found for decryption")]
     NoSuitableKey,
-    
+
     #[error("Invalid output features: {0}")]
     InvalidOutputFeatures(String),
-    
+
     #[error("Invalid output type: {0}")]
     InvalidOutputType(String),
-    
+
     #[error("Invalid range proof type: {0}")]
     InvalidRangeProofType(String),
-    
+
     #[error("Validation failed: {0}")]
     ValidationFailed(String),
 }
 
 /// Wallet output reconstructor
-/// 
+///
 /// This struct will be implemented once the entropy-based key derivation is complete.
 /// For now, individual functions provide the reconstruction functionality.
 pub struct WalletOutputReconstructor {
@@ -90,9 +88,7 @@ impl WalletOutputReconstructor {
 
     /// Create a new wallet output reconstructor with custom options
     pub fn with_options(options: WalletOutputReconstructionOptions) -> Self {
-        Self {
-            options,
-        }
+        Self { options }
     }
 
     /// Get the current options

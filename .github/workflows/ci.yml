@@ -78,7 +78,7 @@ jobs:
           key: ${{ runner.os }}-wasm-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Test WASM
-        run: wasm-pack test --node --features wasm
+        run: wasm-pack test --node --features http
 
   security:
     name: Security Audit

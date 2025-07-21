@@ -4,29 +4,29 @@
 //! lightweight wallet operations, including UTXOs, transactions,
 //! and cryptographic primitives.
 
-pub mod types;
-pub mod payment_id;
-pub mod encrypted_data;
-pub mod wallet_output;
-pub mod transaction_output;
 pub mod address;
+pub mod block;
+pub mod encrypted_data;
+pub mod payment_id;
+pub mod transaction;
 pub mod transaction_input;
 pub mod transaction_kernel;
-pub mod transaction;
+pub mod transaction_output;
+pub mod types;
+pub mod wallet_output;
 pub mod wallet_transaction;
-pub mod block;
 
 #[cfg(test)]
 pub mod serialization_tests;
 
-pub use types::*;
-pub use payment_id::*;
-pub use encrypted_data::*;
-pub use wallet_output::*;
-pub use transaction_output::*;
 pub use address::*;
+pub use block::{Block, BlockSummary};
+pub use encrypted_data::*;
+pub use payment_id::*;
+pub use transaction::*;
 pub use transaction_input::TransactionInput;
 pub use transaction_kernel::TransactionKernel;
-pub use transaction::*;
+pub use transaction_output::*;
+pub use types::*;
+pub use wallet_output::*;
 pub use wallet_transaction::*;
-pub use block::{Block, BlockSummary}; 
