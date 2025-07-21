@@ -418,15 +418,15 @@ impl WalletState {
         let spent_t = self.total_spent as f64 / 1_000_000.0;
         
         format!(
-            "[{}] {:.1}% {} Block {} | 💰 {:.6}T | 📈 {:.6}T | 📉 {:.6}T | {} TX",
+            "[{}] {:.1}% {} Block {} | 💰 {}T | 📈 {}T | 📉 {}T | {} TX",
             bar, 
             progress_percent, 
             phase,
-            block_height,
-            balance_t,
-            unspent_t, 
-            spent_t,
-            self.transactions.len()
+            crate::common::format_number(block_height),
+            crate::common::format_number(format!("{:.6}", balance_t)),
+            crate::common::format_number(format!("{:.6}", unspent_t)), 
+            crate::common::format_number(format!("{:.6}", spent_t)),
+            crate::common::format_number(self.transactions.len())
         )
     }
 }
