@@ -401,8 +401,6 @@ pub struct CompressedPublicKey(
     #[serde(with = "compressed_ristretto_serde")] pub CompressedRistretto,
 );
 
-
-
 impl BorshSerialize for CompressedPublicKey {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         BorshSerialize::serialize(&self.0.to_bytes(), writer)

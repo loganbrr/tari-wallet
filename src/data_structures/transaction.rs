@@ -263,8 +263,6 @@ pub enum TransactionDirection {
     Unknown,
 }
 
-
-
 #[derive(Debug, Error)]
 #[error("Invalid TransactionDirection: {code}")]
 pub struct TransactionDirectionError {

@@ -168,8 +168,6 @@ impl std::str::FromStr for Network {
     }
 }
 
-
-
 /// Tari address features (exact implementation from source of truth)
 #[derive(Debug, Clone, PartialEq, Eq, Copy, Serialize, Deserialize)]
 pub struct TariAddressFeatures(pub u8);

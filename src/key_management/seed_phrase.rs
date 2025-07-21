@@ -205,7 +205,9 @@ impl CipherSeed {
         // Verify the MAC in constant time to avoid leaking data
         // Only verify MAC for current version (version 2)
         // Legacy version 128 may use different MAC algorithm
-        if version == CIPHER_SEED_VERSION && (mac.len() != expected_mac.len() || !constant_time_eq(&mac, &expected_mac)) {
+        if version == CIPHER_SEED_VERSION
+            && (mac.len() != expected_mac.len() || !constant_time_eq(&mac, &expected_mac))
+        {
             return Err(KeyManagementError::DecryptionFailed);
         }
 

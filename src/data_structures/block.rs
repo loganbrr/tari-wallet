@@ -202,21 +202,16 @@ impl Block {
 
         if !output.encrypted_data.as_bytes().is_empty() {
             // Try regular decryption for ownership verification first (faster)
-            if EncryptedData::decrypt_data(view_key, &output.commitment, &output.encrypted_data)
+            is_ours = EncryptedData::decrypt_data(view_key, &output.commitment, &output.encrypted_data)
                 .is_ok()
-            {
-                is_ours = true;
-            }
             // Only try one-sided decryption if regular failed and sender offset key exists
-            else if !output.sender_offset_public_key.as_bytes().is_empty() && EncryptedData::decrypt_one_sided_data(
+            || (!output.sender_offset_public_key.as_bytes().is_empty() && EncryptedData::decrypt_one_sided_data(
                     view_key,
                     &output.commitment,
                     &output.sender_offset_public_key,
                     &output.encrypted_data,
                 )
-                .is_ok() {
-                is_ours = true;
-            }
+                .is_ok());
         }
 
         if is_ours {
@@ -293,11 +288,13 @@ impl Block {
 
             // Try to match by output hash first (for HTTP API)
             // Only attempt if output_hash is not all zeros (HTTP API provides real output hashes)
-            if !input.output_hash.iter().all(|&b| b == 0) && wallet_state.mark_output_spent_by_hash(
+            if !input.output_hash.iter().all(|&b| b == 0)
+                && wallet_state.mark_output_spent_by_hash(
                     &input.output_hash,
                     self.height,
                     input_index,
-                ) {
+                )
+            {
                 spent_outputs += 1;
                 found_spent = true;
             }

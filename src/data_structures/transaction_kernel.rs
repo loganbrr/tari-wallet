@@ -41,6 +41,7 @@ impl Default for TransactionKernel {
 
 impl TransactionKernel {
     /// Create a new transaction kernel
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         version: u8,
         features: u8,
