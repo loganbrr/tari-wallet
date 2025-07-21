@@ -92,6 +92,12 @@ wasm-bindgen-futures = { version = "0.4", optional = true }
 serde_json = "1.0"
 wasm-bindgen-test = "0.3"
 tempfile = "3.0"
+# CLI Testing Framework dependencies
+uuid = { version = "1.0", features = ["v4"] }
+regex = "1.0"
+env_logger = "0.10"
+# Async runtime for integration tests
+tokio = { version = "1.0", features = ["full"] }
 
 [build-dependencies]
 tonic-build = "0.10"  # GRPC code generation
