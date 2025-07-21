@@ -24,16 +24,16 @@ async fn test_full_wallet_lifecycle() {
 
     // Phase 1: Wallet Creation and Setup
     println!("Phase 1: Wallet Creation and Setup");
-    
+
     let start_time = Instant::now();
-    
+
     // Create wallet from seed phrase
     let seed_phrase = generate_seed_phrase().expect("Failed to generate seed phrase");
     validate_seed_phrase(&seed_phrase).expect("Invalid seed phrase");
-    
-    let mut wallet = Wallet::new_from_seed_phrase(&seed_phrase, None)
-        .expect("Failed to create wallet");
-    
+
+    let mut wallet =
+        Wallet::new_from_seed_phrase(&seed_phrase, None).expect("Failed to create wallet");
+
     // Configure wallet
     wallet.set_network("mainnet".to_string());
     wallet.set_label(Some("Integration Test Wallet".to_string()));
@@ -42,27 +42,33 @@ async fn test_full_wallet_lifecycle() {
     wallet.set_property("test_scenario".to_string(), "full_lifecycle".to_string());
 
     // Generate addresses
-    let dual_address = wallet.get_dual_address(
-        TariAddressFeatures::create_interactive_and_one_sided(),
-        None,
-    ).expect("Failed to generate dual address");
+    let dual_address = wallet
+        .get_dual_address(
+            TariAddressFeatures::create_interactive_and_one_sided(),
+            None,
+        )
+        .expect("Failed to generate dual address");
 
-    let single_address = wallet.get_single_address(
-        TariAddressFeatures::create_interactive_only()
-    ).expect("Failed to generate single address");
+    let single_address = wallet
+        .get_single_address(TariAddressFeatures::create_interactive_only())
+        .expect("Failed to generate single address");
 
     let payment_id = vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
-    let address_with_payment = wallet.get_dual_address(
-        TariAddressFeatures::create_interactive_only(),
-        Some(payment_id),
-    ).expect("Failed to generate address with payment ID");
+    let address_with_payment = wallet
+        .get_dual_address(
+            TariAddressFeatures::create_interactive_only(),
+            Some(payment_id),
+        )
+        .expect("Failed to generate address with payment ID");
 
     // Verify wallet setup
     assert_eq!(wallet.network(), "mainnet");
     assert_eq!(wallet.label(), Some(&"Integration Test Wallet".to_string()));
     assert_eq!(dual_address.network(), Network::MainNet);
     assert_eq!(single_address.network(), Network::MainNet);
-    assert!(address_with_payment.features().contains(TariAddressFeatures::PAYMENT_ID));
+    assert!(address_with_payment
+        .features()
+        .contains(TariAddressFeatures::PAYMENT_ID));
 
     let phase1_duration = start_time.elapsed();
     println!("  ✓ Wallet created and configured in {:?}", phase1_duration);
@@ -70,22 +76,23 @@ async fn test_full_wallet_lifecycle() {
 
     // Phase 2: Mock Blockchain Scanning
     println!("Phase 2: Blockchain Scanning Simulation");
-    
+
     let phase2_start = Instant::now();
-    
+
     // Set up mock scanner with test data
     let mut scanner = MockBlockchainScanner::new();
-    
+
     // Add mock blocks with wallet outputs
     let (view_key, spend_key) = derive_test_keys(&wallet);
-    
+
     for height in 1000..1050 {
         let output = create_test_output(
             1000000 + (height - 1000) * 50000, // Increasing values
             &view_key,
             &spend_key,
-        ).expect("Failed to create test output");
-        
+        )
+        .expect("Failed to create test output");
+
         let block_info = BlockInfo {
             height,
             hash: vec![(height % 256) as u8; 32],
@@ -94,7 +101,7 @@ async fn test_full_wallet_lifecycle() {
             inputs: vec![],
             kernels: vec![],
         };
-        
+
         scanner.add_block(block_info);
     }
 
@@ -108,15 +115,13 @@ async fn test_full_wallet_lifecycle() {
         extraction_config,
     };
 
-    let scan_results = scanner.scan_blocks(scan_config).await
-        .expect("Scan failed");
+    let scan_results = scanner.scan_blocks(scan_config).await.expect("Scan failed");
 
     // Analyze scan results
     let total_blocks_scanned = scan_results.len();
-    let total_outputs_found: usize = scan_results.iter()
-        .map(|r| r.wallet_outputs.len())
-        .sum();
-    let total_value_found: u64 = scan_results.iter()
+    let total_outputs_found: usize = scan_results.iter().map(|r| r.wallet_outputs.len()).sum();
+    let total_value_found: u64 = scan_results
+        .iter()
         .flat_map(|r| &r.wallet_outputs)
         .map(|wo| wo.value().as_u64())
         .sum();
@@ -126,15 +131,18 @@ async fn test_full_wallet_lifecycle() {
     assert!(total_value_found > 0);
 
     let phase2_duration = phase2_start.elapsed();
-    println!("  ✓ Scanned {} blocks in {:?}", total_blocks_scanned, phase2_duration);
+    println!(
+        "  ✓ Scanned {} blocks in {:?}",
+        total_blocks_scanned, phase2_duration
+    );
     println!("  ✓ Found {} wallet outputs", total_outputs_found);
     println!("  ✓ Total value discovered: {} µT", total_value_found);
 
     // Phase 3: Balance Calculation and Management
     println!("Phase 3: Balance Calculation and Management");
-    
+
     let phase3_start = Instant::now();
-    
+
     // Calculate detailed balance breakdown
     let mut balance_by_block = HashMap::new();
     let mut mature_balance = 0u64;
@@ -142,12 +150,14 @@ async fn test_full_wallet_lifecycle() {
     let current_tip_height = 2000u64; // Simulated current tip
 
     for result in &scan_results {
-        let block_balance: u64 = result.wallet_outputs.iter()
+        let block_balance: u64 = result
+            .wallet_outputs
+            .iter()
             .map(|wo| wo.value().as_u64())
             .sum();
-        
+
         balance_by_block.insert(result.height, block_balance);
-        
+
         // Calculate maturity (assuming 3 block maturity)
         let blocks_since_mined = current_tip_height - result.height;
         if blocks_since_mined >= 3 {
@@ -174,9 +184,9 @@ async fn test_full_wallet_lifecycle() {
 
     // Phase 4: Multi-Network Compatibility Testing
     println!("Phase 4: Multi-Network Compatibility");
-    
+
     let phase4_start = Instant::now();
-    
+
     let networks = vec![
         ("stagenet", Network::StageNet),
         ("esmeralda", Network::Esmeralda),
@@ -184,19 +194,24 @@ async fn test_full_wallet_lifecycle() {
     ];
 
     let mut network_addresses = HashMap::new();
-    
+
     for (network_name, expected_network) in networks {
         // Test network migration
         wallet.set_network(network_name.to_string());
-        
-        let migrated_dual = wallet.get_dual_address(
-            TariAddressFeatures::create_interactive_and_one_sided(),
-            None,
-        ).expect(&format!("Failed to generate address for {}", network_name));
 
-        let migrated_single = wallet.get_single_address(
-            TariAddressFeatures::create_one_sided_only()
-        ).expect(&format!("Failed to generate single address for {}", network_name));
+        let migrated_dual = wallet
+            .get_dual_address(
+                TariAddressFeatures::create_interactive_and_one_sided(),
+                None,
+            )
+            .expect(&format!("Failed to generate address for {}", network_name));
+
+        let migrated_single = wallet
+            .get_single_address(TariAddressFeatures::create_one_sided_only())
+            .expect(&format!(
+                "Failed to generate single address for {}",
+                network_name
+            ));
 
         // Verify network correctness
         assert_eq!(migrated_dual.network(), expected_network);
@@ -207,10 +222,12 @@ async fn test_full_wallet_lifecycle() {
     }
 
     // Verify all network addresses are unique
-    let all_dual_addresses: Vec<String> = network_addresses.values()
+    let all_dual_addresses: Vec<String> = network_addresses
+        .values()
         .map(|(dual, _)| dual.to_hex())
         .collect();
-    let all_single_addresses: Vec<String> = network_addresses.values()
+    let all_single_addresses: Vec<String> = network_addresses
+        .values()
         .map(|(_, single)| single.to_hex())
         .collect();
 
@@ -224,25 +241,32 @@ async fn test_full_wallet_lifecycle() {
 
     // Test migration back to mainnet produces original addresses
     wallet.set_network("mainnet".to_string());
-    let back_to_mainnet_dual = wallet.get_dual_address(
-        TariAddressFeatures::create_interactive_and_one_sided(),
-        None,
-    ).expect("Failed to generate return mainnet address");
+    let back_to_mainnet_dual = wallet
+        .get_dual_address(
+            TariAddressFeatures::create_interactive_and_one_sided(),
+            None,
+        )
+        .expect("Failed to generate return mainnet address");
 
     assert_eq!(dual_address.to_hex(), back_to_mainnet_dual.to_hex());
 
     let phase4_duration = phase4_start.elapsed();
-    println!("  ✓ Tested {} network migrations in {:?}", network_addresses.len(), phase4_duration);
+    println!(
+        "  ✓ Tested {} network migrations in {:?}",
+        network_addresses.len(),
+        phase4_duration
+    );
     println!("  ✓ Verified address uniqueness across networks");
     println!("  ✓ Confirmed deterministic address generation");
 
     // Phase 5: Wallet Persistence and Recovery Simulation
     println!("Phase 5: Wallet Persistence and Recovery");
-    
+
     let phase5_start = Instant::now();
-    
+
     // Simulate wallet export/backup
-    let exported_seed = wallet.export_seed_phrase()
+    let exported_seed = wallet
+        .export_seed_phrase()
         .expect("Failed to export seed phrase");
     let wallet_birthday = wallet.birthday();
     let wallet_label = wallet.label().cloned();
@@ -251,11 +275,14 @@ async fn test_full_wallet_lifecycle() {
     let wallet_properties: HashMap<String, String> = [
         ("created_by", "integration_test"),
         ("test_scenario", "full_lifecycle"),
-    ].iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+    ]
+    .iter()
+    .map(|(k, v)| (k.to_string(), v.to_string()))
+    .collect();
 
     // Simulate wallet recovery
-    let mut recovered_wallet = Wallet::new_from_seed_phrase(&exported_seed, None)
-        .expect("Failed to recover wallet");
+    let mut recovered_wallet =
+        Wallet::new_from_seed_phrase(&exported_seed, None).expect("Failed to recover wallet");
 
     // Restore metadata
     recovered_wallet.set_birthday(wallet_birthday);
@@ -269,17 +296,25 @@ async fn test_full_wallet_lifecycle() {
     }
 
     // Verify recovery
-    assert_eq!(wallet.master_key_bytes(), recovered_wallet.master_key_bytes());
+    assert_eq!(
+        wallet.master_key_bytes(),
+        recovered_wallet.master_key_bytes()
+    );
     assert_eq!(wallet.birthday(), recovered_wallet.birthday());
     assert_eq!(wallet.label(), recovered_wallet.label());
     assert_eq!(wallet.network(), recovered_wallet.network());
-    assert_eq!(wallet.current_key_index(), recovered_wallet.current_key_index());
+    assert_eq!(
+        wallet.current_key_index(),
+        recovered_wallet.current_key_index()
+    );
 
     // Verify recovered wallet generates same addresses
-    let recovered_dual = recovered_wallet.get_dual_address(
-        TariAddressFeatures::create_interactive_and_one_sided(),
-        None,
-    ).expect("Failed to generate recovered dual address");
+    let recovered_dual = recovered_wallet
+        .get_dual_address(
+            TariAddressFeatures::create_interactive_and_one_sided(),
+            None,
+        )
+        .expect("Failed to generate recovered dual address");
 
     assert_eq!(dual_address.to_hex(), recovered_dual.to_hex());
 
@@ -291,7 +326,10 @@ async fn test_full_wallet_lifecycle() {
     // Final Summary
     let total_duration = start_time.elapsed();
     println!("\n=== Integration Test Summary ===");
-    println!("✓ Full wallet lifecycle completed successfully in {:?}", total_duration);
+    println!(
+        "✓ Full wallet lifecycle completed successfully in {:?}",
+        total_duration
+    );
     println!("✓ All phases passed:");
     println!("  - Phase 1 (Setup): {:?}", phase1_duration);
     println!("  - Phase 2 (Scanning): {:?}", phase2_duration);
@@ -309,16 +347,16 @@ async fn test_concurrent_multi_wallet_operations() {
     const OPERATIONS_PER_WALLET: usize = 5;
 
     let start_time = Instant::now();
-    
+
     // Create multiple wallets concurrently
     let mut wallet_handles = Vec::new();
-    
+
     for wallet_id in 0..NUM_WALLETS {
         let handle = tokio::spawn(async move {
             // Create wallet
-            let mut wallet = Wallet::generate_new_with_seed_phrase(None)
-                .expect("Failed to generate wallet");
-            
+            let mut wallet =
+                Wallet::generate_new_with_seed_phrase(None).expect("Failed to generate wallet");
+
             wallet.set_label(Some(format!("Concurrent Wallet {}", wallet_id)));
             wallet.set_network("stagenet".to_string());
             wallet.set_property("wallet_id".to_string(), wallet_id.to_string());
@@ -329,21 +367,22 @@ async fn test_concurrent_multi_wallet_operations() {
 
             for op_id in 0..OPERATIONS_PER_WALLET {
                 let op_start = Instant::now();
-                
+
                 let address = match op_id % 3 {
-                    0 => wallet.get_dual_address(
-                        TariAddressFeatures::create_interactive_only(),
-                        None,
-                    ).expect("Failed to generate dual address"),
-                    1 => wallet.get_single_address(
-                        TariAddressFeatures::create_one_sided_only()
-                    ).expect("Failed to generate single address"),
+                    0 => wallet
+                        .get_dual_address(TariAddressFeatures::create_interactive_only(), None)
+                        .expect("Failed to generate dual address"),
+                    1 => wallet
+                        .get_single_address(TariAddressFeatures::create_one_sided_only())
+                        .expect("Failed to generate single address"),
                     2 => {
                         let payment_id = vec![(wallet_id % 256) as u8; 8];
-                        wallet.get_dual_address(
-                            TariAddressFeatures::create_interactive_only(),
-                            Some(payment_id),
-                        ).expect("Failed to generate payment address")
+                        wallet
+                            .get_dual_address(
+                                TariAddressFeatures::create_interactive_only(),
+                                Some(payment_id),
+                            )
+                            .expect("Failed to generate payment address")
                     }
                     _ => unreachable!(),
                 };
@@ -354,7 +393,7 @@ async fn test_concurrent_multi_wallet_operations() {
 
             (wallet_id, wallet, addresses, operation_times)
         });
-        
+
         wallet_handles.push(handle);
     }
 
@@ -364,9 +403,9 @@ async fn test_concurrent_multi_wallet_operations() {
     let mut all_operation_times = Vec::new();
 
     for handle in wallet_handles {
-        let (wallet_id, wallet, addresses, operation_times) = handle.await
-            .expect("Wallet task failed");
-        
+        let (wallet_id, wallet, addresses, operation_times) =
+            handle.await.expect("Wallet task failed");
+
         all_wallets.push((wallet_id, wallet));
         all_addresses.extend(addresses);
         all_operation_times.extend(operation_times);
@@ -393,13 +432,19 @@ async fn test_concurrent_multi_wallet_operations() {
     }
 
     // Performance analysis
-    let average_operation_time = all_operation_times.iter().sum::<Duration>() / all_operation_times.len() as u32;
+    let average_operation_time =
+        all_operation_times.iter().sum::<Duration>() / all_operation_times.len() as u32;
     let total_operations = NUM_WALLETS * OPERATIONS_PER_WALLET;
     let throughput = total_operations as f64 / total_duration.as_secs_f64();
 
-    println!("✓ Concurrent multi-wallet test completed in {:?}", total_duration);
-    println!("✓ {} wallets × {} operations = {} total operations", 
-             NUM_WALLETS, OPERATIONS_PER_WALLET, total_operations);
+    println!(
+        "✓ Concurrent multi-wallet test completed in {:?}",
+        total_duration
+    );
+    println!(
+        "✓ {} wallets × {} operations = {} total operations",
+        NUM_WALLETS, OPERATIONS_PER_WALLET, total_operations
+    );
     println!("✓ Average operation time: {:?}", average_operation_time);
     println!("✓ Throughput: {:.2} operations/sec", throughput);
     println!("✓ All wallets and addresses are unique");
@@ -408,23 +453,23 @@ async fn test_concurrent_multi_wallet_operations() {
 /// Helper function to derive test keys from wallet
 fn derive_test_keys(wallet: &Wallet) -> (PrivateKey, PrivateKey) {
     let master_key_bytes = wallet.master_key_bytes();
-    
-    let view_key = PrivateKey::from_canonical_bytes(&master_key_bytes)
-        .expect("Failed to create view key");
-    
+
+    let view_key =
+        PrivateKey::from_canonical_bytes(&master_key_bytes).expect("Failed to create view key");
+
     use blake2b_simd::blake2b;
     let mut hasher_input = Vec::new();
     hasher_input.extend_from_slice(&master_key_bytes);
     hasher_input.extend_from_slice(b"spend");
-    
+
     let spend_key_hash = blake2b(&hasher_input);
     let spend_key_bytes: [u8; 32] = spend_key_hash.as_bytes()[0..32]
         .try_into()
         .expect("Failed to create spend key bytes");
-    
-    let spend_key = PrivateKey::from_canonical_bytes(&spend_key_bytes)
-        .expect("Failed to create spend key");
-    
+
+    let spend_key =
+        PrivateKey::from_canonical_bytes(&spend_key_bytes).expect("Failed to create spend key");
+
     (view_key, spend_key)
 }
 
@@ -441,26 +486,24 @@ fn create_test_output(
         payment_id::PaymentId,
         script::TariScript,
         types::CompressedPublicKey,
-        wallet_output::{LightweightExecutionStack, LightweightOutputFeatures, LightweightOutputType},
+        wallet_output::{
+            LightweightExecutionStack, LightweightOutputFeatures, LightweightOutputType,
+        },
     };
 
     let commitment = vec![0x42; 32];
     let sender_offset_public_key = CompressedPublicKey::from_private_key(spend_key);
-    
+
     let micro_value = MicroMinotari::from(value);
     let mask = PrivateKey::new([0x03; 32]);
     let payment_id = PaymentId::Empty;
-    
-    let encrypted_data = EncryptedData::encrypt_data(
-        view_key,
-        &commitment,
-        &micro_value,
-        &mask,
-        &payment_id,
-    ).map_err(|e| LightweightWalletError::ValidationError {
-        field: "encrypted_data".to_string(),
-        message: format!("Failed to encrypt data: {}", e),
-    })?;
+
+    let encrypted_data =
+        EncryptedData::encrypt_data(view_key, &commitment, &micro_value, &mask, &payment_id)
+            .map_err(|e| LightweightWalletError::ValidationError {
+                field: "encrypted_data".to_string(),
+                message: format!("Failed to encrypt data: {}", e),
+            })?;
 
     let features = LightweightOutputFeatures {
         version: 0,

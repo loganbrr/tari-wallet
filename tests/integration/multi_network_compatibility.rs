@@ -6,13 +6,13 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use tari_wallet::data_structures::{
+use lightweight_wallet_libs::data_structures::{
     address::{TariAddress, TariAddressFeatures},
     Network,
 };
-use tari_wallet::errors::*;
-use tari_wallet::key_management::*;
-use tari_wallet::wallet::*;
+use lightweight_wallet_libs::errors::*;
+use lightweight_wallet_libs::key_management::*;
+use lightweight_wallet_libs::wallet::*;
 
 /// Network configuration for testing
 #[derive(Debug, Clone)]
@@ -88,10 +88,10 @@ async fn test_cross_network_wallet_compatibility() {
     for config in NetworkConfig::all_networks() {
         let mut wallet = Wallet::new_from_seed_phrase(&seed_phrase, None)
             .expect("Failed to create wallet from seed phrase");
-        
+
         wallet.set_network(config.name.clone());
         wallet.set_label(Some(format!("{} Wallet", config.name)));
-        
+
         network_wallets.insert(config.name.clone(), wallet);
         network_configs.insert(config.name.clone(), config);
     }
@@ -117,13 +117,22 @@ async fn test_cross_network_wallet_compatibility() {
 
     // Test seed phrase export consistency
     for (network_name, wallet) in &network_wallets {
-        let exported_seed = wallet.export_seed_phrase()
-            .expect(&format!("Failed to export seed phrase for {}", network_name));
+        let exported_seed = wallet.export_seed_phrase().expect(&format!(
+            "Failed to export seed phrase for {}",
+            network_name
+        ));
         assert_eq!(exported_seed, seed_phrase);
     }
 
     println!("✓ Cross-network wallet compatibility test passed");
-    println!("  Tested networks: {}", network_wallets.keys().map(|k| k.as_str()).collect::<Vec<_>>().join(", "));
+    println!(
+        "  Tested networks: {}",
+        network_wallets
+            .keys()
+            .map(|k| k.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
 }
 
 /// Test address format consistency across networks
@@ -134,40 +143,42 @@ async fn test_address_format_consistency() {
     let mut network_addresses = HashMap::new();
 
     for config in NetworkConfig::all_networks() {
-        let mut wallet = Wallet::new_from_seed_phrase(&seed_phrase, None)
-            .expect("Failed to create wallet");
+        let mut wallet =
+            Wallet::new_from_seed_phrase(&seed_phrase, None).expect("Failed to create wallet");
         wallet.set_network(config.name.clone());
 
         // Generate different types of addresses for each network
-        let dual_interactive = wallet.get_dual_address(
-            TariAddressFeatures::create_interactive_only(),
-            None,
-        ).expect("Failed to generate dual interactive address");
+        let dual_interactive = wallet
+            .get_dual_address(TariAddressFeatures::create_interactive_only(), None)
+            .expect("Failed to generate dual interactive address");
 
-        let dual_one_sided = wallet.get_dual_address(
-            TariAddressFeatures::create_one_sided_only(),
-            None,
-        ).expect("Failed to generate dual one-sided address");
+        let dual_one_sided = wallet
+            .get_dual_address(TariAddressFeatures::create_one_sided_only(), None)
+            .expect("Failed to generate dual one-sided address");
 
-        let dual_combined = wallet.get_dual_address(
-            TariAddressFeatures::create_interactive_and_one_sided(),
-            None,
-        ).expect("Failed to generate dual combined address");
+        let dual_combined = wallet
+            .get_dual_address(
+                TariAddressFeatures::create_interactive_and_one_sided(),
+                None,
+            )
+            .expect("Failed to generate dual combined address");
 
-        let single_interactive = wallet.get_single_address(
-            TariAddressFeatures::create_interactive_only()
-        ).expect("Failed to generate single interactive address");
+        let single_interactive = wallet
+            .get_single_address(TariAddressFeatures::create_interactive_only())
+            .expect("Failed to generate single interactive address");
 
-        let single_one_sided = wallet.get_single_address(
-            TariAddressFeatures::create_one_sided_only()
-        ).expect("Failed to generate single one-sided address");
+        let single_one_sided = wallet
+            .get_single_address(TariAddressFeatures::create_one_sided_only())
+            .expect("Failed to generate single one-sided address");
 
         // Test address with payment ID
         let payment_id = vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
-        let dual_with_payment = wallet.get_dual_address(
-            TariAddressFeatures::create_interactive_only(),
-            Some(payment_id),
-        ).expect("Failed to generate dual address with payment ID");
+        let dual_with_payment = wallet
+            .get_dual_address(
+                TariAddressFeatures::create_interactive_only(),
+                Some(payment_id),
+            )
+            .expect("Failed to generate dual address with payment ID");
 
         let addresses = vec![
             ("dual_interactive", dual_interactive),
@@ -200,24 +211,36 @@ async fn test_address_format_consistency() {
             // Verify address features
             match address_type.as_str() {
                 "dual_interactive" => {
-                    assert!(address.features().contains(TariAddressFeatures::INTERACTIVE_ONLY));
+                    assert!(address
+                        .features()
+                        .contains(TariAddressFeatures::INTERACTIVE_ONLY));
                     assert!(address.public_view_key().is_some());
                 }
                 "dual_one_sided" => {
-                    assert!(address.features().contains(TariAddressFeatures::ONE_SIDED_ONLY));
+                    assert!(address
+                        .features()
+                        .contains(TariAddressFeatures::ONE_SIDED_ONLY));
                     assert!(address.public_view_key().is_some());
                 }
                 "dual_combined" => {
-                    assert!(address.features().contains(TariAddressFeatures::INTERACTIVE_ONLY));
-                    assert!(address.features().contains(TariAddressFeatures::ONE_SIDED_ONLY));
+                    assert!(address
+                        .features()
+                        .contains(TariAddressFeatures::INTERACTIVE_ONLY));
+                    assert!(address
+                        .features()
+                        .contains(TariAddressFeatures::ONE_SIDED_ONLY));
                     assert!(address.public_view_key().is_some());
                 }
                 "single_interactive" => {
-                    assert!(address.features().contains(TariAddressFeatures::INTERACTIVE_ONLY));
+                    assert!(address
+                        .features()
+                        .contains(TariAddressFeatures::INTERACTIVE_ONLY));
                     assert!(address.public_view_key().is_none());
                 }
                 "single_one_sided" => {
-                    assert!(address.features().contains(TariAddressFeatures::ONE_SIDED_ONLY));
+                    assert!(address
+                        .features()
+                        .contains(TariAddressFeatures::ONE_SIDED_ONLY));
                     assert!(address.public_view_key().is_none());
                 }
                 "dual_with_payment" => {
@@ -233,11 +256,11 @@ async fn test_address_format_consistency() {
     let mainnet_addresses = &network_addresses["mainnet"].1;
     let stagenet_addresses = &network_addresses["stagenet"].1;
 
-    for ((mainnet_type, mainnet_addr), (stagenet_type, stagenet_addr)) in 
-        mainnet_addresses.iter().zip(stagenet_addresses.iter()) {
-        
+    for ((mainnet_type, mainnet_addr), (stagenet_type, stagenet_addr)) in
+        mainnet_addresses.iter().zip(stagenet_addresses.iter())
+    {
         assert_eq!(mainnet_type, stagenet_type);
-        
+
         // Same wallet should generate different addresses for different networks
         assert_ne!(
             mainnet_addr.to_hex(),
@@ -245,7 +268,7 @@ async fn test_address_format_consistency() {
             "Address {} should differ between networks",
             mainnet_type
         );
-        
+
         // But they should have the same features
         assert_eq!(
             mainnet_addr.features(),
@@ -269,24 +292,26 @@ async fn test_configuration_parameter_validation() {
     // Test valid network configurations
     let valid_networks = vec![
         "mainnet",
-        "stagenet", 
+        "stagenet",
         "esmeralda",
         "localnet",
         "testnet", // Should default to esmeralda
-        "", // Empty should default to esmeralda
+        "",        // Empty should default to esmeralda
     ];
 
     for network_name in valid_networks {
-        let mut wallet = Wallet::new_from_seed_phrase(&seed_phrase, None)
-            .expect("Failed to create wallet");
-        
+        let mut wallet =
+            Wallet::new_from_seed_phrase(&seed_phrase, None).expect("Failed to create wallet");
+
         wallet.set_network(network_name.to_string());
 
         // All valid networks should allow address generation
-        let address = wallet.get_dual_address(
-            TariAddressFeatures::create_interactive_only(),
-            None,
-        ).expect(&format!("Failed to generate address for network: {}", network_name));
+        let address = wallet
+            .get_dual_address(TariAddressFeatures::create_interactive_only(), None)
+            .expect(&format!(
+                "Failed to generate address for network: {}",
+                network_name
+            ));
 
         // Verify network mapping
         let expected_network = match network_name {
@@ -301,8 +326,8 @@ async fn test_configuration_parameter_validation() {
     }
 
     // Test wallet metadata validation
-    let mut wallet = Wallet::new_from_seed_phrase(&seed_phrase, None)
-        .expect("Failed to create wallet");
+    let mut wallet =
+        Wallet::new_from_seed_phrase(&seed_phrase, None).expect("Failed to create wallet");
 
     // Test various metadata configurations
     let test_labels = vec![
@@ -316,28 +341,30 @@ async fn test_configuration_parameter_validation() {
     for label in test_labels {
         wallet.set_label(label.clone());
         assert_eq!(wallet.label(), label.as_ref());
-        
+
         // Wallet should still function with any label
-        let address = wallet.get_single_address(
-            TariAddressFeatures::create_one_sided_only()
-        ).expect("Failed to generate address with label");
-        
+        let address = wallet
+            .get_single_address(TariAddressFeatures::create_one_sided_only())
+            .expect("Failed to generate address with label");
+
         assert!(!address.to_hex().is_empty());
     }
 
     // Test key index validation
     let key_indices = vec![0, 1, 100, 999999, u64::MAX];
-    
+
     for key_index in key_indices {
         wallet.set_current_key_index(key_index);
         assert_eq!(wallet.current_key_index(), key_index);
-        
+
         // Wallet should function with any key index
-        let address = wallet.get_dual_address(
-            TariAddressFeatures::create_interactive_only(),
-            None,
-        ).expect(&format!("Failed to generate address with key index: {}", key_index));
-        
+        let address = wallet
+            .get_dual_address(TariAddressFeatures::create_interactive_only(), None)
+            .expect(&format!(
+                "Failed to generate address with key index: {}",
+                key_index
+            ));
+
         assert!(!address.to_hex().is_empty());
     }
 
@@ -348,18 +375,24 @@ async fn test_configuration_parameter_validation() {
         ("empty_value", ""),
         ("unicode_key_🔑", "unicode_value_💎"),
         ("long_key_name_that_is_very_long_indeed", "short_val"),
-        ("short", "very_long_value_that_contains_lots_of_information_about_something_important"),
+        (
+            "short",
+            "very_long_value_that_contains_lots_of_information_about_something_important",
+        ),
     ];
 
     for (key, value) in custom_properties {
         wallet.set_property(key.to_string(), value.to_string());
         assert_eq!(wallet.get_property(key), Some(&value.to_string()));
-        
+
         // Wallet should function with any custom properties
-        let address = wallet.get_single_address(
-            TariAddressFeatures::create_interactive_only()
-        ).expect(&format!("Failed to generate address with property: {}={}", key, value));
-        
+        let address = wallet
+            .get_single_address(TariAddressFeatures::create_interactive_only())
+            .expect(&format!(
+                "Failed to generate address with property: {}={}",
+                key, value
+            ));
+
         assert!(!address.to_hex().is_empty());
     }
 
@@ -379,8 +412,8 @@ async fn test_network_specific_address_validation() {
     let mut network_address_sets = HashMap::new();
 
     for config in NetworkConfig::all_networks() {
-        let mut wallet = Wallet::new_from_seed_phrase(&seed_phrase, None)
-            .expect("Failed to create wallet");
+        let mut wallet =
+            Wallet::new_from_seed_phrase(&seed_phrase, None).expect("Failed to create wallet");
         wallet.set_network(config.name.clone());
 
         // Generate a comprehensive set of addresses
@@ -395,30 +428,34 @@ async fn test_network_specific_address_validation() {
 
         for features in feature_sets {
             // Dual addresses
-            let dual_addr = wallet.get_dual_address(features, None)
+            let dual_addr = wallet
+                .get_dual_address(features, None)
                 .expect("Failed to generate dual address");
             addresses.push(("dual", features, dual_addr));
 
-            // Single addresses  
-            let single_addr = wallet.get_single_address(features)
+            // Single addresses
+            let single_addr = wallet
+                .get_single_address(features)
                 .expect("Failed to generate single address");
             addresses.push(("single", features, single_addr));
         }
 
         // Test addresses with payment IDs
-        let payment_ids = vec![
-            vec![0x01; 8],
-            vec![0xFF; 16],
-            vec![0x42, 0x24, 0x12, 0x21],
-        ];
+        let payment_ids = vec![vec![0x01; 8], vec![0xFF; 16], vec![0x42, 0x24, 0x12, 0x21]];
 
         for payment_id in payment_ids {
-            let addr_with_payment = wallet.get_dual_address(
+            let addr_with_payment = wallet
+                .get_dual_address(
+                    TariAddressFeatures::create_interactive_only(),
+                    Some(payment_id.clone()),
+                )
+                .expect("Failed to generate address with payment ID");
+
+            addresses.push((
+                "dual_payment",
                 TariAddressFeatures::create_interactive_only(),
-                Some(payment_id.clone()),
-            ).expect("Failed to generate address with payment ID");
-            
-            addresses.push(("dual_payment", TariAddressFeatures::create_interactive_only(), addr_with_payment));
+                addr_with_payment,
+            ));
         }
 
         network_address_sets.insert(config.name.clone(), (config, addresses));
@@ -487,9 +524,9 @@ async fn test_network_specific_address_validation() {
     let mainnet_set = &network_address_sets["mainnet"];
     let stagenet_set = &network_address_sets["stagenet"];
 
-    for ((main_type, main_features, main_addr), (stage_type, stage_features, stage_addr)) in 
-        mainnet_set.1.iter().zip(stagenet_set.1.iter()) {
-        
+    for ((main_type, main_features, main_addr), (stage_type, stage_features, stage_addr)) in
+        mainnet_set.1.iter().zip(stagenet_set.1.iter())
+    {
         // Same configuration should produce different addresses for different networks
         if main_type == stage_type && main_features == stage_features {
             assert_ne!(
@@ -503,7 +540,11 @@ async fn test_network_specific_address_validation() {
 
     println!("✓ Network-specific address validation test passed");
     for (network_name, (_, addresses)) in &network_address_sets {
-        println!("  {}: validated {} addresses", network_name, addresses.len());
+        println!(
+            "  {}: validated {} addresses",
+            network_name,
+            addresses.len()
+        );
     }
 }
 
@@ -513,19 +554,21 @@ async fn test_wallet_network_migration() {
     let seed_phrase = generate_seed_phrase().expect("Failed to generate seed phrase");
 
     // Start with wallet on mainnet
-    let mut wallet = Wallet::new_from_seed_phrase(&seed_phrase, None)
-        .expect("Failed to create wallet");
-    
+    let mut wallet =
+        Wallet::new_from_seed_phrase(&seed_phrase, None).expect("Failed to create wallet");
+
     wallet.set_network("mainnet".to_string());
     wallet.set_label(Some("Migration Test Wallet".to_string()));
     wallet.set_current_key_index(42);
     wallet.set_property("original_network".to_string(), "mainnet".to_string());
 
     // Generate address on mainnet
-    let mainnet_address = wallet.get_dual_address(
-        TariAddressFeatures::create_interactive_and_one_sided(),
-        None,
-    ).expect("Failed to generate mainnet address");
+    let mainnet_address = wallet
+        .get_dual_address(
+            TariAddressFeatures::create_interactive_and_one_sided(),
+            None,
+        )
+        .expect("Failed to generate mainnet address");
 
     assert_eq!(mainnet_address.network(), Network::MainNet);
 
@@ -534,10 +577,12 @@ async fn test_wallet_network_migration() {
     wallet.set_property("migrated_to".to_string(), "stagenet".to_string());
 
     // Generate address on stagenet (same wallet, different network)
-    let stagenet_address = wallet.get_dual_address(
-        TariAddressFeatures::create_interactive_and_one_sided(),
-        None,
-    ).expect("Failed to generate stagenet address");
+    let stagenet_address = wallet
+        .get_dual_address(
+            TariAddressFeatures::create_interactive_and_one_sided(),
+            None,
+        )
+        .expect("Failed to generate stagenet address");
 
     assert_eq!(stagenet_address.network(), Network::StageNet);
 
@@ -545,8 +590,14 @@ async fn test_wallet_network_migration() {
     assert_eq!(wallet.master_key_bytes(), wallet.master_key_bytes()); // Same master key
     assert_eq!(wallet.label(), Some(&"Migration Test Wallet".to_string()));
     assert_eq!(wallet.current_key_index(), 42);
-    assert_eq!(wallet.get_property("original_network"), Some(&"mainnet".to_string()));
-    assert_eq!(wallet.get_property("migrated_to"), Some(&"stagenet".to_string()));
+    assert_eq!(
+        wallet.get_property("original_network"),
+        Some(&"mainnet".to_string())
+    );
+    assert_eq!(
+        wallet.get_property("migrated_to"),
+        Some(&"stagenet".to_string())
+    );
 
     // Verify addresses are different but derive from same keys
     assert_ne!(mainnet_address.to_hex(), stagenet_address.to_hex());
@@ -560,9 +611,9 @@ async fn test_wallet_network_migration() {
         wallet.set_network(network_name.to_string());
         wallet.set_property("migration_step".to_string(), i.to_string());
 
-        let address = wallet.get_single_address(
-            TariAddressFeatures::create_one_sided_only()
-        ).expect(&format!("Failed to generate address for {}", network_name));
+        let address = wallet
+            .get_single_address(TariAddressFeatures::create_one_sided_only())
+            .expect(&format!("Failed to generate address for {}", network_name));
 
         migration_addresses.push((network_name.to_string(), address));
     }
@@ -582,10 +633,12 @@ async fn test_wallet_network_migration() {
 
     // Test migration back to original network produces original address
     wallet.set_network("mainnet".to_string());
-    let back_to_mainnet_address = wallet.get_dual_address(
-        TariAddressFeatures::create_interactive_and_one_sided(),
-        None,
-    ).expect("Failed to generate return mainnet address");
+    let back_to_mainnet_address = wallet
+        .get_dual_address(
+            TariAddressFeatures::create_interactive_and_one_sided(),
+            None,
+        )
+        .expect("Failed to generate return mainnet address");
 
     assert_eq!(
         mainnet_address.to_hex(),
@@ -604,13 +657,19 @@ async fn test_configuration_edge_cases() {
     let seed_phrase = generate_seed_phrase().expect("Failed to generate seed phrase");
 
     // Test wallet creation with various initial configurations
-    let mut wallet = Wallet::new_from_seed_phrase(&seed_phrase, None)
-        .expect("Failed to create wallet");
+    let mut wallet =
+        Wallet::new_from_seed_phrase(&seed_phrase, None).expect("Failed to create wallet");
 
     // Test rapid network changes
     let rapid_networks = vec![
-        "mainnet", "stagenet", "esmeralda", "localnet",
-        "mainnet", "esmeralda", "stagenet", "localnet",
+        "mainnet",
+        "stagenet",
+        "esmeralda",
+        "localnet",
+        "mainnet",
+        "esmeralda",
+        "stagenet",
+        "localnet",
     ];
 
     for (i, network) in rapid_networks.iter().enumerate() {
@@ -618,10 +677,12 @@ async fn test_configuration_edge_cases() {
         wallet.set_current_key_index(i as u64);
 
         // Should be able to generate addresses after each change
-        let address = wallet.get_dual_address(
-            TariAddressFeatures::create_interactive_only(),
-            None,
-        ).expect(&format!("Failed to generate address after rapid change to {}", network));
+        let address = wallet
+            .get_dual_address(TariAddressFeatures::create_interactive_only(), None)
+            .expect(&format!(
+                "Failed to generate address after rapid change to {}",
+                network
+            ));
 
         assert!(!address.to_hex().is_empty());
     }
@@ -645,9 +706,9 @@ async fn test_configuration_edge_cases() {
     }
 
     // Wallet should still function with lots of metadata
-    let address_with_metadata = wallet.get_single_address(
-        TariAddressFeatures::create_one_sided_only()
-    ).expect("Failed to generate address with large metadata");
+    let address_with_metadata = wallet
+        .get_single_address(TariAddressFeatures::create_one_sided_only())
+        .expect("Failed to generate address with large metadata");
 
     assert!(!address_with_metadata.to_hex().is_empty());
 
@@ -670,21 +731,32 @@ async fn test_configuration_edge_cases() {
 
     // Test extreme key indices
     let extreme_indices = vec![0, 1, u32::MAX as u64, u64::MAX];
-    
+
     for key_index in extreme_indices {
         wallet.set_current_key_index(key_index);
-        
+
         // Should be able to generate addresses with extreme indices
-        let address = wallet.get_dual_address(
-            TariAddressFeatures::create_interactive_and_one_sided(),
-            None,
-        ).expect(&format!("Failed to generate address with key index: {}", key_index));
+        let address = wallet
+            .get_dual_address(
+                TariAddressFeatures::create_interactive_and_one_sided(),
+                None,
+            )
+            .expect(&format!(
+                "Failed to generate address with key index: {}",
+                key_index
+            ));
 
         assert!(!address.to_hex().is_empty());
     }
 
     println!("✓ Configuration edge cases test passed");
-    println!("  Tested rapid network changes: {} transitions", rapid_networks.len());
-    println!("  Tested large metadata: {} character label, 1000 properties", large_label.len());
+    println!(
+        "  Tested rapid network changes: {} transitions",
+        rapid_networks.len()
+    );
+    println!(
+        "  Tested large metadata: {} character label, 1000 properties",
+        large_label.len()
+    );
     println!("  Tested extreme key indices: {}", extreme_indices.len());
 }

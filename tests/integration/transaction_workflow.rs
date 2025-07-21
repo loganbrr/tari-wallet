@@ -6,17 +6,17 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use tari_wallet::crypto::signing::*;
-use tari_wallet::data_structures::{
+use lightweight_wallet_libs::crypto::signing::*;
+use lightweight_wallet_libs::data_structures::{
     address::{TariAddress, TariAddressFeatures},
     types::{CompressedPublicKey, MicroMinotari, PrivateKey},
-    wallet_output::{LightweightWalletOutput, LightweightOutputType, LightweightOutputFeatures},
+    wallet_output::{LightweightOutputFeatures, LightweightOutputType, LightweightWalletOutput},
     Network,
 };
-use tari_wallet::errors::*;
-use tari_wallet::key_management::*;
-use tari_wallet::validation::*;
-use tari_wallet::wallet::*;
+use lightweight_wallet_libs::errors::*;
+use lightweight_wallet_libs::key_management::*;
+use lightweight_wallet_libs::validation::*;
+use lightweight_wallet_libs::wallet::*;
 
 use tari_crypto::keys::{PublicKey, SecretKey};
 use tari_crypto::ristretto::{RistrettoPublicKey, RistrettoSecretKey};
@@ -98,7 +98,9 @@ impl MockTransactionBuilder {
             value: MicroMinotari::from(value),
             script: vec![],
             recipient_address: Some(recipient),
-            sender_offset_public_key: CompressedPublicKey::from_private_key(&PrivateKey::new([0x01; 32])),
+            sender_offset_public_key: CompressedPublicKey::from_private_key(&PrivateKey::new(
+                [0x01; 32],
+            )),
         };
         self.outputs.push(output);
         self
@@ -125,7 +127,9 @@ impl MockTransactionBuilder {
                 field: "transaction".to_string(),
                 message: format!(
                     "Insufficient funds: input {} < output {} + fee {}",
-                    total_input, total_output, self.fee.as_u64()
+                    total_input,
+                    total_output,
+                    self.fee.as_u64()
                 ),
             });
         }
@@ -157,11 +161,13 @@ impl MockTransactionBuilder {
         wallet: &Wallet,
     ) -> Result<MockTransactionSignature, LightweightWalletError> {
         // Get wallet's signing key
-        let seed_phrase = wallet.export_seed_phrase()
-            .map_err(|_| LightweightWalletError::ValidationError {
-                field: "wallet".to_string(),
-                message: "Cannot sign transaction without seed phrase".to_string(),
-            })?;
+        let seed_phrase =
+            wallet
+                .export_seed_phrase()
+                .map_err(|_| LightweightWalletError::ValidationError {
+                    field: "wallet".to_string(),
+                    message: "Cannot sign transaction without seed phrase".to_string(),
+                })?;
 
         let signing_key = derive_tari_signing_key(&seed_phrase, None)?;
         let public_key = RistrettoPublicKey::from_secret_key(&signing_key);
@@ -170,7 +176,8 @@ impl MockTransactionBuilder {
         let transaction_message = self.create_transaction_message(transaction);
 
         // Sign the transaction
-        let (signature_hex, nonce_hex) = sign_message_with_hex_output(&signing_key, &transaction_message)?;
+        let (signature_hex, nonce_hex) =
+            sign_message_with_hex_output(&signing_key, &transaction_message)?;
 
         Ok(MockTransactionSignature {
             signature_hex,
@@ -190,8 +197,9 @@ impl MockTransactionBuilder {
 
         // Add outputs
         for output in &transaction.outputs {
-            message_parts.push(format!("output:{}:{}", 
-                output.value.as_u64(), 
+            message_parts.push(format!(
+                "output:{}:{}",
+                output.value.as_u64(),
                 hex::encode(&output.commitment)
             ));
         }
@@ -252,14 +260,17 @@ impl MockTransactionPool {
 
         // Generate transaction ID
         let tx_id = format!("tx_{}", self.transactions.len());
-        
+
         // Store transaction
         self.transactions.insert(tx_id.clone(), transaction);
 
         Ok(tx_id)
     }
 
-    fn validate_transaction(&self, transaction: &MockTransaction) -> Result<(), LightweightWalletError> {
+    fn validate_transaction(
+        &self,
+        transaction: &MockTransaction,
+    ) -> Result<(), LightweightWalletError> {
         // Check signature is present
         if transaction.signature.is_none() {
             return Err(LightweightWalletError::ValidationError {
@@ -304,18 +315,20 @@ impl MockTransactionPool {
 #[tokio::test]
 async fn test_transaction_creation_workflow() {
     // Setup wallets
-    let sender_wallet = Wallet::generate_new_with_seed_phrase(None)
-        .expect("Failed to generate sender wallet");
-    
-    let mut receiver_wallet = Wallet::generate_new_with_seed_phrase(None)
-        .expect("Failed to generate receiver wallet");
+    let sender_wallet =
+        Wallet::generate_new_with_seed_phrase(None).expect("Failed to generate sender wallet");
+
+    let mut receiver_wallet =
+        Wallet::generate_new_with_seed_phrase(None).expect("Failed to generate receiver wallet");
     receiver_wallet.set_network("mainnet".to_string());
 
     // Generate receiver address
-    let receiver_address = receiver_wallet.get_dual_address(
-        TariAddressFeatures::create_interactive_and_one_sided(),
-        None,
-    ).expect("Failed to generate receiver address");
+    let receiver_address = receiver_wallet
+        .get_dual_address(
+            TariAddressFeatures::create_interactive_and_one_sided(),
+            None,
+        )
+        .expect("Failed to generate receiver address");
 
     // Create transaction inputs (simulate owned UTXOs)
     let input1_hash = vec![0x01; 32];
@@ -345,28 +358,34 @@ async fn test_transaction_creation_workflow() {
     let total_output: u64 = transaction.outputs.iter().map(|o| o.value.as_u64()).sum();
     assert_eq!(total_input, 3000000); // 3 Tari
     assert_eq!(total_output, 2500000); // 2.5 Tari
-    assert_eq!(total_input - total_output - transaction.fee.as_u64(), 400000); // 0.4 Tari change
+    assert_eq!(
+        total_input - total_output - transaction.fee.as_u64(),
+        400000
+    ); // 0.4 Tari change
 
     println!("✓ Transaction creation workflow test passed");
-    println!("  Inputs: {} µT, Outputs: {} µT, Fee: {} µT", 
-             total_input, total_output, transaction.fee.as_u64());
+    println!(
+        "  Inputs: {} µT, Outputs: {} µT, Fee: {} µT",
+        total_input,
+        total_output,
+        transaction.fee.as_u64()
+    );
 }
 
 /// Test transaction signing workflow
 #[tokio::test]
 async fn test_transaction_signing_workflow() {
     // Setup wallet with seed phrase
-    let wallet = Wallet::generate_new_with_seed_phrase(None)
-        .expect("Failed to generate wallet");
+    let wallet = Wallet::generate_new_with_seed_phrase(None).expect("Failed to generate wallet");
 
     // Generate recipient address
-    let mut recipient_wallet = Wallet::generate_new_with_seed_phrase(None)
-        .expect("Failed to generate recipient wallet");
+    let mut recipient_wallet =
+        Wallet::generate_new_with_seed_phrase(None).expect("Failed to generate recipient wallet");
     recipient_wallet.set_network("stagenet".to_string());
 
-    let recipient_address = recipient_wallet.get_single_address(
-        TariAddressFeatures::create_interactive_only()
-    ).expect("Failed to generate recipient address");
+    let recipient_address = recipient_wallet
+        .get_single_address(TariAddressFeatures::create_interactive_only())
+        .expect("Failed to generate recipient address");
 
     // Build and sign transaction
     let signed_transaction = MockTransactionBuilder::new()
@@ -388,15 +407,16 @@ async fn test_transaction_signing_workflow() {
     assert!(signature.nonce_hex.len() == 64); // 32 bytes as hex
 
     // Verify signature is valid
-    let transaction_message = MockTransactionBuilder::new()
-        .create_transaction_message(&signed_transaction);
+    let transaction_message =
+        MockTransactionBuilder::new().create_transaction_message(&signed_transaction);
 
     let is_valid = verify_message_from_hex(
         &signature.public_key,
         &transaction_message,
         &signature.signature_hex,
         &signature.nonce_hex,
-    ).expect("Failed to verify signature");
+    )
+    .expect("Failed to verify signature");
 
     assert!(is_valid, "Transaction signature is invalid");
 
@@ -417,24 +437,25 @@ async fn test_transaction_signing_workflow() {
 
     println!("✓ Transaction signing workflow test passed");
     println!("  Signature valid: {}", is_valid);
-    println!("  Public key consistent: {}", signature.public_key == signature2.public_key);
+    println!(
+        "  Public key consistent: {}",
+        signature.public_key == signature2.public_key
+    );
 }
 
 /// Test transaction broadcasting workflow
 #[tokio::test]
 async fn test_transaction_broadcasting_workflow() {
     // Setup
-    let wallet = Wallet::generate_new_with_seed_phrase(None)
-        .expect("Failed to generate wallet");
+    let wallet = Wallet::generate_new_with_seed_phrase(None).expect("Failed to generate wallet");
 
-    let mut recipient_wallet = Wallet::generate_new_with_seed_phrase(None)
-        .expect("Failed to generate recipient wallet");
+    let mut recipient_wallet =
+        Wallet::generate_new_with_seed_phrase(None).expect("Failed to generate recipient wallet");
     recipient_wallet.set_network("localnet".to_string());
 
-    let recipient_address = recipient_wallet.get_dual_address(
-        TariAddressFeatures::create_one_sided_only(),
-        None,
-    ).expect("Failed to generate recipient address");
+    let recipient_address = recipient_wallet
+        .get_dual_address(TariAddressFeatures::create_one_sided_only(), None)
+        .expect("Failed to generate recipient address");
 
     let mut tx_pool = MockTransactionPool::new().with_latency(50);
 
@@ -449,7 +470,9 @@ async fn test_transaction_broadcasting_workflow() {
 
     // Broadcast transaction
     let start_time = Instant::now();
-    let tx_id = tx_pool.broadcast_transaction(signed_transaction.clone()).await
+    let tx_id = tx_pool
+        .broadcast_transaction(signed_transaction.clone())
+        .await
         .expect("Failed to broadcast transaction");
     let broadcast_duration = start_time.elapsed();
 
@@ -459,11 +482,18 @@ async fn test_transaction_broadcasting_workflow() {
     assert_eq!(tx_pool.transaction_count(), 1);
 
     // Verify transaction in pool
-    let pooled_transaction = tx_pool.get_transaction(&tx_id)
+    let pooled_transaction = tx_pool
+        .get_transaction(&tx_id)
         .expect("Transaction not found in pool");
 
-    assert_eq!(pooled_transaction.inputs.len(), signed_transaction.inputs.len());
-    assert_eq!(pooled_transaction.outputs.len(), signed_transaction.outputs.len());
+    assert_eq!(
+        pooled_transaction.inputs.len(),
+        signed_transaction.inputs.len()
+    );
+    assert_eq!(
+        pooled_transaction.outputs.len(),
+        signed_transaction.outputs.len()
+    );
     assert_eq!(pooled_transaction.fee, signed_transaction.fee);
 
     println!("✓ Transaction broadcasting workflow test passed");
@@ -474,16 +504,15 @@ async fn test_transaction_broadcasting_workflow() {
 /// Test transaction validation and error handling
 #[tokio::test]
 async fn test_transaction_validation_workflow() {
-    let wallet = Wallet::generate_new_with_seed_phrase(None)
-        .expect("Failed to generate wallet");
+    let wallet = Wallet::generate_new_with_seed_phrase(None).expect("Failed to generate wallet");
 
-    let mut recipient_wallet = Wallet::generate_new_with_seed_phrase(None)
-        .expect("Failed to generate recipient wallet");
+    let mut recipient_wallet =
+        Wallet::generate_new_with_seed_phrase(None).expect("Failed to generate recipient wallet");
     recipient_wallet.set_network("mainnet".to_string());
 
-    let recipient_address = recipient_wallet.get_single_address(
-        TariAddressFeatures::create_interactive_only()
-    ).expect("Failed to generate recipient address");
+    let recipient_address = recipient_wallet
+        .get_single_address(TariAddressFeatures::create_interactive_only())
+        .expect("Failed to generate recipient address");
 
     let mut tx_pool = MockTransactionPool::new();
 
@@ -535,25 +564,26 @@ async fn test_transaction_validation_workflow() {
 /// Test fee calculation and optimization
 #[tokio::test]
 async fn test_fee_calculation_workflow() {
-    let wallet = Wallet::generate_new_with_seed_phrase(None)
-        .expect("Failed to generate wallet");
+    let wallet = Wallet::generate_new_with_seed_phrase(None).expect("Failed to generate wallet");
 
-    let mut recipient_wallet = Wallet::generate_new_with_seed_phrase(None)
-        .expect("Failed to generate recipient wallet");
+    let mut recipient_wallet =
+        Wallet::generate_new_with_seed_phrase(None).expect("Failed to generate recipient wallet");
     recipient_wallet.set_network("esmeralda".to_string());
 
-    let recipient_address = recipient_wallet.get_dual_address(
-        TariAddressFeatures::create_interactive_and_one_sided(),
-        None,
-    ).expect("Failed to generate recipient address");
+    let recipient_address = recipient_wallet
+        .get_dual_address(
+            TariAddressFeatures::create_interactive_and_one_sided(),
+            None,
+        )
+        .expect("Failed to generate recipient address");
 
     // Test different fee levels
     let fee_levels = vec![
-        (100, "minimum"),      // Minimum fee
-        (1000, "low"),         // Low priority
-        (10000, "normal"),     // Normal priority
-        (50000, "high"),       // High priority
-        (100000, "urgent"),    // Urgent priority
+        (100, "minimum"),   // Minimum fee
+        (1000, "low"),      // Low priority
+        (10000, "normal"),  // Normal priority
+        (50000, "high"),    // High priority
+        (100000, "urgent"), // Urgent priority
     ];
 
     for (fee_amount, priority) in fee_levels {
@@ -563,7 +593,10 @@ async fn test_fee_calculation_workflow() {
             .add_output(recipient_address.clone(), 1000000 - fee_amount - 1000) // Adjust for fee
             .with_fee(fee_amount)
             .build_and_sign()
-            .expect(&format!("Failed to build {} priority transaction", priority));
+            .expect(&format!(
+                "Failed to build {} priority transaction",
+                priority
+            ));
 
         assert_eq!(transaction.fee.as_u64(), fee_amount);
 
@@ -571,8 +604,10 @@ async fn test_fee_calculation_workflow() {
         let estimated_tx_size = 500; // bytes
         let fee_rate = fee_amount as f64 / estimated_tx_size as f64;
 
-        println!("  {} priority: {} µT fee ({:.2} µT/byte)", 
-                 priority, fee_amount, fee_rate);
+        println!(
+            "  {} priority: {} µT fee ({:.2} µT/byte)",
+            priority, fee_amount, fee_rate
+        );
     }
 
     // Test dynamic fee calculation based on transaction size
@@ -599,16 +634,21 @@ async fn test_fee_calculation_workflow() {
     assert_eq!(multi_input_tx.inputs.len(), 3);
 
     println!("✓ Fee calculation workflow test passed");
-    println!("  Single input transaction: 1 input, {} µT fee", single_input_tx.fee.as_u64());
-    println!("  Multi input transaction: {} inputs, {} µT fee", 
-             multi_input_tx.inputs.len(), multi_input_tx.fee.as_u64());
+    println!(
+        "  Single input transaction: 1 input, {} µT fee",
+        single_input_tx.fee.as_u64()
+    );
+    println!(
+        "  Multi input transaction: {} inputs, {} µT fee",
+        multi_input_tx.inputs.len(),
+        multi_input_tx.fee.as_u64()
+    );
 }
 
 /// Test transaction batching and concurrent operations
 #[tokio::test]
 async fn test_transaction_batching_workflow() {
-    let wallet = Wallet::generate_new_with_seed_phrase(None)
-        .expect("Failed to generate wallet");
+    let wallet = Wallet::generate_new_with_seed_phrase(None).expect("Failed to generate wallet");
 
     // Create multiple recipient addresses
     let mut recipients = Vec::new();
@@ -617,9 +657,9 @@ async fn test_transaction_batching_workflow() {
             .expect("Failed to generate recipient wallet");
         recipient_wallet.set_network("mainnet".to_string());
 
-        let address = recipient_wallet.get_single_address(
-            TariAddressFeatures::create_one_sided_only()
-        ).expect("Failed to generate recipient address");
+        let address = recipient_wallet
+            .get_single_address(TariAddressFeatures::create_one_sided_only())
+            .expect("Failed to generate recipient address");
 
         recipients.push((address, format!("recipient_{}", i)));
     }
@@ -633,11 +673,18 @@ async fn test_transaction_batching_workflow() {
     for (i, (recipient_address, recipient_name)) in recipients.into_iter().enumerate() {
         let transaction = MockTransactionBuilder::new()
             .with_wallet(wallet.clone())
-            .add_input(vec![(0x60 + i) as u8; 32], vec![(0x61 + i) as u8; 32], 1000000)
+            .add_input(
+                vec![(0x60 + i) as u8; 32],
+                vec![(0x61 + i) as u8; 32],
+                1000000,
+            )
             .add_output(recipient_address, 800000)
             .with_fee(200000)
             .build_and_sign()
-            .expect(&format!("Failed to build transaction for {}", recipient_name));
+            .expect(&format!(
+                "Failed to build transaction for {}",
+                recipient_name
+            ));
 
         transactions.push((transaction, recipient_name));
     }
@@ -647,8 +694,13 @@ async fn test_transaction_batching_workflow() {
     let mut tx_ids = Vec::new();
 
     for (transaction, recipient_name) in transactions {
-        let tx_id = tx_pool.broadcast_transaction(transaction).await
-            .expect(&format!("Failed to broadcast transaction to {}", recipient_name));
+        let tx_id = tx_pool
+            .broadcast_transaction(transaction)
+            .await
+            .expect(&format!(
+                "Failed to broadcast transaction to {}",
+                recipient_name
+            ));
         tx_ids.push((tx_id, recipient_name));
     }
 
@@ -661,11 +713,19 @@ async fn test_transaction_batching_workflow() {
     // Verify transaction IDs are unique
     let mut unique_ids = std::collections::HashSet::new();
     for (tx_id, _) in &tx_ids {
-        assert!(unique_ids.insert(tx_id.clone()), "Duplicate transaction ID: {}", tx_id);
+        assert!(
+            unique_ids.insert(tx_id.clone()),
+            "Duplicate transaction ID: {}",
+            tx_id
+        );
     }
 
     println!("✓ Transaction batching workflow test passed");
-    println!("  Broadcast {} transactions in {:?}", tx_ids.len(), total_duration);
+    println!(
+        "  Broadcast {} transactions in {:?}",
+        tx_ids.len(),
+        total_duration
+    );
     for (tx_id, recipient) in tx_ids {
         println!("    {} -> {}", recipient, tx_id);
     }
@@ -674,8 +734,7 @@ async fn test_transaction_batching_workflow() {
 /// Test complex transaction scenarios
 #[tokio::test]
 async fn test_complex_transaction_scenarios() {
-    let wallet = Wallet::generate_new_with_seed_phrase(None)
-        .expect("Failed to generate wallet");
+    let wallet = Wallet::generate_new_with_seed_phrase(None).expect("Failed to generate wallet");
 
     // Scenario 1: Transaction with multiple outputs (fan-out)
     let mut recipients = Vec::new();
@@ -684,10 +743,9 @@ async fn test_complex_transaction_scenarios() {
             .expect("Failed to generate recipient wallet");
         recipient_wallet.set_network("stagenet".to_string());
 
-        let address = recipient_wallet.get_dual_address(
-            TariAddressFeatures::create_interactive_only(),
-            None,
-        ).expect("Failed to generate recipient address");
+        let address = recipient_wallet
+            .get_dual_address(TariAddressFeatures::create_interactive_only(), None)
+            .expect("Failed to generate recipient address");
 
         recipients.push(address);
     }
@@ -732,13 +790,19 @@ async fn test_complex_transaction_scenarios() {
     // Verify all complex transactions
     let mut tx_pool = MockTransactionPool::new();
 
-    let fan_out_id = tx_pool.broadcast_transaction(fan_out_tx).await
+    let fan_out_id = tx_pool
+        .broadcast_transaction(fan_out_tx)
+        .await
         .expect("Failed to broadcast fan-out transaction");
 
-    let fan_in_id = tx_pool.broadcast_transaction(fan_in_tx).await
+    let fan_in_id = tx_pool
+        .broadcast_transaction(fan_in_tx)
+        .await
         .expect("Failed to broadcast fan-in transaction");
 
-    let time_locked_id = tx_pool.broadcast_transaction(time_locked_tx).await
+    let time_locked_id = tx_pool
+        .broadcast_transaction(time_locked_tx)
+        .await
         .expect("Failed to broadcast time-locked transaction");
 
     assert_eq!(tx_pool.transaction_count(), 3);
