@@ -561,18 +561,14 @@ impl CorruptionDetector {
         }
 
         match corruption_result.corruption_type() {
-            Some(CorruptionType::EmptyData) => {
-                Err(DataStructureError::InvalidDataFormat(
-                    "Cannot recover from empty data".to_string(),
-                )
-                .into())
-            }
-            Some(CorruptionType::InsufficientData) => {
-                Err(DataStructureError::InvalidDataFormat(
-                    "Cannot recover from insufficient data".to_string(),
-                )
-                .into())
-            }
+            Some(CorruptionType::EmptyData) => Err(DataStructureError::InvalidDataFormat(
+                "Cannot recover from empty data".to_string(),
+            )
+            .into()),
+            Some(CorruptionType::InsufficientData) => Err(DataStructureError::InvalidDataFormat(
+                "Cannot recover from insufficient data".to_string(),
+            )
+            .into()),
             Some(CorruptionType::ZeroData) => {
                 // Try to find non-zero data in surrounding context
                 // This is a placeholder - in practice, you'd need more context

@@ -58,23 +58,19 @@ impl LightweightEncryptedDataValidator {
 
         // Check size constraints
         if data_bytes.len() < self.min_size {
-            return Err(ValidationError::IntegrityCheckFailed(
-                format!(
-                    "Encrypted data too small: {} bytes (minimum: {} bytes)",
-                    data_bytes.len(),
-                    self.min_size
-                ),
-            ));
+            return Err(ValidationError::IntegrityCheckFailed(format!(
+                "Encrypted data too small: {} bytes (minimum: {} bytes)",
+                data_bytes.len(),
+                self.min_size
+            )));
         }
 
         if data_bytes.len() > self.max_size {
-            return Err(ValidationError::IntegrityCheckFailed(
-                format!(
-                    "Encrypted data too large: {} bytes (maximum: {} bytes)",
-                    data_bytes.len(),
-                    self.max_size
-                ),
-            ));
+            return Err(ValidationError::IntegrityCheckFailed(format!(
+                "Encrypted data too large: {} bytes (maximum: {} bytes)",
+                data_bytes.len(),
+                self.max_size
+            )));
         }
 
         // Check for suspicious patterns that might indicate corruption
@@ -173,9 +169,10 @@ impl LightweightEncryptedDataValidator {
             }
         }
         if failed_count > 0 {
-            return Err(ValidationError::IntegrityCheckFailed(
-                format!("Batch validation failed: {} items failed", failed_count),
-            ));
+            return Err(ValidationError::IntegrityCheckFailed(format!(
+                "Batch validation failed: {} items failed",
+                failed_count
+            )));
         }
         Ok(())
     }

@@ -3,11 +3,11 @@
 //! Comprehensive testing framework for all CLI binaries using std::process::Command
 //! to execute real binary integration tests.
 
-use std::process::{Command, Stdio};
-use std::path::PathBuf;
-use tempfile::TempDir;
 #[cfg(feature = "grpc-storage")]
 use serde_json::Value;
+use std::path::PathBuf;
+use std::process::{Command, Stdio};
+use tempfile::TempDir;
 
 /// Test utility for running CLI commands
 struct CliTestRunner {
@@ -38,7 +38,7 @@ impl CliTestRunner {
             .stderr(Stdio::piped());
 
         let output = cmd.output().expect("Failed to execute command");
-        
+
         CommandResult {
             exit_code: output.status.code().unwrap_or(-1),
             stdout: String::from_utf8_lossy(&output.stdout).to_string(),
@@ -118,9 +118,12 @@ mod signing_tests {
     fn test_signing_help() {
         let runner = CliTestRunner::new();
         let result = runner.run_signing(&["--help"]);
-        
+
         result.assert_success();
-        assert!(result.contains_stdout("CLI tool for signing and verifying messages") || result.contains_stdout("Tari-compatible"));
+        assert!(
+            result.contains_stdout("CLI tool for signing and verifying messages")
+                || result.contains_stdout("Tari-compatible")
+        );
         assert!(result.contains_stdout("generate"));
         assert!(result.contains_stdout("sign"));
         assert!(result.contains_stdout("verify"));
@@ -130,7 +133,7 @@ mod signing_tests {
     fn test_signing_version() {
         let runner = CliTestRunner::new();
         let result = runner.run_signing(&["--version"]);
-        
+
         result.assert_success();
         assert!(result.stdout.contains("signing"));
     }
@@ -139,16 +142,22 @@ mod signing_tests {
     fn test_generate_keypair() {
         let runner = CliTestRunner::new();
         let result = runner.run_signing(&["generate", "--stdout"]);
-        
+
         result.assert_success();
         assert!(result.contains_stdout("Secret Key"));
         assert!(result.contains_stdout("Public Key"));
-        
+
         // Verify hex format (64 characters for secret key, 64 for public key)
         let lines: Vec<&str> = result.stdout.lines().collect();
-        let secret_line = lines.iter().find(|l| l.contains("Secret Key")).expect("Secret Key not found");
-        let public_line = lines.iter().find(|l| l.contains("Public Key")).expect("Public Key not found");
-        
+        let secret_line = lines
+            .iter()
+            .find(|l| l.contains("Secret Key"))
+            .expect("Secret Key not found");
+        let public_line = lines
+            .iter()
+            .find(|l| l.contains("Public Key"))
+            .expect("Public Key not found");
+
         // Extract hex strings and verify format
         assert!(secret_line.split(':').nth(1).unwrap().trim().len() == 64);
         assert!(public_line.split(':').nth(1).unwrap().trim().len() == 64);
@@ -157,13 +166,14 @@ mod signing_tests {
     #[test]
     fn test_sign_message() {
         let runner = CliTestRunner::new();
-        
+
         // First generate a key
         let gen_result = runner.run_signing(&["generate", "--stdout"]);
         gen_result.assert_success();
-        
+
         // Extract secret key from output
-        let secret_key = gen_result.stdout
+        let secret_key = gen_result
+            .stdout
             .lines()
             .find(|l| l.contains("Secret Key"))
             .unwrap()
@@ -171,15 +181,18 @@ mod signing_tests {
             .nth(1)
             .unwrap()
             .trim();
-        
+
         // Sign a message
         let result = runner.run_signing(&[
             "sign",
-            "--secret-key", secret_key,
-            "--message", "Hello, Tari!",
-            "--format", "json"
+            "--secret-key",
+            secret_key,
+            "--message",
+            "Hello, Tari!",
+            "--format",
+            "json",
         ]);
-        
+
         result.assert_success();
         assert!(result.contains_stdout("signature"));
         assert!(result.contains_stdout("nonce"));
@@ -188,10 +201,11 @@ mod signing_tests {
     #[test]
     fn test_verify_message() {
         let runner = CliTestRunner::new();
-        
+
         // Generate key and sign message
         let gen_result = runner.run_signing(&["generate", "--stdout"]);
-        let secret_key = gen_result.stdout
+        let secret_key = gen_result
+            .stdout
             .lines()
             .find(|l| l.contains("Secret Key"))
             .unwrap()
@@ -199,15 +213,18 @@ mod signing_tests {
             .nth(1)
             .unwrap()
             .trim();
-        
+
         let sign_result = runner.run_signing(&[
             "sign",
-            "--secret-key", secret_key,
-            "--message", "Hello, Tari!"
+            "--secret-key",
+            secret_key,
+            "--message",
+            "Hello, Tari!",
         ]);
-        
+
         // Extract signature and public key
-        let signature = sign_result.stdout
+        let signature = sign_result
+            .stdout
             .lines()
             .find(|l| l.contains("Signature"))
             .unwrap()
@@ -215,8 +232,9 @@ mod signing_tests {
             .nth(1)
             .unwrap()
             .trim();
-        
-        let public_key = sign_result.stdout
+
+        let public_key = sign_result
+            .stdout
             .lines()
             .find(|l| l.contains("Public Key"))
             .unwrap()
@@ -224,15 +242,18 @@ mod signing_tests {
             .nth(1)
             .unwrap()
             .trim();
-        
+
         // Verify the signature
         let result = runner.run_signing(&[
             "verify",
-            "--public-key", public_key,
-            "--signature", signature,
-            "--message", "Hello, Tari!"
+            "--public-key",
+            public_key,
+            "--signature",
+            signature,
+            "--message",
+            "Hello, Tari!",
         ]);
-        
+
         result.assert_success();
         assert!(result.contains_stdout("Signature is valid"));
     }
@@ -240,10 +261,11 @@ mod signing_tests {
     #[test]
     fn test_invalid_signature_verification() {
         let runner = CliTestRunner::new();
-        
+
         // Generate key
         let gen_result = runner.run_signing(&["generate", "--stdout"]);
-        let public_key = gen_result.stdout
+        let public_key = gen_result
+            .stdout
             .lines()
             .find(|l| l.contains("Public Key"))
             .unwrap()
@@ -251,7 +273,7 @@ mod signing_tests {
             .nth(1)
             .unwrap()
             .trim();
-        
+
         // Try to verify with invalid signature
         let result = runner.run_signing(&[
             "verify",
@@ -259,32 +281,33 @@ mod signing_tests {
             "--signature", "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
             "--message", "Hello, Tari!"
         ]);
-        
+
         // Should fail or indicate invalid signature
-        assert!(result.contains_stdout("invalid") || result.contains_stderr("invalid") || !result.success);
+        assert!(
+            result.contains_stdout("invalid")
+                || result.contains_stderr("invalid")
+                || !result.success
+        );
     }
 
     #[test]
     fn test_invalid_arguments() {
         let runner = CliTestRunner::new();
-        
+
         // Test missing required argument
         let result = runner.run_signing(&["sign", "--message", "test"]);
         result.assert_failure();
         assert!(result.contains_stderr("required") || result.contains_stderr("missing"));
-        
+
         // Test invalid hex key
-        let result = runner.run_signing(&[
-            "sign",
-            "--secret-key", "invalid_hex",
-            "--message", "test"
-        ]);
+        let result =
+            runner.run_signing(&["sign", "--secret-key", "invalid_hex", "--message", "test"]);
         result.assert_failure();
     }
 }
 
 // ============================================================================
-// WALLET BINARY TESTS  
+// WALLET BINARY TESTS
 // ============================================================================
 
 #[cfg(feature = "storage")]
@@ -295,7 +318,7 @@ mod wallet_tests {
     fn test_wallet_help() {
         let runner = CliTestRunner::new();
         let result = runner.run_wallet(&["--help"]);
-        
+
         result.assert_success();
         assert!(result.contains_stdout("Tari Wallet CLI"));
         assert!(result.contains_stdout("generate"));
@@ -305,7 +328,7 @@ mod wallet_tests {
     fn test_wallet_version() {
         let runner = CliTestRunner::new();
         let result = runner.run_wallet(&["--version"]);
-        
+
         result.assert_success();
         assert!(result.stdout.contains("wallet"));
     }
@@ -314,7 +337,7 @@ mod wallet_tests {
     fn test_generate_wallet() {
         let runner = CliTestRunner::new();
         let result = runner.run_wallet(&["generate"]);
-        
+
         result.assert_success();
         assert!(result.contains_stdout("seed phrase") || result.contains_stdout("Seed phrase"));
         assert!(result.contains_stdout("address") || result.contains_stdout("Address"));
@@ -323,11 +346,8 @@ mod wallet_tests {
     #[test]
     fn test_generate_wallet_with_payment_id() {
         let runner = CliTestRunner::new();
-        let result = runner.run_wallet(&[
-            "generate",
-            "--payment-id", "test-payment-123"
-        ]);
-        
+        let result = runner.run_wallet(&["generate", "--payment-id", "test-payment-123"]);
+
         result.assert_success();
         assert!(result.contains_stdout("test-payment-123"));
     }
@@ -335,11 +355,8 @@ mod wallet_tests {
     #[test]
     fn test_generate_wallet_with_network() {
         let runner = CliTestRunner::new();
-        let result = runner.run_wallet(&[
-            "generate", 
-            "--network", "esmeralda"
-        ]);
-        
+        let result = runner.run_wallet(&["generate", "--network", "esmeralda"]);
+
         result.assert_success();
         assert!(result.contains_stdout("esmeralda") || result.contains_stdout("Esmeralda"));
     }
@@ -347,11 +364,8 @@ mod wallet_tests {
     #[test]
     fn test_invalid_network() {
         let runner = CliTestRunner::new();
-        let result = runner.run_wallet(&[
-            "generate",
-            "--network", "invalid_network"
-        ]);
-        
+        let result = runner.run_wallet(&["generate", "--network", "invalid_network"]);
+
         // Should either fail or provide error message
         if result.success {
             assert!(result.contains_stderr("invalid") || result.contains_stdout("invalid"));
@@ -362,7 +376,7 @@ mod wallet_tests {
     fn test_missing_subcommand() {
         let runner = CliTestRunner::new();
         let result = runner.run_wallet(&[]);
-        
+
         result.assert_failure();
         assert!(result.contains_stderr("required") || result.contains_stderr("COMMAND"));
     }
@@ -380,9 +394,12 @@ mod scanner_tests {
     fn test_scanner_help() {
         let runner = CliTestRunner::new();
         let result = runner.run_scanner(&["--help"]);
-        
+
         result.assert_success();
-        assert!(result.contains_stdout("Enhanced Tari Wallet Scanner") || result.contains_stdout("scanner"));
+        assert!(
+            result.contains_stdout("Enhanced Tari Wallet Scanner")
+                || result.contains_stdout("scanner")
+        );
         assert!(result.contains_stdout("seed-phrase") || result.contains_stdout("view-key"));
     }
 
@@ -390,7 +407,7 @@ mod scanner_tests {
     fn test_scanner_version() {
         let runner = CliTestRunner::new();
         let result = runner.run_scanner(&["--version"]);
-        
+
         result.assert_success();
         assert!(result.stdout.contains("scanner") || result.stderr.contains("scanner"));
     }
@@ -399,22 +416,20 @@ mod scanner_tests {
     fn test_missing_key_arguments() {
         let runner = CliTestRunner::new();
         let result = runner.run_scanner(&[]);
-        
+
         result.assert_failure();
         assert!(
-            result.contains_stderr("seed-phrase") || 
-            result.contains_stderr("view-key") ||
-            result.contains_stderr("required")
+            result.contains_stderr("seed-phrase")
+                || result.contains_stderr("view-key")
+                || result.contains_stderr("required")
         );
     }
 
     #[test]
     fn test_invalid_view_key_format() {
         let runner = CliTestRunner::new();
-        let result = runner.run_scanner(&[
-            "--view-key", "invalid_key_format"
-        ]);
-        
+        let result = runner.run_scanner(&["--view-key", "invalid_key_format"]);
+
         result.assert_failure();
         assert!(result.contains_stderr("invalid") || result.contains_stderr("format"));
     }
@@ -422,31 +437,30 @@ mod scanner_tests {
     #[test]
     fn test_view_key_length_validation() {
         let runner = CliTestRunner::new();
-        
+
         // Test too short
-        let result = runner.run_scanner(&[
-            "--view-key", "abc123"
-        ]);
+        let result = runner.run_scanner(&["--view-key", "abc123"]);
         result.assert_failure();
-        
+
         // Test too long
-        let result = runner.run_scanner(&[
-            "--view-key", &"a".repeat(100)
-        ]);
+        let result = runner.run_scanner(&["--view-key", &"a".repeat(100)]);
         result.assert_failure();
     }
 
     #[test]
     fn test_block_range_validation() {
         let runner = CliTestRunner::new();
-        
+
         // Test invalid range (from > to)
         let result = runner.run_scanner(&[
-            "--view-key", &"a".repeat(64),
-            "--from-block", "1000",
-            "--to-block", "999"
+            "--view-key",
+            &"a".repeat(64),
+            "--from-block",
+            "1000",
+            "--to-block",
+            "999",
         ]);
-        
+
         // Should either fail or handle gracefully
         if result.success {
             assert!(result.contains_stderr("invalid") || result.contains_stdout("invalid"));
@@ -457,10 +471,12 @@ mod scanner_tests {
     fn test_invalid_base_url() {
         let runner = CliTestRunner::new();
         let result = runner.run_scanner(&[
-            "--view-key", &"a".repeat(64),
-            "--base-url", "not_a_valid_url"
+            "--view-key",
+            &"a".repeat(64),
+            "--base-url",
+            "not_a_valid_url",
         ]);
-        
+
         // Should fail or show connection error
         if !result.success {
             assert!(result.contains_stderr("url") || result.contains_stderr("connection"));
@@ -470,12 +486,9 @@ mod scanner_tests {
     #[test]
     fn test_json_output_format() {
         let runner = CliTestRunner::new();
-        let result = runner.run_scanner(&[
-            "--view-key", &"a".repeat(64),
-            "--format", "json",
-            "--quiet"
-        ]);
-        
+        let result =
+            runner.run_scanner(&["--view-key", &"a".repeat(64), "--format", "json", "--quiet"]);
+
         // Should either produce JSON or fail gracefully
         if result.success && !result.stdout.is_empty() {
             // Try to parse as JSON
@@ -494,17 +507,17 @@ mod integration_tests {
     #[test]
     fn test_all_binaries_respond_to_help() {
         let runner = CliTestRunner::new();
-        
+
         // Test all binaries respond to --help
         let signing_result = runner.run_signing(&["--help"]);
         signing_result.assert_success();
-        
+
         #[cfg(feature = "storage")]
         {
             let wallet_result = runner.run_wallet(&["--help"]);
             wallet_result.assert_success();
         }
-        
+
         #[cfg(feature = "grpc-storage")]
         {
             let scanner_result = runner.run_scanner(&["--help"]);
@@ -515,16 +528,16 @@ mod integration_tests {
     #[test]
     fn test_all_binaries_respond_to_version() {
         let runner = CliTestRunner::new();
-        
+
         let signing_result = runner.run_signing(&["--version"]);
         signing_result.assert_success();
-        
+
         #[cfg(feature = "storage")]
         {
             let wallet_result = runner.run_wallet(&["--version"]);
             wallet_result.assert_success();
         }
-        
+
         #[cfg(feature = "grpc-storage")]
         {
             let scanner_result = runner.run_scanner(&["--version"]);
@@ -535,11 +548,11 @@ mod integration_tests {
     #[test]
     fn test_binary_exit_codes() {
         let runner = CliTestRunner::new();
-        
+
         // Valid commands should return 0
         let result = runner.run_signing(&["--help"]);
         assert_eq!(result.exit_code, 0);
-        
+
         // Invalid commands should return non-zero
         let result = runner.run_signing(&["invalid-command"]);
         assert_ne!(result.exit_code, 0);
@@ -547,12 +560,12 @@ mod integration_tests {
 
     #[test]
     fn test_concurrent_binary_execution() {
-        use std::thread;
         use std::sync::Arc;
-        
+        use std::thread;
+
         let runner = Arc::new(CliTestRunner::new());
         let mut handles = vec![];
-        
+
         // Run multiple binaries concurrently
         for i in 0..3 {
             let runner_clone = Arc::clone(&runner);
@@ -563,7 +576,7 @@ mod integration_tests {
             });
             handles.push(handle);
         }
-        
+
         // Wait for all to complete
         for handle in handles {
             handle.join().unwrap();
@@ -581,11 +594,11 @@ mod error_handling_tests {
     #[test]
     fn test_malformed_arguments() {
         let runner = CliTestRunner::new();
-        
+
         // Test with malformed unicode
         let _result = runner.run_signing(&["sign", "--message", "\x00\x01\x02"]);
         // Should handle gracefully without crashing
-        
+
         // Test with very long arguments
         let long_arg = "a".repeat(10000);
         let _result = runner.run_signing(&["sign", "--message", &long_arg]);
@@ -595,12 +608,12 @@ mod error_handling_tests {
     #[test]
     fn test_environment_isolation() {
         let runner = CliTestRunner::new();
-        
+
         // Each test should be isolated - run same command multiple times
         for _ in 0..3 {
             let result = runner.run_signing(&["generate", "--print"]);
             result.assert_success();
-            
+
             // Each run should produce different keys
             assert!(result.contains_stdout("Secret key"));
         }
@@ -611,11 +624,11 @@ mod error_handling_tests {
         // Test how binaries handle interruption
         // Note: This is harder to test automatically but we can test timeout scenarios
         let runner = CliTestRunner::new();
-        
+
         // Use a command that might take time and see if it handles signals properly
         let result = runner.run_signing(&["--help"]);
         result.assert_success();
-        
+
         // At minimum, ensure help commands complete quickly
         assert!(!result.stdout.is_empty());
     }
