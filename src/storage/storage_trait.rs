@@ -423,6 +423,12 @@ pub trait WalletStorage: Send + Sync {
         spent_in_input: usize,
     ) -> LightweightWalletResult<bool>;
 
+    /// Mark multiple transactions as spent in a batch for efficiency
+    async fn mark_transactions_spent_batch(
+        &self,
+        spent_commitments: &[(CompressedCommitment, u64, usize)], // (commitment, block_height, input_index)
+    ) -> LightweightWalletResult<usize>; // Returns number of transactions marked as spent
+
     /// Get a transaction by commitment
     async fn get_transaction_by_commitment(
         &self,

@@ -673,6 +673,47 @@ impl WalletStorage for SqliteStorage {
         }).await.map_err(|e| LightweightWalletError::StorageError(format!("Failed to mark transaction spent: {}", e)))
     }
 
+    async fn mark_transactions_spent_batch(
+        &self,
+        spent_commitments: &[(CompressedCommitment, u64, usize)],
+    ) -> LightweightWalletResult<usize> {
+        if spent_commitments.is_empty() {
+            return Ok(0);
+        }
+
+        // Convert to owned data for the async call
+        let batch_data: Vec<(String, i64, i64)> = spent_commitments
+            .iter()
+            .map(|(commitment, block_height, input_index)| {
+                (commitment.to_hex(), *block_height as i64, *input_index as i64)
+            })
+            .collect();
+
+        self.connection.call(move |conn| {
+            let mut total_affected = 0;
+            let tx = conn.transaction()?;
+            
+            // Use a prepared statement for better performance with large batches
+            {
+                let mut stmt = tx.prepare(
+                    r#"
+                    UPDATE wallet_transactions 
+                    SET is_spent = TRUE, spent_in_block = ?, spent_in_input = ?
+                    WHERE commitment_hex = ? AND is_spent = FALSE
+                    "#
+                )?;
+                
+                for (commitment_hex, spent_in_block, spent_in_input) in batch_data {
+                    let rows_affected = stmt.execute(params![spent_in_block, spent_in_input, commitment_hex])?;
+                    total_affected += rows_affected;
+                }
+            } // stmt is dropped here, releasing the borrow
+            
+            tx.commit()?;
+            Ok(total_affected)
+        }).await.map_err(|e| LightweightWalletError::StorageError(format!("Failed to batch mark transactions spent: {}", e)))
+    }
+
     async fn get_transaction_by_commitment(
         &self,
         commitment: &CompressedCommitment,
