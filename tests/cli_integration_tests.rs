@@ -412,15 +412,19 @@ mod scanner_tests {
     }
 
     #[test]
-    fn test_missing_key_arguments() {
+    fn test_conflicting_key_arguments() {
         let runner = CliTestRunner::new();
-        let result = runner.run_scanner(&[]);
+        // Test providing both seed phrase and view key (should fail immediately)
+        let result = runner.run_scanner(&[
+            "--seed-phrase", "test seed phrase",
+            "--view-key", &"a".repeat(64)
+        ]);
 
         result.assert_failure();
         assert!(
-            result.contains_stderr("seed-phrase")
+            result.contains_stderr("Cannot specify both")
+                || result.contains_stderr("seed-phrase")
                 || result.contains_stderr("view-key")
-                || result.contains_stderr("required")
         );
     }
 
@@ -474,6 +478,8 @@ mod scanner_tests {
             &"a".repeat(64),
             "--base-url",
             "not_a_valid_url",
+            "--from-block", "1",
+            "--to-block", "2"  // Limit range to avoid timeout
         ]);
 
         // Should fail or show connection error
@@ -485,8 +491,13 @@ mod scanner_tests {
     #[test]
     fn test_json_output_format() {
         let runner = CliTestRunner::new();
-        let result =
-            runner.run_scanner(&["--view-key", &"a".repeat(64), "--format", "json", "--quiet"]);
+        let result = runner.run_scanner(&[
+            "--view-key", &"a".repeat(64), 
+            "--format", "json", 
+            "--quiet",
+            "--from-block", "1",
+            "--to-block", "2"  // Only scan 2 blocks to avoid timeout
+        ]);
 
         // Should either produce JSON or fail gracefully
         if result.success && !result.stdout.is_empty() {
