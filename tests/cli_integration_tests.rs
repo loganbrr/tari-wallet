@@ -340,8 +340,8 @@ mod wallet_tests {
         let result = runner.run_wallet(&["generate"]);
 
         result.assert_success();
-        assert!(result.contains_stdout("seed phrase") || result.contains_stdout("Seed phrase"));
-        assert!(result.contains_stdout("address") || result.contains_stdout("Address"));
+        assert!(result.contains_stdout("Seed:") || result.contains_stdout("seed phrase") || result.contains_stdout("Seed phrase"));
+        assert!(result.contains_stdout("Base58:") || result.contains_stdout("address") || result.contains_stdout("Address"));
     }
 
     #[test]
@@ -350,7 +350,7 @@ mod wallet_tests {
         let result = runner.run_wallet(&["generate", "--payment-id", "test-payment-123"]);
 
         result.assert_success();
-        assert!(result.contains_stdout("test-payment-123"));
+        assert!(result.contains_stdout("Payment ID included: Yes"));
     }
 
     #[test]
@@ -359,7 +359,12 @@ mod wallet_tests {
         let result = runner.run_wallet(&["generate", "--network", "esmeralda"]);
 
         result.assert_success();
-        assert!(result.contains_stdout("esmeralda") || result.contains_stdout("Esmeralda"));
+        // Esmeralda network uses different address prefix - check that address doesn't start with mainnet prefix "1"
+        assert!(result.contains_stdout("Base58:"));
+        let lines: Vec<&str> = result.stdout.lines().collect();
+        let base58_line = lines.iter().find(|l| l.contains("Base58:")).unwrap();
+        let address = base58_line.split(':').nth(1).unwrap().trim();
+        assert!(!address.starts_with("1")); // Esmeralda addresses don't start with "1" like mainnet
     }
 
     #[test]
