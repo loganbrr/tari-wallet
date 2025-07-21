@@ -322,25 +322,25 @@ cargo run --bin scanner --features grpc -- --seed-phrase "your seed phrase" --fo
 ### ✍️ **Signing CLI** - Message signing and verification
 ```bash
 # Generate a new keypair
-cargo run --bin signing --all-features -- generate --stdout
+cargo run --bin signing --features storage -- generate --stdout
 
 # Save keypair to files
-cargo run --bin signing --all-features -- generate --secret-key-file secret.key --public-key-file public.key
+cargo run --bin signing --features storage -- generate --secret-key-file secret.key --public-key-file public.key
 
 # Sign a message
-cargo run --bin signing --all-features -- sign \
+cargo run --bin signing --features storage -- sign \
     --secret-key-file secret.key \
     --message "Hello, Tari! This is a signed message."
 
 # Sign with JSON output format
-cargo run --bin signing --all-features -- sign \
+cargo run --bin signing --features storage -- sign \
     --secret-key-file secret.key \
     --message "Test message" \
     --format json \
     --output-file signature.json
 
 # Verify a signature using hex components
-cargo run --bin signing --all-features -- verify \
+cargo run --bin signing --features storage -- verify \
     --public-key-file public.key \
     --message "Hello, Tari! This is a signed message." \
     --signature <signature_hex> \
@@ -348,25 +348,25 @@ cargo run --bin signing --all-features -- verify \
     --verbose
 
 # Verify using signature file (compact format)
-cargo run --bin signing --all-features -- verify \
+cargo run --bin signing --features storage -- verify \
     --public-key-file public.key \
     --message "Test message" \
     --signature-file signature.txt
 
 # Verify using JSON signature file
-cargo run --bin signing --all-features -- verify \
+cargo run --bin signing --features storage -- verify \
     --public-key-file public.key \
     --message "Test message" \
     --signature-file signature.json
 
 # Sign and verify workflow with files
 echo "My important message" > message.txt
-cargo run --bin signing --all-features -- sign \
+cargo run --bin signing --features storage -- sign \
     --secret-key-file secret.key \
     --message-file message.txt \
     --output-file signature.txt
 
-cargo run --bin signing --all-features -- verify \
+cargo run --bin signing --features storage -- verify \
     --public-key-file public.key \
     --message-file message.txt \
     --signature-file signature.txt
@@ -381,6 +381,7 @@ cargo run --bin signing --all-features -- verify \
 - **🔧 Flexible Input**: Support command-line args and file inputs
 - **📊 Verbose Mode**: Detailed output for debugging and verification
 - **🔒 Tari Compatible**: 100% compatible with Tari wallet message signing
+- **⚡ Exit Codes**: Returns proper exit codes (0=success, 1=invalid signature) for scripting
 
 ## 🔒 **Security Features**
 
@@ -446,7 +447,7 @@ cargo test --all-features
 cargo check --target wasm32-unknown-unknown --features wasm
 
 # Test signing binary
-cargo test --bin signing --all-features
+cargo test --bin signing --features storage
 ```
 
 ### Testing
@@ -459,9 +460,9 @@ cargo test
 cargo test --features grpc
 
 # Test specific binaries
-cargo test --bin wallet --all-features
-cargo test --bin scanner --all-features
-cargo test --bin signing --all-features
+cargo test --bin wallet --features storage
+cargo test --bin scanner --features grpc-storage
+cargo test --bin signing --features storage
 
 # WASM tests
 wasm-pack test --node --features wasm
