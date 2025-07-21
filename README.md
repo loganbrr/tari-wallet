@@ -327,10 +327,16 @@ cargo run --bin signing --features storage -- generate --stdout
 # Save keypair to files
 cargo run --bin signing --features storage -- generate --secret-key-file secret.key --public-key-file public.key
 
-# Sign a message
+# Sign a message using secret key file
 cargo run --bin signing --features storage -- sign \
     --secret-key-file secret.key \
     --message "Hello, Tari! This is a signed message."
+
+# Sign a message using wallet from database (requires storage feature)
+cargo run --bin signing --features storage -- sign \
+    --wallet-name my_wallet \
+    --database-path wallet.db \
+    --message "Hello, Tari! Signed with wallet from database."
 
 # Sign with JSON output format
 cargo run --bin signing --features storage -- sign \
@@ -370,6 +376,25 @@ cargo run --bin signing --features storage -- verify \
     --public-key-file public.key \
     --message-file message.txt \
     --signature-file signature.txt
+
+# Complete database workflow: create wallet and sign
+# 1. Generate a new seed phrase
+SEED=$(cargo run --bin wallet --features storage -- generate | head -1 | cut -d' ' -f2-)
+
+# 2. Add wallet to database  
+cargo run --bin wallet --features storage -- add-wallet \
+    --name my_signing_wallet \
+    --database wallet.db \
+    "$SEED"
+
+# 3. Sign messages using the wallet from database
+cargo run --bin signing --features storage -- sign \
+    --wallet-name my_signing_wallet \
+    --database-path wallet.db \
+    --message "Signed with database wallet!"
+
+# 4. List available wallets
+cargo run --bin wallet --features storage -- list --database wallet.db
 ```
 
 #### **Signing CLI Features:**
@@ -381,6 +406,8 @@ cargo run --bin signing --features storage -- verify \
 - **🔧 Flexible Input**: Support command-line args and file inputs
 - **📊 Verbose Mode**: Detailed output for debugging and verification
 - **🔒 Tari Compatible**: 100% compatible with Tari wallet message signing
+- **💾 Database Integration**: Sign with wallets stored in SQLite database (storage feature)
+- **🔗 Seed Phrase Derivation**: Automatically derives signing keys from stored seed phrases
 - **⚡ Exit Codes**: Returns proper exit codes (0=success, 1=invalid signature) for scripting
 
 ## 🔒 **Security Features**

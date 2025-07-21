@@ -14,6 +14,12 @@ use lightweight_wallet_libs::crypto::signing::{
     sign_message_with_hex_output, verify_message_from_hex,
 };
 
+#[cfg(feature = "storage")]
+use lightweight_wallet_libs::{
+    storage::{SqliteStorage, WalletStorage},
+    key_management::{mnemonic_to_bytes, seed_phrase::CipherSeed, derive_view_and_spend_keys_from_entropy},
+};
+
 #[derive(Parser)]
 #[command(name = "signing")]
 #[command(about = "Tari-compatible message signing and verification tool")]
@@ -52,6 +58,16 @@ enum Commands {
         /// File containing secret key in hex format
         #[arg(long, group = "key_input")]
         secret_key_file: Option<String>,
+        
+        /// Wallet name in database (requires storage feature)
+        #[cfg(feature = "storage")]
+        #[arg(long, group = "key_input")]
+        wallet_name: Option<String>,
+        
+        /// Database file path (default: wallet.db)
+        #[cfg(feature = "storage")]
+        #[arg(long, default_value = "wallet.db")]
+        database_path: String,
         
         /// Message to sign
         #[arg(long, short, group = "message_input")]
@@ -107,7 +123,8 @@ enum Commands {
     },
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
     match cli.command {
@@ -145,20 +162,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Sign {
             secret_key,
             secret_key_file,
+            #[cfg(feature = "storage")]
+            wallet_name,
+            #[cfg(feature = "storage")]
+            database_path,
             message,
             message_file,
             output_file,
             format,
         } => {
-            // Get secret key
-            let secret_key_hex = match (secret_key, secret_key_file) {
-                (Some(key), None) => key,
-                (None, Some(file)) => fs::read_to_string(&file)?.trim().to_string(),
-                _ => return Err("Must provide either --secret-key or --secret-key-file".into()),
-            };
-            
-            let secret_key = RistrettoSecretKey::from_hex(&secret_key_hex)
-                .map_err(|e| format!("Invalid secret key hex: {}", e))?;
+            // Get secret key from various sources
+            let secret_key = get_secret_key_for_signing(
+                secret_key,
+                secret_key_file,
+                #[cfg(feature = "storage")]
+                wallet_name,
+                #[cfg(feature = "storage")]
+                database_path,
+            ).await?;
             
             // Get message
             let message_text = match (message, message_file) {
@@ -259,6 +280,84 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     
     Ok(())
+}
+
+/// Get secret key from various sources (file, hex string, or database wallet)
+async fn get_secret_key_for_signing(
+    secret_key: Option<String>,
+    secret_key_file: Option<String>,
+    #[cfg(feature = "storage")]
+    wallet_name: Option<String>,
+    #[cfg(feature = "storage")]
+    database_path: String,
+) -> Result<RistrettoSecretKey, Box<dyn std::error::Error>> {
+    // Try different sources in order of preference
+    if let Some(key) = secret_key {
+        // Direct hex string
+        return Ok(RistrettoSecretKey::from_hex(&key)
+            .map_err(|e| format!("Invalid secret key hex: {}", e))?);
+    }
+    
+    if let Some(file) = secret_key_file {
+        // Read from file
+        let key_hex = fs::read_to_string(&file)?.trim().to_string();
+        return Ok(RistrettoSecretKey::from_hex(&key_hex)
+            .map_err(|e| format!("Invalid secret key hex in file: {}", e))?);
+    }
+    
+    #[cfg(feature = "storage")]
+    if let Some(wallet_name) = wallet_name {
+        // Get from database
+        return get_secret_key_from_database(&wallet_name, &database_path).await;
+    }
+    
+    Err("Must provide either --secret-key, --secret-key-file, or --wallet-name".into())
+}
+
+#[cfg(feature = "storage")]
+async fn get_secret_key_from_database(
+    wallet_name: &str,
+    database_path: &str,
+) -> Result<RistrettoSecretKey, Box<dyn std::error::Error>> {
+    // Connect to database
+    let storage = SqliteStorage::new(database_path).await
+        .map_err(|e| format!("Failed to open database: {}", e))?;
+    
+    // Initialize schema
+    storage.initialize().await
+        .map_err(|e| format!("Failed to initialize database: {}", e))?;
+    
+    // Get wallet by name
+    let wallet = storage.get_wallet_by_name(wallet_name).await
+        .map_err(|e| format!("Failed to query wallet: {}", e))?
+        .ok_or_else(|| format!("Wallet '{}' not found in database", wallet_name))?;
+    
+    // Extract seed phrase
+    let seed_phrase = wallet.seed_phrase
+        .ok_or_else(|| format!("Wallet '{}' has no seed phrase stored", wallet_name))?;
+    
+    // Convert seed phrase to CipherSeed directly
+    let cipher_seed = seed_phrase_to_cipher_seed(&seed_phrase, None)
+        .map_err(|e| format!("Failed to convert seed phrase to CipherSeed: {}", e))?;
+    
+    // Derive view and spend keys from entropy  
+    // Convert the entropy slice to the required array type
+    let entropy_array: &[u8; 16] = cipher_seed.entropy().try_into()
+        .map_err(|_| "Invalid entropy length: expected 16 bytes")?;
+    let (_, spend_key) = derive_view_and_spend_keys_from_entropy(entropy_array)
+        .map_err(|e| format!("Failed to derive spend key: {}", e))?;
+    
+    println!("Using spend key from wallet '{}' in database", wallet_name);
+    Ok(spend_key)
+}
+
+#[cfg(feature = "storage")]
+fn seed_phrase_to_cipher_seed(seed_phrase: &str, passphrase: Option<&str>) -> Result<CipherSeed, lightweight_wallet_libs::errors::KeyManagementError> {
+    // Convert mnemonic to encrypted bytes
+    let encrypted_bytes = mnemonic_to_bytes(seed_phrase)?;
+    
+    // Decrypt the CipherSeed
+    CipherSeed::from_enciphered_bytes(&encrypted_bytes, passphrase)
 }
 
 #[cfg(test)]
