@@ -1742,15 +1742,8 @@ async fn scan_wallet_across_blocks_with_cancellation(
         }
 
         // Fetch blocks via GRPC
-        let grpc_start = std::time::Instant::now();
         let batch_results = match scanner.get_blocks_by_heights(batch_heights.to_vec()).await {
-            Ok(blocks) => {
-                let grpc_duration = grpc_start.elapsed();
-                if !config.quiet && grpc_duration.as_millis() > 100 {
-                    println!("\n🐌 GRPC fetch took: {:?} for {} blocks", grpc_duration, batch_heights.len());
-                }
-                blocks
-            },
+            Ok(blocks) => blocks,
             Err(e) => {
                 println!(
                     "\n❌ Error scanning batch starting at block {}: {}",
@@ -1798,18 +1791,12 @@ async fn scan_wallet_across_blocks_with_cancellation(
             // Process block using the Block struct
             let block = Block::from_block_info(block_info);
 
-            let crypto_start = std::time::Instant::now();
             let found_outputs = block.process_outputs(
                 &scan_context.view_key,
                 &scan_context.entropy,
                 &mut wallet_state,
             );
             let spent_outputs = block.process_inputs(&mut wallet_state);
-            let crypto_duration = crypto_start.elapsed();
-            
-            if !config.quiet && crypto_duration.as_millis() > 20 {
-                println!("\n🐌 Crypto processing took: {:?} for block {}", crypto_duration, format_number(*block_height));
-            }
 
             let scan_result = match (found_outputs, spent_outputs) {
                 (Ok(found), Ok(spent)) => Ok((found, spent)),
@@ -1818,22 +1805,18 @@ async fn scan_wallet_across_blocks_with_cancellation(
 
             let (_found_outputs, _spent_outputs_count) = match scan_result {
                 Ok(result) => {
-                    let block_processing_start = std::time::Instant::now();
-
                     // Note: Spent output tracking is handled automatically by wallet_state.mark_output_spent()
                     // called from block.process_inputs() - and we also update the database below
 
                     // Save transactions to storage backend if using database
                     #[cfg(feature = "storage")]
                     if storage_backend.wallet_id.is_some() {
-                        let storage_start = std::time::Instant::now();
                         // Mark any transactions as spent in the database that were marked as spent in this block
                         // OPTIMIZATION: Only mark transactions if we actually have spent transactions in wallet state
-                        let spent_marking_start = std::time::Instant::now();
                         
                         // Early exit: Skip spent marking entirely if wallet has no spent transactions
                         let wallet_has_spent_transactions = wallet_state.transactions.iter().any(|tx| tx.is_spent);
-                        let spent_markings_made = if !wallet_has_spent_transactions || block.inputs.is_empty() {
+                        let _spent_markings_made = if !wallet_has_spent_transactions || block.inputs.is_empty() {
                             0 // Skip processing entirely
                         } else {
                             // Quick bloom filter check: If no inputs match wallet commitments, skip entirely
@@ -1894,10 +1877,6 @@ async fn scan_wallet_across_blocks_with_cancellation(
                                 }
                             }
                         };
-                        let spent_marking_duration = spent_marking_start.elapsed();
-                        if !config.quiet && spent_marking_duration.as_millis() > 5 {
-                            println!("\n🐌 Spent marking took: {:?} for {}/{} wallet inputs in block {}", spent_marking_duration, spent_markings_made, block.inputs.len(), format_number(*block_height));
-                        }
 
                         // Save only NEW transactions incrementally (significant performance improvement)
                         // This reduces O(n²) database writes to O(n) writes
@@ -1912,7 +1891,6 @@ async fn scan_wallet_across_blocks_with_cancellation(
                             let prev_saved_count = storage_backend.last_saved_transaction_count;
                             
                             // Save only new transactions since last save (incremental)
-                            let tx_save_start = std::time::Instant::now();
                             if let Err(e) = storage_backend
                                 .save_transactions_incremental(&all_transactions)
                                 .await
@@ -1921,11 +1899,6 @@ async fn scan_wallet_across_blocks_with_cancellation(
                                     println!("\n⚠️  Warning: Failed to save new transactions to database: {}", e);
                                 }
                             } else {
-                                let tx_save_duration = tx_save_start.elapsed();
-                                if !config.quiet && tx_save_duration.as_millis() > 5 {
-                                    let new_count = all_transactions.len().saturating_sub(prev_saved_count);
-                                    println!("\n🐌 Transaction save took: {:?} for {} new transactions in block {}", tx_save_duration, new_count, format_number(*block_height));
-                                }
                                 
                                 // Verify that outbound transactions have proper spending details (only for new transactions)
                                 let new_transactions = if all_transactions.len() > prev_saved_count {
@@ -1946,13 +1919,7 @@ async fn scan_wallet_across_blocks_with_cancellation(
                             }
                         }
 
-                        let storage_duration = storage_start.elapsed();
-                        if !config.quiet && storage_duration.as_millis() > 10 {
-                            println!("\n🐌 Storage operations took: {:?} for block {}", storage_duration, format_number(*block_height));
-                        }
-
                         // Extract and save UTXO data for wallet outputs (works for both seed phrase and view-key modes)
-                        let utxo_start = std::time::Instant::now();
                         match extract_utxo_outputs_from_wallet_state(
                             &wallet_state,
                             scan_context,
@@ -1979,16 +1946,9 @@ async fn scan_wallet_across_blocks_with_cancellation(
                                 }
                             }
                         }
-                        let utxo_duration = utxo_start.elapsed();
-                        if !config.quiet && utxo_duration.as_millis() > 10 {
-                            println!("\n🐌 UTXO extraction took: {:?} for block {}", utxo_duration, format_number(*block_height));
-                        }
                     }
 
-                    let block_processing_duration = block_processing_start.elapsed();
-                    if !config.quiet && block_processing_duration.as_millis() > 50 {
-                        println!("\n🐌 Block processing took: {:?} for block {}", block_processing_duration, format_number(*block_height));
-                    }
+
 
                     result
                 }
