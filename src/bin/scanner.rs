@@ -261,6 +261,7 @@ pub struct ScannerStorage {
     pub database: Option<Box<dyn WalletStorage>>,
     pub wallet_id: Option<u32>,
     pub is_memory_only: bool,
+    pub last_saved_transaction_count: usize,
 }
 
 #[cfg(feature = "grpc")]
@@ -272,6 +273,7 @@ impl ScannerStorage {
             database: None,
             wallet_id: None,
             is_memory_only: true,
+            last_saved_transaction_count: 0,
         }
     }
 
@@ -292,6 +294,7 @@ impl ScannerStorage {
             database: Some(storage),
             wallet_id: None,
             is_memory_only: false,
+            last_saved_transaction_count: 0,
         })
     }
 
@@ -504,7 +507,26 @@ impl ScannerStorage {
         }
     }
 
-    /// Save transactions to storage
+    /// Save transactions to storage incrementally (only new transactions since last save)
+    #[cfg(feature = "storage")]
+    pub async fn save_transactions_incremental(
+        &mut self,
+        all_transactions: &[lightweight_wallet_libs::data_structures::wallet_transaction::WalletTransaction],
+    ) -> LightweightWalletResult<()> {
+        if let (Some(storage), Some(wallet_id)) = (&self.database, self.wallet_id) {
+            // Only save new transactions since last save
+            if all_transactions.len() > self.last_saved_transaction_count {
+                let new_transactions = &all_transactions[self.last_saved_transaction_count..];
+                if !new_transactions.is_empty() {
+                    storage.save_transactions(wallet_id, new_transactions).await?;
+                    self.last_saved_transaction_count = all_transactions.len();
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Save transactions to storage (legacy method for compatibility)
     #[cfg(feature = "storage")]
     pub async fn save_transactions(
         &self,
@@ -883,6 +905,8 @@ pub enum ScanResult {
     Completed(WalletState),
     Interrupted(WalletState),
 }
+
+
 
 /// Derive entropy from a seed phrase string
 #[cfg(all(feature = "grpc", feature = "storage"))]
@@ -1471,41 +1495,35 @@ async fn scan_wallet_across_blocks_with_cancellation(
                             }
                         }
 
-                        // Save ALL accumulated transactions frequently (using INSERT OR REPLACE to handle duplicates)
-                        // This ensures no transactions are lost if individual block saves fail
-                        // Save every block to ensure data integrity (INSERT OR REPLACE handles duplicates efficiently)
-                        let should_save_transactions = true;
-
-                        if should_save_transactions {
-                            let all_transactions: Vec<_> = wallet_state
-                                .transactions
-                                .iter()
-                                .cloned()
-                                .collect();
+                        // Save only NEW transactions incrementally (significant performance improvement)
+                        // This reduces O(n²) database writes to O(n) writes
+                        let all_transactions: Vec<_> = wallet_state
+                            .transactions
+                            .iter()
+                            .cloned()
+                            .collect();
 
                         if !all_transactions.is_empty() {
-                            // Save transaction data (includes both inbound and outbound transactions)
+                            // Get the count before incremental save
+                            let prev_saved_count = storage_backend.last_saved_transaction_count;
+                            
+                            // Save only new transactions since last save (incremental)
                             if let Err(e) = storage_backend
-                                .save_transactions(&all_transactions)
+                                .save_transactions_incremental(&all_transactions)
                                 .await
                             {
                                 if !config.quiet {
-                                    println!("\n⚠️  Warning: Failed to save {} accumulated transactions to database: {}", 
-                                        format_number(all_transactions.len()), e);
+                                    println!("\n⚠️  Warning: Failed to save new transactions to database: {}", e);
                                 }
                             } else {
-                                // Validate that we're saving both inbound and outbound transactions correctly
-                                let inbound_count = all_transactions.iter().filter(|tx| tx.transaction_direction == TransactionDirection::Inbound).count();
-                                let outbound_count = all_transactions.iter().filter(|tx| tx.transaction_direction == TransactionDirection::Outbound).count();
+                                // Verify that outbound transactions have proper spending details (only for new transactions)
+                                let new_transactions = if all_transactions.len() > prev_saved_count {
+                                    &all_transactions[prev_saved_count..]
+                                } else {
+                                    &[]
+                                };
                                 
-                                if !config.quiet {
-                                    println!("\n💾 Saved {} total transactions to database ({} inbound, {} outbound)", 
-                                        format_number(all_transactions.len()), 
-                                        format_number(inbound_count), format_number(outbound_count));
-                                }
-                                
-                                // Verify that outbound transactions have proper spending details
-                                for tx in &all_transactions {
+                                for tx in new_transactions {
                                     if tx.transaction_direction == TransactionDirection::Outbound {
                                         if tx.input_index.is_none() {
                                             if !config.quiet {
@@ -1516,7 +1534,6 @@ async fn scan_wallet_across_blocks_with_cancellation(
                                 }
                             }
                         }
-                        } // Close the should_save_transactions if block
 
                         // Extract and save UTXO data for wallet outputs (works for both seed phrase and view-key modes)
                         match extract_utxo_outputs_from_wallet_state(
@@ -1532,19 +1549,6 @@ async fn scan_wallet_across_blocks_with_cancellation(
                                         if !config.quiet {
                                             println!("\n⚠️  Warning: Failed to save {} UTXO outputs from block {} to database: {}", 
                                                 format_number(utxo_outputs.len()), format_number(*block_height), e);
-                                        }
-                                    } else if !config.quiet {
-                                        let unspent_utxos = utxo_outputs.iter().filter(|o| o.status == (OutputStatus::Unspent as u32)).count();
-                                        let spent_utxos = utxo_outputs.iter().filter(|o| o.status == (OutputStatus::Spent as u32)).count();
-                                        println!("\n🔗 Saved {} UTXO outputs for block {} ({} unspent, {} spent)", 
-                                            format_number(utxo_outputs.len()), format_number(*block_height),
-                                            format_number(unspent_utxos), format_number(spent_utxos));
-                                            
-                                        // Verify that all UTXOs have proper spending keys (or placeholders for view-key mode)
-                                        for utxo in &utxo_outputs {
-                                            if utxo.spending_key.is_empty() {
-                                                println!("⚠️  Warning: UTXO missing spending key for commitment: {}", hex::encode(&utxo.commitment[..8]));
-                                            }
                                         }
                                     }
                                 }

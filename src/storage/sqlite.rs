@@ -908,7 +908,12 @@ impl WalletStorage for SqliteStorage {
         self.connection.call(|conn| {
             conn.execute("DELETE FROM wallet_transactions", [])?;
             Ok(())
-        }).await.map_err(|e| LightweightWalletError::StorageError(format!("Failed to clear transactions: {}", e)))
+        }).await.map_err(|e| LightweightWalletError::StorageError(format!("Failed to clear transactions: {}", e)))?;
+        self.connection.call(|conn| {
+            conn.execute("DELETE FROM outputs", [])?;
+            Ok(())
+        }).await.map_err(|e| LightweightWalletError::StorageError(format!("Failed to clear outputs: {}", e)))?;
+        Ok(())
     }
 
     async fn get_transaction_count(&self) -> LightweightWalletResult<usize> {

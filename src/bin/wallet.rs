@@ -74,10 +74,15 @@ enum Commands {
         database: String,
     },
     
-    /// Create and store a new wallet in database from seed phrase
+    /// Create and store a new wallet in database from seed phrase or view key
     AddWallet {
-        /// Seed phrase for the wallet
-        seed_phrase: String,
+        /// Seed phrase for the wallet (mutually exclusive with view-key)
+        #[arg(long)]
+        seed_phrase: Option<String>,
+        
+        /// Private view key as hex string (mutually exclusive with seed-phrase)
+        #[arg(long)]
+        view_key: Option<String>,
         
         /// Wallet name (required)
         #[arg(long)]
@@ -91,7 +96,7 @@ enum Commands {
         #[arg(long, default_value = "mainnet")]
         network: String,
         
-        /// Optional passphrase for CipherSeed encryption/decryption
+        /// Optional passphrase for CipherSeed encryption/decryption (only used with seed-phrase)
         #[arg(long)]
         passphrase: Option<String>,
     },
@@ -158,8 +163,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::List { database } => {
             handle_list_wallets(database).await?;
         }
-        Commands::AddWallet { seed_phrase, name, database, network, passphrase } => {
-            handle_create_wallet(seed_phrase, name, database, network, passphrase).await?;
+        Commands::AddWallet { seed_phrase, view_key, name, database, network, passphrase } => {
+            handle_create_wallet(seed_phrase, view_key, name, database, network, passphrase).await?;
         }
         Commands::Query { database, wallet_name, query_command } => {
             match query_command {
@@ -195,7 +200,7 @@ fn main() {
     eprintln!("  generate        Generate a new wallet with seed phrase and one-sided address");
     eprintln!("  new-address     Generate a one-sided address from existing seed phrase");
     eprintln!("  list            List all wallets stored in database");
-    eprintln!("  add-wallet      Create and store a new wallet in database from seed phrase");
+    eprintln!("  add-wallet      Create and store a new wallet in database from seed phrase or view key");
     eprintln!("  query           Query wallet information and balances");
     eprintln!("    balance       Show wallet balance and summary");
     eprintln!("    utxos         List unspent transaction outputs (UTXOs)");
@@ -711,12 +716,26 @@ async fn handle_list_wallets(database_path: String) -> Result<(), Box<dyn std::e
 /// Create and store a new wallet in the database
 #[cfg(feature = "storage")]
 async fn handle_create_wallet(
-    seed_phrase: String,
+    seed_phrase: Option<String>,
+    view_key: Option<String>,
     wallet_name: String,
     database_path: String,
     network: String,
     passphrase: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // Validate that exactly one of seed_phrase or view_key is provided
+    match (&seed_phrase, &view_key) {
+        (Some(_), Some(_)) => {
+            eprintln!("Error: Cannot specify both --seed-phrase and --view-key. Please provide only one.");
+            return Ok(());
+        }
+        (None, None) => {
+            eprintln!("Error: Must specify either --seed-phrase or --view-key.");
+            return Ok(());
+        }
+        _ => {} // Exactly one is provided, continue
+    }
+    
     // Validate network
     if !is_valid_network(&network) {
         eprintln!("Error: Invalid network '{}'. Valid networks: mainnet, esmeralda, stagenet", network);
@@ -740,47 +759,81 @@ async fn handle_create_wallet(
         return Ok(());
     }
     
-    // Create wallet from seed phrase
-    let wallet = Wallet::new_from_seed_phrase(&seed_phrase, passphrase_ref)?;
-    
-    // Derive view key and spend key from seed phrase
-    let encrypted_bytes = mnemonic_to_bytes(&seed_phrase)?;
-    let cipher_seed = CipherSeed::from_enciphered_bytes(&encrypted_bytes, passphrase_ref)?;
-    let entropy = cipher_seed.entropy();
-    
-    let entropy_array: [u8; 16] = entropy.try_into()
-        .map_err(|_| LightweightWalletError::KeyManagementError(
-            lightweight_wallet_libs::KeyManagementError::key_derivation_failed("Invalid entropy length")
-        ))?;
-    
-    // Derive view key
-    let view_key_raw = key_derivation::derive_private_key_from_entropy(&entropy_array, "data encryption", 0)?;
-    let view_key = PrivateKey::new({
-        use tari_utilities::ByteArray;
-        view_key_raw.as_bytes().try_into()
+    let stored_wallet = if let Some(seed_phrase) = seed_phrase {
+        // Create wallet from seed phrase
+        let wallet = Wallet::new_from_seed_phrase(&seed_phrase, passphrase_ref)?;
+        
+        // Derive view key and spend key from seed phrase
+        let encrypted_bytes = mnemonic_to_bytes(&seed_phrase)?;
+        let cipher_seed = CipherSeed::from_enciphered_bytes(&encrypted_bytes, passphrase_ref)?;
+        let entropy = cipher_seed.entropy();
+        
+        let entropy_array: [u8; 16] = entropy.try_into()
             .map_err(|_| LightweightWalletError::KeyManagementError(
-                lightweight_wallet_libs::KeyManagementError::key_derivation_failed("Failed to convert view key")
-            ))?
-    });
-    
-    // For now, use view key as spend key - this should be properly derived from seed in production
-    let spend_key = view_key.clone();
-    
-    // Create stored wallet
-    let stored_wallet = StoredWallet::from_seed_phrase(
-        wallet_name.clone(),
-        seed_phrase.to_string(),
-        view_key,
-        spend_key,
-        wallet.birthday(), // Use wallet birthday
-    );
+                lightweight_wallet_libs::KeyManagementError::key_derivation_failed("Invalid entropy length")
+            ))?;
+        
+        // Derive view key
+        let view_key_raw = key_derivation::derive_private_key_from_entropy(&entropy_array, "data encryption", 0)?;
+        let view_key = PrivateKey::new({
+            use tari_utilities::ByteArray;
+            view_key_raw.as_bytes().try_into()
+                .map_err(|_| LightweightWalletError::KeyManagementError(
+                    lightweight_wallet_libs::KeyManagementError::key_derivation_failed("Failed to convert view key")
+                ))?
+        });
+        
+        // For now, use view key as spend key - this should be properly derived from seed in production
+        let spend_key = view_key.clone();
+        
+        // Create stored wallet with seed phrase
+        StoredWallet::from_seed_phrase(
+            wallet_name.clone(),
+            seed_phrase.to_string(),
+            view_key,
+            spend_key,
+            wallet.birthday(), // Use wallet birthday
+        )
+    } else if let Some(view_key_hex) = view_key {
+        // Create view-only wallet from view key
+        let view_key_bytes = hex::decode(&view_key_hex)
+            .map_err(|_| "Invalid hex format for view key")?;
+        
+        if view_key_bytes.len() != 32 {
+            return Err("View key must be exactly 32 bytes (64 hex characters)".into());
+        }
+        
+        let mut key_array = [0u8; 32];
+        key_array.copy_from_slice(&view_key_bytes);
+        let view_key = PrivateKey::new(key_array);
+        
+        // Create view-only wallet (no spend key, no seed phrase)
+        StoredWallet::view_only(
+            wallet_name.clone(),
+            view_key,
+            0, // Default birthday block - user should scan from appropriate block
+        )
+    } else {
+        unreachable!("Validation should have caught this case");
+    };
     
     // Save wallet to database
     let wallet_id = storage.save_wallet(&stored_wallet).await?;
     
-    println!("✅ Created wallet '{}' with ID {} in database: {}", wallet_name, wallet_id, database_path);
-    println!("   Birthday: block {}", format_number(wallet.birthday()));
+    let wallet_type = if stored_wallet.has_seed_phrase() {
+        "full wallet with seed phrase"
+    } else {
+        "view-only wallet"
+    };
+    
+    println!("✅ Created {} '{}' with ID {} in database: {}", wallet_type, wallet_name, wallet_id, database_path);
+    println!("   Birthday: block {}", format_number(stored_wallet.birthday_block));
     println!("   Network: {}", network);
+    
+    if !stored_wallet.has_seed_phrase() {
+        println!("   ⚠️  This is a view-only wallet - you cannot spend from it");
+        println!("   💡 To scan from a specific block, use the scanner with --from-block option");
+    }
     
     Ok(())
 }
