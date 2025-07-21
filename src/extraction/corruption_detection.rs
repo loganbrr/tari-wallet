@@ -540,7 +540,7 @@ impl CorruptionDetector {
         }
 
         // Check for all same byte values
-        if data.len() > 0 {
+        if !data.is_empty() {
             let first_byte = data[0];
             if data.iter().all(|&b| b == first_byte) {
                 return true;
@@ -562,24 +562,24 @@ impl CorruptionDetector {
 
         match corruption_result.corruption_type() {
             Some(CorruptionType::EmptyData) => {
-                return Err(DataStructureError::InvalidDataFormat(
+                Err(DataStructureError::InvalidDataFormat(
                     "Cannot recover from empty data".to_string(),
                 )
-                .into());
+                .into())
             }
             Some(CorruptionType::InsufficientData) => {
-                return Err(DataStructureError::InvalidDataFormat(
+                Err(DataStructureError::InvalidDataFormat(
                     "Cannot recover from insufficient data".to_string(),
                 )
-                .into());
+                .into())
             }
             Some(CorruptionType::ZeroData) => {
                 // Try to find non-zero data in surrounding context
                 // This is a placeholder - in practice, you'd need more context
-                return Err(DataStructureError::InvalidDataFormat(
+                Err(DataStructureError::InvalidDataFormat(
                     "Cannot recover from zero data without additional context".to_string(),
                 )
-                .into());
+                .into())
             }
             _ => {
                 // For other corruption types, return original data
@@ -608,7 +608,7 @@ impl CorruptionDetector {
 
     /// Set the confidence threshold
     pub fn set_confidence_threshold(&mut self, confidence_threshold: f64) {
-        self.confidence_threshold = confidence_threshold.max(0.0).min(1.0);
+        self.confidence_threshold = confidence_threshold.clamp(0.0, 1.0);
     }
 
     /// Set whether to validate checksums

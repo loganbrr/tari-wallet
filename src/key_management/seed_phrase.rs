@@ -49,6 +49,12 @@ pub struct CipherSeed {
     salt: [u8; CIPHER_SEED_MAIN_SALT_BYTES],
 }
 
+impl Default for CipherSeed {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CipherSeed {
     /// Create a new CipherSeed with current birthday
     pub fn new() -> Self {
@@ -362,7 +368,7 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 }
 
 // English mnemonic word list (first 2048 words from BIP39)
-const MNEMONIC_ENGLISH_WORDS: [&str; 2048] = [
+static MNEMONIC_ENGLISH_WORDS: [&str; 2048] = [
     "abandon", "ability", "able", "about", "above", "absent", "absorb", "abstract", "absurd",
     "abuse", "access", "accident", "account", "accuse", "achieve", "acid", "acoustic", "acquire",
     "across", "act", "action", "actor", "actress", "actual", "adapt", "add", "addict", "address",
@@ -581,7 +587,7 @@ fn find_mnemonic_index_from_word(word: &str) -> Result<usize, KeyManagementError
     let lowercase_word = word.to_lowercase();
     match MNEMONIC_ENGLISH_WORDS.binary_search(&lowercase_word.as_str()) {
         Ok(index) => Ok(index),
-        Err(_) => Err(KeyManagementError::unknown_word(&word, 0)), // Position will be set by caller
+        Err(_) => Err(KeyManagementError::unknown_word(word, 0)), // Position will be set by caller
     }
 }
 

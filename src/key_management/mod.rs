@@ -30,11 +30,6 @@ impl KeyDerivationPath {
         }
     }
 
-    /// Convert path to string representation (e.g., "m/44'/123456'/0'/0/0")
-    pub fn to_string(&self) -> String {
-        format!("m/{}'/{:06}'", self.branch_seed, self.key_index)
-    }
-
     /// Parse path from string representation
     pub fn from_string(path: &str) -> Result<Self, KeyManagementError> {
         let parts: Vec<&str> = path.split('/').collect();
@@ -61,6 +56,12 @@ impl KeyDerivationPath {
 impl Default for KeyDerivationPath {
     fn default() -> Self {
         Self::new("".to_string(), 0)
+    }
+}
+
+impl std::fmt::Display for KeyDerivationPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "m/{}'/{:06}'", self.branch_seed, self.key_index)
     }
 }
 
@@ -272,7 +273,7 @@ impl KeyStore {
     ) -> Result<&ImportedPrivateKey, KeyManagementError> {
         self.imported_keys
             .iter()
-            .find(|key| key.label.as_ref().map_or(false, |l| l == label))
+            .find(|key| key.label.as_ref().is_some_and(|l| l == label))
             .ok_or_else(|| {
                 KeyManagementError::KeyNotFound(format!("Imported key with label '{}'", label))
             })

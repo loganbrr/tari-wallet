@@ -337,15 +337,13 @@ impl PaymentIdExtractor {
             return Ok(PaymentId::Empty);
         }
 
-        if s.starts_with("U256: ") {
-            let value_str = &s[6..];
+        if let Some(value_str) = s.strip_prefix("U256: ") {
             let value =
                 U256::from_str(value_str).map_err(|e| format!("Invalid U256 value: {}", e))?;
             return Ok(PaymentId::U256(value));
         }
 
-        if s.starts_with("Open: ") {
-            let data_str = &s[6..];
+        if let Some(data_str) = s.strip_prefix("Open: ") {
             let user_data = data_str.as_bytes().to_vec();
             return Ok(PaymentId::Open {
                 user_data,
@@ -353,8 +351,7 @@ impl PaymentIdExtractor {
             });
         }
 
-        if s.starts_with("Raw: ") {
-            let data_str = &s[5..];
+        if let Some(data_str) = s.strip_prefix("Raw: ") {
             let data = data_str.as_bytes().to_vec();
             return Ok(PaymentId::Raw(data));
         }

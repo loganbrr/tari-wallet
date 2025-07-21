@@ -397,7 +397,7 @@ pub fn diffie_hellman_shared_secret(
     let scalar = Scalar::from_bytes_mod_order(private_key.as_bytes());
 
     // Convert the CompressedPublicKey to a RistrettoPoint
-    let point_bytes: [u8; 32] = *public_key.as_bytes();
+    let point_bytes: [u8; 32] = public_key.as_bytes();
 
     let point = curve25519_dalek::ristretto::CompressedRistretto(point_bytes)
         .decompress()

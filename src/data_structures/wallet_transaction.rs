@@ -47,6 +47,7 @@ pub struct WalletTransaction {
 
 impl WalletTransaction {
     /// Create a new wallet transaction
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         block_height: u64,
         output_index: Option<usize>,
@@ -100,7 +101,7 @@ impl WalletTransaction {
 
     /// Get the output hash as hex string (if available)
     pub fn output_hash_hex(&self) -> Option<String> {
-        self.output_hash.as_ref().map(|hash| hex::encode(hash))
+        self.output_hash.as_ref().map(hex::encode)
     }
 }
 
@@ -168,6 +169,7 @@ impl WalletState {
     }
 
     /// Add a received output to the wallet state
+    #[allow(clippy::too_many_arguments)]
     pub fn add_received_output(
         &mut self,
         block_height: u64,

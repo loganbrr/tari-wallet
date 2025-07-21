@@ -485,15 +485,16 @@ pub struct SafeArray<const N: usize> {
     pub data: [u8; N],
 }
 
+impl<const N: usize> Default for SafeArray<N> {
+    fn default() -> Self {
+        Self { data: [0u8; N] }
+    }
+}
+
 impl<const N: usize> SafeArray<N> {
     /// Create a new safe array
     pub fn new(data: [u8; N]) -> Self {
         Self { data }
-    }
-
-    /// Create a default safe array
-    pub fn default() -> Self {
-        Self { data: [0u8; N] }
     }
 
     /// Get the array data
@@ -580,7 +581,7 @@ impl EncryptedDataKey {
     }
 
     /// Get the key as a mutable byte slice
-    pub fn as_mut(&mut self) -> &mut [u8; 32] {
+    pub fn as_mut_bytes(&mut self) -> &mut [u8; 32] {
         &mut self.0.data
     }
 }

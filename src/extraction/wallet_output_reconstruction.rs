@@ -85,7 +85,15 @@ impl WalletOutputReconstructor {
             options: WalletOutputReconstructionOptions::default(),
         }
     }
+}
 
+impl Default for WalletOutputReconstructor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl WalletOutputReconstructor {
     /// Create a new wallet output reconstructor with custom options
     pub fn with_options(options: WalletOutputReconstructionOptions) -> Self {
         Self { options }

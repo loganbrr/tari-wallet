@@ -132,7 +132,7 @@ pub fn extract_wallet_output(
             ImportedPrivateKey::new(private_key.clone(), Some("extraction_key".to_string()));
         key_store
             .add_imported_key(imported_key)
-            .map_err(|e| crate::errors::LightweightWalletError::KeyManagementError(e))?;
+            .map_err(crate::errors::LightweightWalletError::KeyManagementError)?;
     }
 
     // Create encrypted data decryptor
