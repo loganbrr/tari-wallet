@@ -9,7 +9,7 @@ use std::process::Command;
 #[tokio::test]
 async fn test_all_binaries_help() {
     let binaries = ["scanner", "wallet", "signing"];
-    
+
     for binary in &binaries {
         let output = Command::new("cargo")
             .arg("run")
@@ -21,17 +21,22 @@ async fn test_all_binaries_help() {
             .arg("--help")
             .output()
             .expect(&format!("Failed to execute {} --help", binary));
-        
-        assert_eq!(output.status.code().unwrap_or(-1), 0, 
-            "Binary {} should respond to --help\nstdout: {}\nstderr: {}", 
-            binary, 
+
+        assert_eq!(
+            output.status.code().unwrap_or(-1),
+            0,
+            "Binary {} should respond to --help\nstdout: {}\nstderr: {}",
+            binary,
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
-        
+
         let stdout = String::from_utf8_lossy(&output.stdout);
-        assert!(stdout.contains("help") || stdout.contains("Usage") || stdout.contains("USAGE"),
-            "Help output should contain usage information for {}", binary);
+        assert!(
+            stdout.contains("help") || stdout.contains("Usage") || stdout.contains("USAGE"),
+            "Help output should contain usage information for {}",
+            binary
+        );
     }
 }
 
@@ -39,7 +44,7 @@ async fn test_all_binaries_help() {
 #[tokio::test]
 async fn test_binaries_version() {
     let binaries = ["scanner", "wallet", "signing"];
-    
+
     for binary in &binaries {
         let output = Command::new("cargo")
             .arg("run")
@@ -51,18 +56,23 @@ async fn test_binaries_version() {
             .arg("--version")
             .output()
             .expect(&format!("Failed to execute {} --version", binary));
-        
-        assert_eq!(output.status.code().unwrap_or(-1), 0,
+
+        assert_eq!(
+            output.status.code().unwrap_or(-1),
+            0,
             "Binary {} should respond to --version\nstdout: {}\nstderr: {}",
             binary,
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
-        
+
         let stdout = String::from_utf8_lossy(&output.stdout);
         // Should contain a version number (e.g., "0.2.0")
-        assert!(stdout.contains("0.") || stdout.contains("1.") || stdout.contains("2."),
-            "Version output should contain version number for {}", binary);
+        assert!(
+            stdout.contains("0.") || stdout.contains("1.") || stdout.contains("2."),
+            "Version output should contain version number for {}",
+            binary
+        );
     }
 }
 
@@ -70,7 +80,7 @@ async fn test_binaries_version() {
 #[tokio::test]
 async fn test_binaries_invalid_args() {
     let binaries = ["scanner", "wallet", "signing"];
-    
+
     for binary in &binaries {
         let output = Command::new("cargo")
             .arg("run")
@@ -82,10 +92,14 @@ async fn test_binaries_invalid_args() {
             .arg("--invalid-option-that-should-not-exist")
             .output()
             .expect(&format!("Failed to execute {} with invalid option", binary));
-        
+
         // Should exit with non-zero code for invalid arguments
-        assert_ne!(output.status.code().unwrap_or(0), 0,
-            "Binary {} should fail with invalid arguments", binary);
+        assert_ne!(
+            output.status.code().unwrap_or(0),
+            0,
+            "Binary {} should fail with invalid arguments",
+            binary
+        );
     }
 }
 
@@ -103,9 +117,11 @@ async fn test_scanner_missing_args() {
         .arg("/nonexistent/path/wallet.db")
         .output()
         .expect("Failed to execute scanner with nonexistent database");
-    
+
     // Scanner should fail when database path doesn't exist and no keys provided
-    assert_ne!(output.status.code().unwrap_or(0), 0,
+    assert_ne!(
+        output.status.code().unwrap_or(0),
+        0,
         "Scanner should fail with nonexistent database and no keys\nstdout: {}\nstderr: {}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
@@ -130,20 +146,26 @@ async fn test_scanner_invalid_seed_phrase() {
         .arg("1")
         .output()
         .expect("Failed to execute scanner with invalid seed phrase");
-    
+
     // Scanner should fail with invalid seed phrase
-    assert_ne!(output.status.code().unwrap_or(0), 0,
-        "Scanner should fail with invalid seed phrase");
-    
-    let combined_output = format!("{}{}", 
+    assert_ne!(
+        output.status.code().unwrap_or(0),
+        0,
+        "Scanner should fail with invalid seed phrase"
+    );
+
+    let combined_output = format!(
+        "{}{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    
+
     // Should mention seed phrase in error
-    assert!(combined_output.to_lowercase().contains("seed") || 
-            combined_output.to_lowercase().contains("phrase"),
-        "Error should mention seed phrase issue");
+    assert!(
+        combined_output.to_lowercase().contains("seed")
+            || combined_output.to_lowercase().contains("phrase"),
+        "Error should mention seed phrase issue"
+    );
 }
 
 /// Test wallet generate command format validation
@@ -151,10 +173,10 @@ async fn test_scanner_invalid_seed_phrase() {
 #[tokio::test]
 async fn test_wallet_generate_basic() {
     use tempfile::tempdir;
-    
+
     let temp_dir = tempdir().expect("Failed to create temp directory");
     let db_path = temp_dir.path().join("test_wallet.db");
-    
+
     let output = Command::new("cargo")
         .arg("run")
         .arg("--bin")
@@ -169,18 +191,25 @@ async fn test_wallet_generate_basic() {
         .current_dir(temp_dir.path())
         .output()
         .expect("Failed to execute wallet generate");
-    
+
     if output.status.code().unwrap_or(-1) == 0 {
         let stdout = String::from_utf8_lossy(&output.stdout);
-        
+
         // Should contain expected wallet generation output
-        assert!(stdout.contains("Wallet") || stdout.contains("generated") ||
-                stdout.contains("Seed") || stdout.contains("Address"),
-            "Wallet generate should produce expected output");
+        assert!(
+            stdout.contains("Wallet")
+                || stdout.contains("generated")
+                || stdout.contains("Seed")
+                || stdout.contains("Address"),
+            "Wallet generate should produce expected output"
+        );
     } else {
         // If wallet generate fails, it should be due to missing storage feature or setup
         let stderr = String::from_utf8_lossy(&output.stderr);
-        println!("Wallet generate failed (expected if storage not enabled): {}", stderr);
+        println!(
+            "Wallet generate failed (expected if storage not enabled): {}",
+            stderr
+        );
     }
 }
 
@@ -198,18 +227,22 @@ async fn test_signing_generate_keypair() {
         .arg("--stdout")
         .output()
         .expect("Failed to execute signing generate");
-    
-    assert_eq!(output.status.code().unwrap_or(-1), 0,
+
+    assert_eq!(
+        output.status.code().unwrap_or(-1),
+        0,
         "Signing generate should succeed\nstdout: {}\nstderr: {}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    
+
     let stdout = String::from_utf8_lossy(&output.stdout);
-    
+
     // Should contain key generation output
-    assert!(stdout.contains("Key") || stdout.contains("Generated"),
-        "Signing generate should produce key output");
+    assert!(
+        stdout.contains("Key") || stdout.contains("Generated"),
+        "Signing generate should produce key output"
+    );
 }
 
 /// Test that binaries compile and run without panicking
@@ -220,29 +253,32 @@ async fn test_binaries_basic_execution() {
         ("wallet", vec!["--help"]),
         ("signing", vec!["--help"]),
     ];
-    
+
     for (binary, args) in test_cases {
         let mut cmd = Command::new("cargo");
         cmd.arg("run")
-           .arg("--bin")
-           .arg(binary)
-           .arg("--features")
-           .arg("grpc-storage")
-           .arg("--");
-        
+            .arg("--bin")
+            .arg(binary)
+            .arg("--features")
+            .arg("grpc-storage")
+            .arg("--");
+
         for arg in args {
             cmd.arg(arg);
         }
-        
-        let output = cmd.output()
+
+        let output = cmd
+            .output()
             .expect(&format!("Failed to execute {} with basic args", binary));
-        
+
         // We mainly care that the binary doesn't panic or crash
         // Exit code can be 0 (success) or 1 (expected failure), but not -1 (crash)
         let exit_code = output.status.code().unwrap_or(-1);
-        assert!(exit_code >= 0, 
+        assert!(
+            exit_code >= 0,
             "Binary {} should not crash (exit code: {})\nstdout: {}\nstderr: {}",
-            binary, exit_code,
+            binary,
+            exit_code,
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );

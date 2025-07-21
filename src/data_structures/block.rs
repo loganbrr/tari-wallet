@@ -387,7 +387,6 @@ mod tests {
         wallet_transaction::WalletState,
     };
 
-
     fn create_test_block() -> Block {
         Block::new(1000, vec![1, 2, 3, 4], 1234567890, vec![], vec![])
     }
@@ -450,7 +449,7 @@ mod tests {
     fn test_block_with_outputs_and_inputs() {
         let output = create_test_output_with_features(LightweightOutputType::Payment, 0, 1000);
         let input = create_test_input([1u8; 32], [2u8; 32]);
-        
+
         let block = Block::new(
             1000,
             vec![1, 2, 3, 4],
@@ -458,7 +457,7 @@ mod tests {
             vec![output],
             vec![input],
         );
-        
+
         assert_eq!(block.output_count(), 1);
         assert_eq!(block.input_count(), 1);
     }
@@ -468,7 +467,7 @@ mod tests {
         let output1 = create_test_output_with_features(LightweightOutputType::Payment, 0, 1000);
         let output2 = create_test_output_with_features(LightweightOutputType::Coinbase, 100, 5000);
         let input = create_test_input([1u8; 32], [2u8; 32]);
-        
+
         let block = Block::new(
             1000,
             vec![1, 2, 3, 4],
@@ -476,14 +475,14 @@ mod tests {
             vec![output1, output2],
             vec![input],
         );
-        
+
         let summary = block.summary();
         assert_eq!(summary.height, 1000);
         assert_eq!(summary.hash, vec![1, 2, 3, 4]);
         assert_eq!(summary.timestamp, 1234567890);
         assert_eq!(summary.output_count, 2);
         assert_eq!(summary.input_count, 1);
-        
+
         let summary_str = summary.to_string();
         assert!(summary_str.contains("Block 1000"));
         assert!(summary_str.contains("outputs: 2"));
@@ -515,7 +514,9 @@ mod tests {
         let entropy = [0u8; 16];
         let mut wallet_state = WalletState::new();
 
-        let found_count = block.process_outputs(&view_key, &entropy, &mut wallet_state).unwrap();
+        let found_count = block
+            .process_outputs(&view_key, &entropy, &mut wallet_state)
+            .unwrap();
         assert_eq!(found_count, 0);
     }
 
@@ -523,13 +524,15 @@ mod tests {
     fn test_process_outputs_no_encrypted_data() {
         let output = create_test_output_with_features(LightweightOutputType::Payment, 0, 1000);
         let block = Block::new(1000, vec![1, 2, 3, 4], 1234567890, vec![output], vec![]);
-        
+
         let view_key = create_test_private_key();
         let entropy = [0u8; 16];
         let mut wallet_state = WalletState::new();
 
         // Should find no outputs since there's no encrypted data and it's not coinbase
-        let found_count = block.process_outputs(&view_key, &entropy, &mut wallet_state).unwrap();
+        let found_count = block
+            .process_outputs(&view_key, &entropy, &mut wallet_state)
+            .unwrap();
         assert_eq!(found_count, 0);
     }
 
@@ -537,37 +540,50 @@ mod tests {
     fn test_process_outputs_coinbase_without_encrypted_data() {
         let output = create_test_output_with_features(LightweightOutputType::Coinbase, 100, 5000);
         let block = Block::new(1100, vec![1, 2, 3, 4], 1234567890, vec![output], vec![]);
-        
+
         let view_key = create_test_private_key();
         let entropy = [0u8; 16];
         let mut wallet_state = WalletState::new();
 
         // Should find no outputs since coinbase has no encrypted data to verify ownership
-        let found_count = block.process_outputs(&view_key, &entropy, &mut wallet_state).unwrap();
+        let found_count = block
+            .process_outputs(&view_key, &entropy, &mut wallet_state)
+            .unwrap();
         assert_eq!(found_count, 0);
     }
 
     #[test]
     fn test_process_outputs_coinbase_maturity() {
-        let mut output = create_test_output_with_features(LightweightOutputType::Coinbase, 100, 5000);
+        let mut output =
+            create_test_output_with_features(LightweightOutputType::Coinbase, 100, 5000);
         // Add some encrypted data to simulate ownership verification
         output.encrypted_data = EncryptedData::from_bytes(&[1, 2, 3, 4]).unwrap_or_default();
-        
+
         // Test immature coinbase (block height < maturity)
-        let block_immature = Block::new(50, vec![1, 2, 3, 4], 1234567890, vec![output.clone()], vec![]);
+        let block_immature = Block::new(
+            50,
+            vec![1, 2, 3, 4],
+            1234567890,
+            vec![output.clone()],
+            vec![],
+        );
         let view_key = create_test_private_key();
         let entropy = [0u8; 16];
         let mut wallet_state = WalletState::new();
 
-        let found_count = block_immature.process_outputs(&view_key, &entropy, &mut wallet_state).unwrap();
+        let found_count = block_immature
+            .process_outputs(&view_key, &entropy, &mut wallet_state)
+            .unwrap();
         // Will be 0 because encryption verification will fail with test data
         assert_eq!(found_count, 0);
-        
+
         // Test mature coinbase (block height >= maturity)
         let block_mature = Block::new(150, vec![1, 2, 3, 4], 1234567890, vec![output], vec![]);
         let mut wallet_state = WalletState::new();
-        
-        let found_count = block_mature.process_outputs(&view_key, &entropy, &mut wallet_state).unwrap();
+
+        let found_count = block_mature
+            .process_outputs(&view_key, &entropy, &mut wallet_state)
+            .unwrap();
         // Will be 0 because encryption verification will fail with test data
         assert_eq!(found_count, 0);
     }
@@ -655,18 +671,32 @@ mod tests {
 
         // Add multiple received outputs
         wallet_state.add_received_output(
-            100, 0, commitment1.clone(), Some(output_hash1.to_vec()), 1000,
-            PaymentId::Empty, TransactionStatus::MinedConfirmed, TransactionDirection::Inbound, true,
+            100,
+            0,
+            commitment1.clone(),
+            Some(output_hash1.to_vec()),
+            1000,
+            PaymentId::Empty,
+            TransactionStatus::MinedConfirmed,
+            TransactionDirection::Inbound,
+            true,
         );
         wallet_state.add_received_output(
-            100, 1, commitment2.clone(), Some(output_hash2.to_vec()), 2000,
-            PaymentId::Empty, TransactionStatus::MinedConfirmed, TransactionDirection::Inbound, true,
+            100,
+            1,
+            commitment2.clone(),
+            Some(output_hash2.to_vec()),
+            2000,
+            PaymentId::Empty,
+            TransactionStatus::MinedConfirmed,
+            TransactionDirection::Inbound,
+            true,
         );
 
         // Create inputs that spend both outputs
         let input1 = create_test_input([0u8; 32], output_hash1);
         let input2 = create_test_input(*commitment2.as_bytes(), [0u8; 32]);
-        
+
         let block = Block::new(200, vec![1, 2, 3], 123456789, vec![], vec![input1, input2]);
 
         let spent_count = block.process_inputs(&mut wallet_state).unwrap();
@@ -679,8 +709,14 @@ mod tests {
     fn test_scan_for_wallet_activity() {
         let output = create_test_output_with_features(LightweightOutputType::Payment, 0, 1000);
         let input = create_test_input([1u8; 32], [2u8; 32]);
-        
-        let block = Block::new(1000, vec![1, 2, 3, 4], 1234567890, vec![output], vec![input]);
+
+        let block = Block::new(
+            1000,
+            vec![1, 2, 3, 4],
+            1234567890,
+            vec![output],
+            vec![input],
+        );
         let view_key = create_test_private_key();
         let entropy = [0u8; 16];
         let mut wallet_state = WalletState::new();
@@ -688,7 +724,7 @@ mod tests {
         let (found_outputs, spent_outputs) = block
             .scan_for_wallet_activity(&view_key, &entropy, &mut wallet_state)
             .unwrap();
-        
+
         // Should find no outputs due to missing encrypted data, and no spent outputs due to no matching outputs
         assert_eq!(found_outputs, 0);
         assert_eq!(spent_outputs, 0);
@@ -697,13 +733,7 @@ mod tests {
     #[test]
     fn test_block_edge_cases() {
         // Test with maximum values
-        let block = Block::new(
-            u64::MAX,
-            vec![255u8; 32],
-            u64::MAX,
-            vec![],
-            vec![],
-        );
+        let block = Block::new(u64::MAX, vec![255u8; 32], u64::MAX, vec![], vec![]);
         assert_eq!(block.height, u64::MAX);
         assert_eq!(block.timestamp, u64::MAX);
         assert_eq!(block.hash.len(), 32);
@@ -713,12 +743,10 @@ mod tests {
         assert_eq!(block_empty_hash.hash.len(), 0);
 
         // Test with large numbers of outputs and inputs
-        let outputs = vec![
-            create_test_output_with_features(LightweightOutputType::Payment, 0, 1000);
-            100
-        ];
+        let outputs =
+            vec![create_test_output_with_features(LightweightOutputType::Payment, 0, 1000); 100];
         let inputs = vec![create_test_input([1u8; 32], [2u8; 32]); 50];
-        
+
         let large_block = Block::new(1000, vec![1, 2, 3, 4], 1234567890, outputs, inputs);
         assert_eq!(large_block.output_count(), 100);
         assert_eq!(large_block.input_count(), 50);
@@ -727,16 +755,19 @@ mod tests {
     #[test]
     fn test_output_processing_result() {
         // Test the internal OutputProcessingResult structure indirectly
-        let mut output = create_test_output_with_features(LightweightOutputType::Coinbase, 100, 5000);
+        let mut output =
+            create_test_output_with_features(LightweightOutputType::Coinbase, 100, 5000);
         output.encrypted_data = EncryptedData::from_bytes(&[1, 2, 3, 4]).unwrap_or_default();
-        
+
         let block = Block::new(150, vec![1, 2, 3, 4], 1234567890, vec![output], vec![]);
         let view_key = create_test_private_key();
         let entropy = [0u8; 16];
         let mut wallet_state = WalletState::new();
 
         // This tests the internal processing result handling
-        let found_count = block.process_outputs(&view_key, &entropy, &mut wallet_state).unwrap();
+        let found_count = block
+            .process_outputs(&view_key, &entropy, &mut wallet_state)
+            .unwrap();
         assert_eq!(found_count, 0); // Will be 0 due to encryption verification failure with test data
     }
 
@@ -748,15 +779,17 @@ mod tests {
             create_test_output_with_features(LightweightOutputType::Coinbase, 50, 2000),
             create_test_output_with_features(LightweightOutputType::Payment, 0, 3000),
         ];
-        
+
         let block = Block::new(1000, vec![1, 2, 3, 4], 1234567890, outputs, vec![]);
         let view_key = create_test_private_key();
         let entropy = [0u8; 16];
         let mut wallet_state = WalletState::new();
 
         // Test with current feature flags
-        let found_count = block.process_outputs(&view_key, &entropy, &mut wallet_state).unwrap();
-        
+        let found_count = block
+            .process_outputs(&view_key, &entropy, &mut wallet_state)
+            .unwrap();
+
         // Should be 0 due to no valid encrypted data for test keys
         assert_eq!(found_count, 0);
     }
@@ -764,18 +797,24 @@ mod tests {
     #[test]
     fn test_input_processing_edge_cases() {
         let mut wallet_state = WalletState::new();
-        
+
         // Test input with all zero commitment and output hash
         let zero_input = create_test_input([0u8; 32], [0u8; 32]);
         let block = Block::new(200, vec![1, 2, 3], 123456789, vec![], vec![zero_input]);
-        
+
         let spent_count = block.process_inputs(&mut wallet_state).unwrap();
         assert_eq!(spent_count, 0);
-        
+
         // Test input with partial zeros
         let partial_zero_input = create_test_input([1u8; 32], [0u8; 32]);
-        let block2 = Block::new(200, vec![1, 2, 3], 123456789, vec![], vec![partial_zero_input]);
-        
+        let block2 = Block::new(
+            200,
+            vec![1, 2, 3],
+            123456789,
+            vec![],
+            vec![partial_zero_input],
+        );
+
         let spent_count2 = block2.process_inputs(&mut wallet_state).unwrap();
         assert_eq!(spent_count2, 0);
     }

@@ -586,8 +586,8 @@ impl HexValidatable for LightweightExecutionStack {}
 #[cfg(test)]
 mod test {
     use super::*;
-    use primitive_types::U256;
     use crate::hex_utils::HexEncodable;
+    use primitive_types::U256;
 
     #[test]
     fn test_lightweight_wallet_output_creation() {
@@ -624,18 +624,28 @@ mod test {
         let sender_offset_public_key = CompressedPublicKey::new([2u8; 32]);
         let encrypted_data = EncryptedData::from_bytes(&[1, 2, 3, 4, 5]).unwrap_or_default();
         let payment_id = PaymentId::Empty;
-        
+
         let mut features = LightweightOutputFeatures::default();
         features.output_type = LightweightOutputType::Coinbase;
         features.maturity = 50;
         features.range_proof_type = LightweightRangeProofType::RevealedValue;
-        
-        let script = LightweightScript { bytes: vec![10, 20, 30] };
-        let covenant = LightweightCovenant { bytes: vec![40, 50, 60] };
-        let input_data = LightweightExecutionStack { items: vec![vec![70, 80, 90]] };
-        let metadata_signature = LightweightSignature { bytes: vec![100, 110, 120] };
-        let range_proof = Some(LightweightRangeProof { bytes: vec![130, 140, 150] });
-        
+
+        let script = LightweightScript {
+            bytes: vec![10, 20, 30],
+        };
+        let covenant = LightweightCovenant {
+            bytes: vec![40, 50, 60],
+        };
+        let input_data = LightweightExecutionStack {
+            items: vec![vec![70, 80, 90]],
+        };
+        let metadata_signature = LightweightSignature {
+            bytes: vec![100, 110, 120],
+        };
+        let range_proof = Some(LightweightRangeProof {
+            bytes: vec![130, 140, 150],
+        });
+
         let output = LightweightWalletOutput::new(
             2,
             value,
@@ -661,7 +671,10 @@ mod test {
         assert_eq!(output.output_type(), &LightweightOutputType::Coinbase);
         assert_eq!(output.maturity(), 50);
         assert_eq!(output.script_lock_height(), 75);
-        assert_eq!(output.range_proof_type(), &LightweightRangeProofType::RevealedValue);
+        assert_eq!(
+            output.range_proof_type(),
+            &LightweightRangeProofType::RevealedValue
+        );
         assert_eq!(output.script(), &script);
         assert_eq!(output.covenant(), &covenant);
         assert_eq!(output.input_data(), &input_data);
@@ -679,7 +692,10 @@ mod test {
         let zero_key = LightweightKeyId::Zero;
 
         assert_eq!(string_key.to_string(), "test_key");
-        assert_eq!(public_key.to_string(), "0101010101010101010101010101010101010101010101010101010101010101");
+        assert_eq!(
+            public_key.to_string(),
+            "0101010101010101010101010101010101010101010101010101010101010101"
+        );
         assert_eq!(zero_key.to_string(), "zero");
 
         // Test equality
@@ -693,7 +709,10 @@ mod test {
         let mut features = LightweightOutputFeatures::default();
         assert_eq!(features.output_type, LightweightOutputType::Payment);
         assert_eq!(features.maturity, 0);
-        assert_eq!(features.range_proof_type, LightweightRangeProofType::BulletProofPlus);
+        assert_eq!(
+            features.range_proof_type,
+            LightweightRangeProofType::BulletProofPlus
+        );
 
         features.output_type = LightweightOutputType::ValidatorNodeRegistration;
         features.maturity = 1000;
@@ -719,11 +738,19 @@ mod test {
 
     #[test]
     fn test_lightweight_script_components() {
-        let script = LightweightScript { bytes: vec![1, 2, 3, 4, 5] };
-        let covenant = LightweightCovenant { bytes: vec![6, 7, 8, 9, 10] };
-        let signature = LightweightSignature { bytes: vec![11, 12, 13, 14, 15] };
-        let range_proof = LightweightRangeProof { bytes: vec![16, 17, 18, 19, 20] };
-        
+        let script = LightweightScript {
+            bytes: vec![1, 2, 3, 4, 5],
+        };
+        let covenant = LightweightCovenant {
+            bytes: vec![6, 7, 8, 9, 10],
+        };
+        let signature = LightweightSignature {
+            bytes: vec![11, 12, 13, 14, 15],
+        };
+        let range_proof = LightweightRangeProof {
+            bytes: vec![16, 17, 18, 19, 20],
+        };
+
         let mut execution_stack = LightweightExecutionStack::default();
         execution_stack.items = vec![vec![21, 22], vec![23, 24, 25]];
 
@@ -732,7 +759,7 @@ mod test {
         assert_eq!(signature.bytes, vec![11, 12, 13, 14, 15]);
         assert_eq!(range_proof.bytes, vec![16, 17, 18, 19, 20]);
         assert_eq!(execution_stack.items, vec![vec![21, 22], vec![23, 24, 25]]);
-        
+
         let stack_bytes = execution_stack.bytes();
         assert!(!stack_bytes.is_empty());
     }
@@ -771,19 +798,19 @@ mod test {
     #[test]
     fn test_lightweight_wallet_output_edge_cases() {
         let mut output = LightweightWalletOutput::default();
-        
+
         // Test boundary conditions
         output.features.maturity = 0;
         output.script_lock_height = 0;
         assert!(output.can_be_spent_at(0));
         assert!(output.can_be_spent_at(1));
-        
+
         // Test maximum values
         output.features.maturity = u64::MAX;
         output.script_lock_height = u64::MAX;
         assert!(!output.can_be_spent_at(u64::MAX - 1));
         assert!(output.can_be_spent_at(u64::MAX));
-        
+
         // Test with high maturity but low script lock
         output.features.maturity = 1000;
         output.script_lock_height = 500;
@@ -856,22 +883,24 @@ mod test {
     #[test]
     fn test_lightweight_wallet_output_mutations() {
         let mut output = LightweightWalletOutput::default();
-        
+
         // Test setting and removing range proof
         assert!(output.range_proof().is_none());
-        
-        let range_proof = LightweightRangeProof { bytes: vec![1, 2, 3, 4, 5] };
+
+        let range_proof = LightweightRangeProof {
+            bytes: vec![1, 2, 3, 4, 5],
+        };
         output.set_range_proof(range_proof.clone());
         assert_eq!(output.range_proof(), Some(&range_proof));
-        
+
         output.remove_range_proof();
         assert!(output.range_proof().is_none());
-        
+
         // Test updating encrypted data
         let new_encrypted_data = EncryptedData::from_bytes(&[10, 20, 30, 40]).unwrap_or_default();
         output.update_encrypted_data(new_encrypted_data.clone());
         assert_eq!(output.encrypted_data(), &new_encrypted_data);
-        
+
         // Test updating payment ID
         let new_payment_id = PaymentId::U256(U256::from(98765));
         output.update_payment_id(new_payment_id.clone());
@@ -880,28 +909,36 @@ mod test {
 
     #[test]
     fn test_hex_encoding_for_components() {
-        let script = LightweightScript { bytes: vec![0xDE, 0xAD, 0xBE, 0xEF] };
+        let script = LightweightScript {
+            bytes: vec![0xDE, 0xAD, 0xBE, 0xEF],
+        };
         let hex = script.to_hex();
         let decoded = LightweightScript::from_hex(&hex).unwrap();
         assert_eq!(script, decoded);
 
-        let signature = LightweightSignature { bytes: vec![0xCA, 0xFE, 0xBA, 0xBE] };
+        let signature = LightweightSignature {
+            bytes: vec![0xCA, 0xFE, 0xBA, 0xBE],
+        };
         let hex = signature.to_hex();
         let decoded = LightweightSignature::from_hex(&hex).unwrap();
         assert_eq!(signature, decoded);
 
-        let range_proof = LightweightRangeProof { bytes: vec![0x12, 0x34, 0x56, 0x78] };
+        let range_proof = LightweightRangeProof {
+            bytes: vec![0x12, 0x34, 0x56, 0x78],
+        };
         let hex = range_proof.to_hex();
         let decoded = LightweightRangeProof::from_hex(&hex).unwrap();
         assert_eq!(range_proof, decoded);
 
-        let covenant = LightweightCovenant { bytes: vec![0xAB, 0xCD, 0xEF, 0x01] };
+        let covenant = LightweightCovenant {
+            bytes: vec![0xAB, 0xCD, 0xEF, 0x01],
+        };
         let hex = covenant.to_hex();
         let decoded = LightweightCovenant::from_hex(&hex).unwrap();
         assert_eq!(covenant, decoded);
 
-        let execution_stack = LightweightExecutionStack { 
-            items: vec![vec![0x11, 0x22], vec![0x33, 0x44, 0x55]] 
+        let execution_stack = LightweightExecutionStack {
+            items: vec![vec![0x11, 0x22], vec![0x33, 0x44, 0x55]],
         };
         let hex = execution_stack.to_hex();
         let decoded = LightweightExecutionStack::from_hex(&hex).unwrap();
@@ -931,7 +968,7 @@ mod test {
         complex_output.features.output_type = LightweightOutputType::Coinbase;
         complex_output.features.maturity = 500;
         complex_output.script_lock_height = 1000;
-        
+
         let hex = complex_output.to_hex();
         let decoded = LightweightWalletOutput::from_hex(&hex).unwrap();
         assert_eq!(complex_output, decoded);
@@ -951,7 +988,10 @@ mod test {
         let default_features = LightweightOutputFeatures::default();
         assert_eq!(default_features.output_type, LightweightOutputType::Payment);
         assert_eq!(default_features.maturity, 0);
-        assert_eq!(default_features.range_proof_type, LightweightRangeProofType::BulletProofPlus);
+        assert_eq!(
+            default_features.range_proof_type,
+            LightweightRangeProofType::BulletProofPlus
+        );
 
         let default_script = LightweightScript::default();
         assert!(default_script.bytes.is_empty());
