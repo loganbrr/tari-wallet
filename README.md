@@ -51,6 +51,14 @@ The Tari Lightweight Wallet Libraries provide essential wallet functionality ext
 - ✅ Payment ID extraction and decoding
 - ✅ Stealth address key recovery
 
+### ✍️ **Message Signing & Verification**
+- ✅ Tari-compatible Schnorr signature generation
+- ✅ Domain-separated message signing for security
+- ✅ Hex-encoded signature components for transport
+- ✅ Complete signature verification workflows
+- ✅ CLI tool for signing and verification operations
+- ✅ JSON and compact output formats
+
 ## 📦 **Installation**
 
 Add to your `Cargo.toml`:
@@ -141,6 +149,41 @@ let entropy = cipher_seed.entropy();
 println!("Extracted entropy: {:?}", entropy);
 ```
 
+### Message Signing & Verification
+
+```rust
+use lightweight_wallet_libs::crypto::signing::{
+    sign_message_with_hex_output, 
+    verify_message_from_hex
+};
+use tari_crypto::{
+    keys::{PublicKey, SecretKey},
+    ristretto::{RistrettoPublicKey, RistrettoSecretKey},
+};
+use tari_utilities::hex::Hex;
+use rand::rngs::OsRng;
+
+// Generate a keypair for signing
+let secret_key = RistrettoSecretKey::random(&mut OsRng);
+let public_key = RistrettoPublicKey::from_secret_key(&secret_key);
+
+// Sign a message
+let message = "Hello, Tari! This message is cryptographically signed.";
+let (signature_hex, nonce_hex) = sign_message_with_hex_output(&secret_key, message)?;
+
+println!("Message: {}", message);
+println!("Signature: {}", signature_hex);
+println!("Nonce: {}", nonce_hex);
+
+// Verify the signature
+let is_valid = verify_message_from_hex(&public_key, message, &signature_hex, &nonce_hex)?;
+println!("Signature valid: {}", is_valid);
+
+// Export keys for use in CLI tool
+println!("Secret key (hex): {}", secret_key.to_hex());
+println!("Public key (hex): {}", public_key.to_hex());
+```
+
 ### Blockchain Scanning
 
 ```rust
@@ -214,6 +257,8 @@ lightweight_wallet_libs/
 ├── extraction/       # UTXO processing
 ├── scanning/         # Blockchain scanning
 ├── crypto/           # Independent crypto primitives
+│   ├── signing.rs    # Message signing and verification
+│   └── hash_domain.rs # Domain separation for security  
 └── errors/           # Comprehensive error handling
 ```
 
@@ -224,6 +269,7 @@ lightweight_wallet_libs/
 - **`TariAddress`**: Dual and single address types with multiple encoding formats
 - **`BlockchainScanner`**: GRPC-based scanning for wallet output discovery
 - **`ValidationEngine`**: Cryptographic proof and signature validation
+- **`MessageSigning`**: Tari-compatible Schnorr signature creation and verification
 
 ## 🌐 **Cross-Platform Support**
 
@@ -245,14 +291,11 @@ use lightweight_wallet_libs::wasm::*;
 - iOS: Use via C FFI or Swift Package Manager
 - React Native: Use via WASM bindings
 
-## 🧪 **Examples**
+## 🧪 **CLI Tools**
 
-Check out the [`examples/`](examples/) directory for complete working examples:
+The project includes powerful command-line tools for wallet operations:
 
-- [`wallet.rs`](examples/wallet.rs) - Complete wallet CLI with address generation
-- [`scanner.rs`](examples/scanner.rs) - Advanced blockchain scanner with comprehensive features
-
-Run examples:
+### 💼 **Wallet CLI** - Complete wallet management
 ```bash
 # Create new wallet with seed phrase
 cargo run --bin wallet new-wallet
@@ -262,7 +305,10 @@ cargo run --bin wallet new-address "your 24-word seed phrase here"
 
 # Create wallet with payment ID and custom network
 cargo run --bin wallet new-wallet --network stagenet --payment-id "my-payment-123"
+```
 
+### 🔍 **Scanner CLI** - Advanced blockchain analysis
+```bash
 # Comprehensive blockchain scanning (requires running Tari base node)
 cargo run --bin scanner --features grpc -- --seed-phrase "your seed phrase"
 
@@ -272,6 +318,69 @@ cargo run --bin scanner --features grpc -- --view-key "your_64_char_hex_view_key
 # Scan with multiple output formats
 cargo run --bin scanner --features grpc -- --seed-phrase "your seed phrase" --format summary --quiet
 ```
+
+### ✍️ **Signing CLI** - Message signing and verification
+```bash
+# Generate a new keypair
+cargo run --bin signing --all-features -- generate --stdout
+
+# Save keypair to files
+cargo run --bin signing --all-features -- generate --secret-key-file secret.key --public-key-file public.key
+
+# Sign a message
+cargo run --bin signing --all-features -- sign \
+    --secret-key-file secret.key \
+    --message "Hello, Tari! This is a signed message."
+
+# Sign with JSON output format
+cargo run --bin signing --all-features -- sign \
+    --secret-key-file secret.key \
+    --message "Test message" \
+    --format json \
+    --output-file signature.json
+
+# Verify a signature using hex components
+cargo run --bin signing --all-features -- verify \
+    --public-key-file public.key \
+    --message "Hello, Tari! This is a signed message." \
+    --signature <signature_hex> \
+    --nonce <nonce_hex> \
+    --verbose
+
+# Verify using signature file (compact format)
+cargo run --bin signing --all-features -- verify \
+    --public-key-file public.key \
+    --message "Test message" \
+    --signature-file signature.txt
+
+# Verify using JSON signature file
+cargo run --bin signing --all-features -- verify \
+    --public-key-file public.key \
+    --message "Test message" \
+    --signature-file signature.json
+
+# Sign and verify workflow with files
+echo "My important message" > message.txt
+cargo run --bin signing --all-features -- sign \
+    --secret-key-file secret.key \
+    --message-file message.txt \
+    --output-file signature.txt
+
+cargo run --bin signing --all-features -- verify \
+    --public-key-file public.key \
+    --message-file message.txt \
+    --signature-file signature.txt
+```
+
+#### **Signing CLI Features:**
+- **🔑 Keypair Generation**: Create new Ed25519 keypairs with secure randomness
+- **✍️ Message Signing**: Sign arbitrary messages with Schnorr signatures  
+- **✅ Signature Verification**: Verify signatures with detailed validation
+- **📁 File Support**: Read keys/messages from files for automation
+- **🎯 Multiple Formats**: Compact (sig:nonce) and JSON output formats
+- **🔧 Flexible Input**: Support command-line args and file inputs
+- **📊 Verbose Mode**: Detailed output for debugging and verification
+- **🔒 Tari Compatible**: 100% compatible with Tari wallet message signing
 
 ## 🔒 **Security Features**
 
@@ -297,6 +406,7 @@ cargo run --bin scanner --features grpc -- --seed-phrase "your seed phrase" --fo
 - 📡 Lightweight desktop applications
 - 🚀 DeFi integrations requiring Tari addresses
 - 🔍 Blockchain analysis tools
+- ✍️ Message signing and authentication systems
 
 ### ❌ **Not Suitable For**
 - ⛏️ Running Tari base nodes
@@ -334,6 +444,9 @@ cargo test --all-features
 
 # Check WASM compatibility
 cargo check --target wasm32-unknown-unknown --features wasm
+
+# Test signing binary
+cargo test --bin signing --all-features
 ```
 
 ### Testing
@@ -344,6 +457,11 @@ cargo test
 
 # Integration tests with GRPC (requires base node)
 cargo test --features grpc
+
+# Test specific binaries
+cargo test --bin wallet --all-features
+cargo test --bin scanner --all-features
+cargo test --bin signing --all-features
 
 # WASM tests
 wasm-pack test --node --features wasm
