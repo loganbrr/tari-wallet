@@ -156,6 +156,8 @@ impl SqliteStorage {
             CREATE INDEX IF NOT EXISTS idx_transactions_status ON wallet_transactions(transaction_status);
             CREATE INDEX IF NOT EXISTS idx_transactions_spent_block ON wallet_transactions(spent_in_block);
             CREATE INDEX IF NOT EXISTS idx_transactions_wallet_block ON wallet_transactions(wallet_id, block_height);
+            -- Optimized compound index for spent marking query (commitment_hex + is_spent)
+            CREATE INDEX IF NOT EXISTS idx_transactions_commitment_spent ON wallet_transactions(commitment_hex, is_spent);
 
             -- Indexes for outputs table (NEW)
             CREATE INDEX IF NOT EXISTS idx_outputs_wallet_id ON outputs(wallet_id);

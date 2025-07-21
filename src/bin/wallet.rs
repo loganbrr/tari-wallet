@@ -120,6 +120,11 @@ enum Commands {
         /// Database file path
         #[arg(long, default_value = "./wallet.db")]
         database: String,
+
+        /// Do not prompt for confirmation
+        #[arg(long, default_value = "false")]
+        no_prompt: bool,
+    
     },
 }
 
@@ -182,8 +187,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
-        Commands::ClearDatabase { database } => {
-            handle_clear_database(database).await?;
+        Commands::ClearDatabase { database, no_prompt } => {
+            handle_clear_database(database, no_prompt).await?;
         }
     }
     
@@ -840,7 +845,7 @@ async fn handle_create_wallet(
 
 /// Clear all data from the database
 #[cfg(feature = "storage")]
-async fn handle_clear_database(database_path: String) -> Result<(), Box<dyn std::error::Error>> {
+async fn handle_clear_database(database_path: String, no_prompt: bool) -> Result<(), Box<dyn std::error::Error>> {
     if database_path == ":memory:" {
         println!("Cannot clear in-memory database");
         return Ok(());
@@ -848,12 +853,16 @@ async fn handle_clear_database(database_path: String) -> Result<(), Box<dyn std:
     
     // Confirm action
     println!("⚠️  WARNING: This will permanently delete ALL data from: {}", database_path);
-    print!("Are you sure you want to continue? (yes/no): ");
-    std::io::Write::flush(&mut std::io::stdout()).unwrap();
-    
-    let mut input = String::new();
-    std::io::stdin().read_line(&mut input)?;
-    let confirmation = input.trim().to_lowercase();
+    if let confirmation = !no_prompt {
+        print!("Are you sure you want to continue? (yes/no): ");
+        std::io::Write::flush(&mut std::io::stdout()).unwrap();
+        
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        input.trim().to_lowercase()
+    } else {
+        "yes".to_string()
+    }
     
     if confirmation != "yes" && confirmation != "y" {
         println!("Operation cancelled");

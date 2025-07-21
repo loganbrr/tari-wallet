@@ -282,6 +282,10 @@ pub enum BackgroundWriterCommand {
         input_index: usize,
         response_tx: oneshot::Sender<LightweightWalletResult<bool>>,
     },
+    MarkTransactionsSpentBatch {
+        commitments: Vec<(CompressedCommitment, u64, usize)>,
+        response_tx: oneshot::Sender<LightweightWalletResult<usize>>,
+    },
     Shutdown {
         response_tx: oneshot::Sender<()>,
     },
@@ -401,6 +405,10 @@ impl ScannerStorage {
                 }
                 BackgroundWriterCommand::MarkTransactionSpent { commitment, block_height, input_index, response_tx } => {
                     let result = storage.mark_transaction_spent(&commitment, block_height, input_index).await;
+                    let _ = response_tx.send(result);
+                }
+                BackgroundWriterCommand::MarkTransactionsSpentBatch { commitments, response_tx } => {
+                    let result = storage.mark_transactions_spent_batch(&commitments).await;
                     let _ = response_tx.send(result);
                 }
                 BackgroundWriterCommand::Shutdown { response_tx } => {
@@ -796,6 +804,38 @@ impl ScannerStorage {
     /// Mark multiple transactions as spent in batch - architecture-specific implementation
     #[cfg(feature = "storage")]
     pub async fn mark_transactions_spent_batch_arch_specific(
+        &self,
+        spent_commitments: &[(CompressedCommitment, u64, usize)],
+    ) -> LightweightWalletResult<usize> {
+        self.mark_transactions_spent_batch_impl(spent_commitments).await
+    }
+
+    /// Architecture-specific batch transaction spent marking (non-WASM32: background writer)
+    #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+    async fn mark_transactions_spent_batch_impl(
+        &self,
+        spent_commitments: &[(CompressedCommitment, u64, usize)],
+    ) -> LightweightWalletResult<usize> {
+        if let Some(writer) = &self.background_writer {
+            let (response_tx, response_rx) = oneshot::channel();
+            writer.command_tx.send(BackgroundWriterCommand::MarkTransactionsSpentBatch {
+                commitments: spent_commitments.to_vec(),
+                response_tx,
+            }).map_err(|_| LightweightWalletError::StorageError("Background writer channel closed".to_string()))?;
+            
+            response_rx.await
+                .map_err(|_| LightweightWalletError::StorageError("Background writer response lost".to_string()))?
+        } else if let Some(storage) = &self.database {
+            // Fallback to direct storage if background writer not available
+            storage.mark_transactions_spent_batch(spent_commitments).await
+        } else {
+            Ok(0) // Memory-only mode
+        }
+    }
+
+    /// Architecture-specific batch transaction spent marking (WASM32: direct storage)
+    #[cfg(all(feature = "storage", target_arch = "wasm32"))]
+    async fn mark_transactions_spent_batch_impl(
         &self,
         spent_commitments: &[(CompressedCommitment, u64, usize)],
     ) -> LightweightWalletResult<usize> {
@@ -1788,42 +1828,71 @@ async fn scan_wallet_across_blocks_with_cancellation(
                     if storage_backend.wallet_id.is_some() {
                         let storage_start = std::time::Instant::now();
                         // Mark any transactions as spent in the database that were marked as spent in this block
-                        // OPTIMIZATION: Only mark transactions that we actually have in our wallet state
+                        // OPTIMIZATION: Only mark transactions if we actually have spent transactions in wallet state
                         let spent_marking_start = std::time::Instant::now();
                         
-                        // Pre-build a HashMap of spent commitments for O(1) lookup instead of O(n) linear search
-                        // This reduces complexity from O(inputs × transactions) to O(inputs + transactions)
-                        let spent_commitments: std::collections::HashMap<CompressedCommitment, bool> = 
-                            wallet_state.transactions
-                                .iter()
-                                .filter(|tx| tx.is_spent)
-                                .map(|tx| (tx.commitment.clone(), true))
-                                .collect();
-                        
-                        // Collect all commitments that need to be marked as spent for batch processing
-                        let mut batch_spent_commitments = Vec::new();
-                        for (input_index, input) in block.inputs.iter().enumerate() {
-                            let input_commitment = CompressedCommitment::new(input.commitment);
+                        // Early exit: Skip spent marking entirely if wallet has no spent transactions
+                        let wallet_has_spent_transactions = wallet_state.transactions.iter().any(|tx| tx.is_spent);
+                        let spent_markings_made = if !wallet_has_spent_transactions || block.inputs.is_empty() {
+                            0 // Skip processing entirely
+                        } else {
+                            // Quick bloom filter check: If no inputs match wallet commitments, skip entirely
+                            let wallet_commitments: std::collections::HashSet<_> = 
+                                wallet_state.transactions
+                                    .iter()
+                                    .filter(|tx| tx.is_spent)
+                                    .map(|tx| tx.commitment.clone())
+                                    .collect();
                             
-                            // Fast O(1) HashMap lookup instead of O(n) linear search
-                            if spent_commitments.contains_key(&input_commitment) {
-                                batch_spent_commitments.push((input_commitment, *block_height, input_index));
-                            }
-                        }
-                        
-                        // Execute batch spent marking for much better performance
-                        let spent_markings_made = if !batch_spent_commitments.is_empty() {
-                            match storage_backend.mark_transactions_spent_batch_arch_specific(&batch_spent_commitments).await {
-                                Ok(count) => count,
-                                Err(e) => {
-                                    if !config.quiet {
-                                        println!("\n⚠️  Warning: Failed to batch mark transactions as spent: {}", e);
-                                    }
+                            // Fast set intersection check - if no block inputs are in wallet, skip
+                            let has_relevant_inputs = block.inputs.iter().any(|input| {
+                                let input_commitment = CompressedCommitment::new(input.commitment);
+                                wallet_commitments.contains(&input_commitment)
+                            });
+                            
+                            if !has_relevant_inputs {
+                                0 // No relevant inputs in this block, skip database operations
+                            } else {
+                                // Pre-build a HashMap of spent commitments for O(1) lookup instead of O(n) linear search
+                                // This reduces complexity from O(inputs × transactions) to O(inputs + transactions)
+                                let spent_commitments: std::collections::HashMap<CompressedCommitment, bool> = 
+                                    wallet_state.transactions
+                                        .iter()
+                                        .filter(|tx| tx.is_spent)
+                                        .map(|tx| (tx.commitment.clone(), true))
+                                        .collect();
+                                
+                                // Early exit: Skip if no spent commitments in wallet
+                                if spent_commitments.is_empty() {
                                     0
+                                } else {
+                                    // Collect all commitments that need to be marked as spent for batch processing
+                                    let mut batch_spent_commitments = Vec::new();
+                                    for (input_index, input) in block.inputs.iter().enumerate() {
+                                        let input_commitment = CompressedCommitment::new(input.commitment);
+                                        
+                                        // Fast O(1) HashMap lookup instead of O(n) linear search
+                                        if spent_commitments.contains_key(&input_commitment) {
+                                            batch_spent_commitments.push((input_commitment, *block_height, input_index));
+                                        }
+                                    }
+                                    
+                                    // Execute batch spent marking only if we found relevant commitments
+                                    if !batch_spent_commitments.is_empty() {
+                                        match storage_backend.mark_transactions_spent_batch_arch_specific(&batch_spent_commitments).await {
+                                            Ok(count) => count,
+                                            Err(e) => {
+                                                if !config.quiet {
+                                                    println!("\n⚠️  Warning: Failed to batch mark transactions as spent: {}", e);
+                                                }
+                                                0
+                                            }
+                                        }
+                                    } else {
+                                        0
+                                    }
                                 }
                             }
-                        } else {
-                            0
                         };
                         let spent_marking_duration = spent_marking_start.elapsed();
                         if !config.quiet && spent_marking_duration.as_millis() > 5 {
