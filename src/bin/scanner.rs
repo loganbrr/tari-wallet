@@ -131,6 +131,10 @@ use tokio::signal;
 #[cfg(feature = "grpc")]
 use tokio::time::Instant;
 
+// Background writer imports (non-WASM32 only)
+#[cfg(all(feature = "grpc", feature = "storage", not(target_arch = "wasm32")))]
+use tokio::sync::{mpsc, oneshot};
+
 /// Enhanced Tari Wallet Scanner CLI
 #[cfg(feature = "grpc")]
 #[derive(Parser)]
@@ -254,6 +258,42 @@ impl std::str::FromStr for OutputFormat {
     }
 }
 
+/// Background writer commands for non-WASM32 architectures
+#[cfg(all(feature = "grpc", feature = "storage", not(target_arch = "wasm32")))]
+#[derive(Debug)]
+pub enum BackgroundWriterCommand {
+    SaveTransactions {
+        wallet_id: u32,
+        transactions: Vec<lightweight_wallet_libs::data_structures::wallet_transaction::WalletTransaction>,
+        response_tx: oneshot::Sender<LightweightWalletResult<()>>,
+    },
+    SaveOutputs {
+        outputs: Vec<StoredOutput>,
+        response_tx: oneshot::Sender<LightweightWalletResult<Vec<u32>>>,
+    },
+    UpdateWalletScannedBlock {
+        wallet_id: u32,
+        block_height: u64,
+        response_tx: oneshot::Sender<LightweightWalletResult<()>>,
+    },
+    MarkTransactionSpent {
+        commitment: CompressedCommitment,
+        block_height: u64,
+        input_index: usize,
+        response_tx: oneshot::Sender<LightweightWalletResult<bool>>,
+    },
+    Shutdown {
+        response_tx: oneshot::Sender<()>,
+    },
+}
+
+/// Background writer service for non-WASM32 architectures
+#[cfg(all(feature = "grpc", feature = "storage", not(target_arch = "wasm32")))]
+pub struct BackgroundWriter {
+    pub command_tx: mpsc::UnboundedSender<BackgroundWriterCommand>,
+    pub join_handle: tokio::task::JoinHandle<()>,
+}
+
 /// Unified storage handler for the scanner
 #[cfg(feature = "grpc")]
 pub struct ScannerStorage {
@@ -262,6 +302,10 @@ pub struct ScannerStorage {
     pub wallet_id: Option<u32>,
     pub is_memory_only: bool,
     pub last_saved_transaction_count: usize,
+    
+    // Background writer for non-WASM32 architectures
+    #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+    pub background_writer: Option<BackgroundWriter>,
 }
 
 #[cfg(feature = "grpc")]
@@ -274,6 +318,8 @@ impl ScannerStorage {
             wallet_id: None,
             is_memory_only: true,
             last_saved_transaction_count: 0,
+            #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+            background_writer: None,
         }
     }
 
@@ -295,7 +341,87 @@ impl ScannerStorage {
             wallet_id: None,
             is_memory_only: false,
             last_saved_transaction_count: 0,
+            #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+            background_writer: None,
         })
+    }
+
+    /// Start the background writer service (non-WASM32 only)
+    #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+    pub async fn start_background_writer(&mut self, database_path: &str) -> LightweightWalletResult<()> {
+        if self.background_writer.is_some() || self.database.is_none() {
+            return Ok(()); // Already started or no database
+        }
+
+        let (command_tx, mut command_rx) = mpsc::unbounded_channel::<BackgroundWriterCommand>();
+        
+        // Create a new database connection for the background writer using the same path
+        let background_database: Box<dyn WalletStorage> = if database_path == ":memory:" {
+            // For in-memory databases, we can't share the connection, so fall back to direct storage
+            return Ok(());
+        } else {
+            Box::new(lightweight_wallet_libs::storage::SqliteStorage::new(database_path).await?)
+        };
+
+        // Initialize the background database (ensure schema exists)
+        background_database.initialize().await?;
+
+        // Spawn the background writer task
+        let join_handle = tokio::spawn(async move {
+            Self::background_writer_loop(background_database, &mut command_rx).await;
+        });
+
+        self.background_writer = Some(BackgroundWriter {
+            command_tx,
+            join_handle,
+        });
+
+        Ok(())
+    }
+
+    /// Background writer main loop (non-WASM32 only)
+    #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+    async fn background_writer_loop(
+        storage: Box<dyn WalletStorage>,
+        command_rx: &mut mpsc::UnboundedReceiver<BackgroundWriterCommand>,
+    ) {
+        while let Some(command) = command_rx.recv().await {
+            match command {
+                BackgroundWriterCommand::SaveTransactions { wallet_id, transactions, response_tx } => {
+                    let result = storage.save_transactions(wallet_id, &transactions).await;
+                    let _ = response_tx.send(result);
+                }
+                BackgroundWriterCommand::SaveOutputs { outputs, response_tx } => {
+                    let result = storage.save_outputs(&outputs).await;
+                    let _ = response_tx.send(result);
+                }
+                BackgroundWriterCommand::UpdateWalletScannedBlock { wallet_id, block_height, response_tx } => {
+                    let result = storage.update_wallet_scanned_block(wallet_id, block_height).await;
+                    let _ = response_tx.send(result);
+                }
+                BackgroundWriterCommand::MarkTransactionSpent { commitment, block_height, input_index, response_tx } => {
+                    let result = storage.mark_transaction_spent(&commitment, block_height, input_index).await;
+                    let _ = response_tx.send(result);
+                }
+                BackgroundWriterCommand::Shutdown { response_tx } => {
+                    let _ = response_tx.send(());
+                    break;
+                }
+            }
+        }
+    }
+
+    /// Stop the background writer service (non-WASM32 only)
+    #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+    pub async fn stop_background_writer(&mut self) -> LightweightWalletResult<()> {
+        if let Some(writer) = self.background_writer.take() {
+            let (response_tx, response_rx) = oneshot::channel();
+            if writer.command_tx.send(BackgroundWriterCommand::Shutdown { response_tx }).is_ok() {
+                let _ = response_rx.await;
+            }
+            let _ = writer.join_handle.await;
+        }
+        Ok(())
     }
 
     /// List available wallets in the database
@@ -507,23 +633,63 @@ impl ScannerStorage {
         }
     }
 
-    /// Save transactions to storage incrementally (only new transactions since last save)
+    /// Save transactions to storage incrementally - architecture-specific implementation
     #[cfg(feature = "storage")]
     pub async fn save_transactions_incremental(
         &mut self,
         all_transactions: &[lightweight_wallet_libs::data_structures::wallet_transaction::WalletTransaction],
     ) -> LightweightWalletResult<()> {
-        if let (Some(storage), Some(wallet_id)) = (&self.database, self.wallet_id) {
+        if let Some(wallet_id) = self.wallet_id {
             // Only save new transactions since last save
             if all_transactions.len() > self.last_saved_transaction_count {
                 let new_transactions = &all_transactions[self.last_saved_transaction_count..];
                 if !new_transactions.is_empty() {
-                    storage.save_transactions(wallet_id, new_transactions).await?;
+                    // Architecture-specific implementation
+                    self.save_transactions_arch_specific(wallet_id, new_transactions.to_vec()).await?;
                     self.last_saved_transaction_count = all_transactions.len();
                 }
             }
         }
         Ok(())
+    }
+
+    /// Architecture-specific transaction saving (non-WASM32: background writer)
+    #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+    async fn save_transactions_arch_specific(
+        &self,
+        wallet_id: u32,
+        transactions: Vec<lightweight_wallet_libs::data_structures::wallet_transaction::WalletTransaction>,
+    ) -> LightweightWalletResult<()> {
+        if let Some(writer) = &self.background_writer {
+            let (response_tx, response_rx) = oneshot::channel();
+            writer.command_tx.send(BackgroundWriterCommand::SaveTransactions {
+                wallet_id,
+                transactions,
+                response_tx,
+            }).map_err(|_| LightweightWalletError::StorageError("Background writer channel closed".to_string()))?;
+            
+            response_rx.await
+                .map_err(|_| LightweightWalletError::StorageError("Background writer response lost".to_string()))?
+        } else if let Some(storage) = &self.database {
+            // Fallback to direct storage if background writer not available
+            storage.save_transactions(wallet_id, &transactions).await
+        } else {
+            Ok(()) // Memory-only mode
+        }
+    }
+
+    /// Architecture-specific transaction saving (WASM32: direct storage)
+    #[cfg(all(feature = "storage", target_arch = "wasm32"))]
+    async fn save_transactions_arch_specific(
+        &self,
+        wallet_id: u32,
+        transactions: Vec<lightweight_wallet_libs::data_structures::wallet_transaction::WalletTransaction>,
+    ) -> LightweightWalletResult<()> {
+        if let Some(storage) = &self.database {
+            storage.save_transactions(wallet_id, &transactions).await
+        } else {
+            Ok(()) // Memory-only mode
+        }
     }
 
     /// Save transactions to storage (legacy method for compatibility)
@@ -539,23 +705,133 @@ impl ScannerStorage {
         }
     }
 
-    /// Save UTXO outputs to storage
+    /// Save UTXO outputs to storage - architecture-specific implementation
     #[cfg(feature = "storage")]
     pub async fn save_outputs(&self, outputs: &[StoredOutput]) -> LightweightWalletResult<Vec<u32>> {
-        if let Some(storage) = &self.database {
-            storage.save_outputs(outputs).await
+        self.save_outputs_arch_specific(outputs.to_vec()).await
+    }
+
+    /// Architecture-specific output saving (non-WASM32: background writer)
+    #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+    async fn save_outputs_arch_specific(&self, outputs: Vec<StoredOutput>) -> LightweightWalletResult<Vec<u32>> {
+        if let Some(writer) = &self.background_writer {
+            let (response_tx, response_rx) = oneshot::channel();
+            writer.command_tx.send(BackgroundWriterCommand::SaveOutputs {
+                outputs,
+                response_tx,
+            }).map_err(|_| LightweightWalletError::StorageError("Background writer channel closed".to_string()))?;
+            
+            response_rx.await
+                .map_err(|_| LightweightWalletError::StorageError("Background writer response lost".to_string()))?
+        } else if let Some(storage) = &self.database {
+            // Fallback to direct storage if background writer not available
+            storage.save_outputs(&outputs).await
         } else {
             Ok(Vec::new()) // Memory-only mode
         }
     }
 
-    /// Update wallet's latest scanned block
+    /// Architecture-specific output saving (WASM32: direct storage)
+    #[cfg(all(feature = "storage", target_arch = "wasm32"))]
+    async fn save_outputs_arch_specific(&self, outputs: Vec<StoredOutput>) -> LightweightWalletResult<Vec<u32>> {
+        if let Some(storage) = &self.database {
+            storage.save_outputs(&outputs).await
+        } else {
+            Ok(Vec::new()) // Memory-only mode
+        }
+    }
+
+    /// Update wallet's latest scanned block - architecture-specific implementation
     #[cfg(feature = "storage")]
     pub async fn update_wallet_scanned_block(&self, block_height: u64) -> LightweightWalletResult<()> {
-        if let (Some(storage), Some(wallet_id)) = (&self.database, self.wallet_id) {
+        if let Some(wallet_id) = self.wallet_id {
+            self.update_wallet_scanned_block_arch_specific(wallet_id, block_height).await
+        } else {
+            Ok(()) // Memory-only mode
+        }
+    }
+
+    /// Architecture-specific wallet scanned block update (non-WASM32: background writer)
+    #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+    async fn update_wallet_scanned_block_arch_specific(&self, wallet_id: u32, block_height: u64) -> LightweightWalletResult<()> {
+        if let Some(writer) = &self.background_writer {
+            let (response_tx, response_rx) = oneshot::channel();
+            writer.command_tx.send(BackgroundWriterCommand::UpdateWalletScannedBlock {
+                wallet_id,
+                block_height,
+                response_tx,
+            }).map_err(|_| LightweightWalletError::StorageError("Background writer channel closed".to_string()))?;
+            
+            response_rx.await
+                .map_err(|_| LightweightWalletError::StorageError("Background writer response lost".to_string()))?
+        } else if let Some(storage) = &self.database {
+            // Fallback to direct storage if background writer not available
             storage.update_wallet_scanned_block(wallet_id, block_height).await
         } else {
             Ok(()) // Memory-only mode
+        }
+    }
+
+    /// Architecture-specific wallet scanned block update (WASM32: direct storage)
+    #[cfg(all(feature = "storage", target_arch = "wasm32"))]
+    async fn update_wallet_scanned_block_arch_specific(&self, wallet_id: u32, block_height: u64) -> LightweightWalletResult<()> {
+        if let Some(storage) = &self.database {
+            storage.update_wallet_scanned_block(wallet_id, block_height).await
+        } else {
+            Ok(()) // Memory-only mode
+        }
+    }
+
+    /// Mark transaction as spent - architecture-specific implementation
+    #[cfg(feature = "storage")]
+    pub async fn mark_transaction_spent_arch_specific(
+        &self,
+        commitment: &CompressedCommitment,
+        block_height: u64,
+        input_index: usize,
+    ) -> LightweightWalletResult<bool> {
+        self.mark_transaction_spent_impl(commitment, block_height, input_index).await
+    }
+
+    /// Architecture-specific transaction spent marking (non-WASM32: background writer)
+    #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+    async fn mark_transaction_spent_impl(
+        &self,
+        commitment: &CompressedCommitment,
+        block_height: u64,
+        input_index: usize,
+    ) -> LightweightWalletResult<bool> {
+        if let Some(writer) = &self.background_writer {
+            let (response_tx, response_rx) = oneshot::channel();
+            writer.command_tx.send(BackgroundWriterCommand::MarkTransactionSpent {
+                commitment: commitment.clone(),
+                block_height,
+                input_index,
+                response_tx,
+            }).map_err(|_| LightweightWalletError::StorageError("Background writer channel closed".to_string()))?;
+            
+            response_rx.await
+                .map_err(|_| LightweightWalletError::StorageError("Background writer response lost".to_string()))?
+        } else if let Some(storage) = &self.database {
+            // Fallback to direct storage if background writer not available
+            storage.mark_transaction_spent(commitment, block_height, input_index).await
+        } else {
+            Ok(false) // Memory-only mode
+        }
+    }
+
+    /// Architecture-specific transaction spent marking (WASM32: direct storage)
+    #[cfg(all(feature = "storage", target_arch = "wasm32"))]
+    async fn mark_transaction_spent_impl(
+        &self,
+        commitment: &CompressedCommitment,
+        block_height: u64,
+        input_index: usize,
+    ) -> LightweightWalletResult<bool> {
+        if let Some(storage) = &self.database {
+            storage.mark_transaction_spent(commitment, block_height, input_index).await
+        } else {
+            Ok(false) // Memory-only mode
         }
     }
 
@@ -1481,16 +1757,14 @@ async fn scan_wallet_across_blocks_with_cancellation(
                         // Mark any transactions as spent in the database that were marked as spent in this block
                         for (input_index, input) in block.inputs.iter().enumerate() {
                             let input_commitment = CompressedCommitment::new(input.commitment);
-                            if let Some(storage) = &storage_backend.database {
-                                if let Err(e) = storage.mark_transaction_spent(
-                                    &input_commitment,
-                                    *block_height,
-                                    input_index,
-                                ).await {
-                                    if !config.quiet {
-                                        println!("\n⚠️  Warning: Failed to mark transaction as spent in database for commitment {}: {}", 
-                                            hex::encode(&input_commitment.as_bytes()[..8]), e);
-                                    }
+                            if let Err(e) = storage_backend.mark_transaction_spent_arch_specific(
+                                &input_commitment,
+                                *block_height,
+                                input_index,
+                            ).await {
+                                if !config.quiet {
+                                    println!("\n⚠️  Warning: Failed to mark transaction as spent in database for commitment {}: {}", 
+                                        hex::encode(&input_commitment.as_bytes()[..8]), e);
                                 }
                             }
                         }
@@ -2146,6 +2420,15 @@ async fn main() -> LightweightWalletResult<()> {
     let block_height_range = BlockHeightRange::new(from_block, to_block, args.blocks.clone());
     let config = block_height_range.into_scan_config(&args)?;
 
+    // Start background writer for non-WASM32 architectures (if using database storage)
+    #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+    if !storage_backend.is_memory_only {
+        if !args.quiet {
+            println!("🚀 Starting background database writer...");
+        }
+        storage_backend.start_background_writer(&args.database).await?;
+    }
+
     // Display storage info and existing data
     if !args.quiet {
         storage_backend.display_storage_info(&config).await?;
@@ -2246,6 +2529,15 @@ async fn main() -> LightweightWalletResult<()> {
             }
             std::process::exit(130); // Standard exit code for SIGINT
         }
+    }
+
+    // Stop background writer gracefully
+    #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+    if !storage_backend.is_memory_only {
+        if !args.quiet {
+            println!("🛑 Stopping background database writer...");
+        }
+        storage_backend.stop_background_writer().await?;
     }
 
     Ok(())
