@@ -340,8 +340,16 @@ mod wallet_tests {
         let result = runner.run_wallet(&["generate"]);
 
         result.assert_success();
-        assert!(result.contains_stdout("Seed:") || result.contains_stdout("seed phrase") || result.contains_stdout("Seed phrase"));
-        assert!(result.contains_stdout("Base58:") || result.contains_stdout("address") || result.contains_stdout("Address"));
+        assert!(
+            result.contains_stdout("Seed:")
+                || result.contains_stdout("seed phrase")
+                || result.contains_stdout("Seed phrase")
+        );
+        assert!(
+            result.contains_stdout("Base58:")
+                || result.contains_stdout("address")
+                || result.contains_stdout("Address")
+        );
     }
 
     #[test]
@@ -423,8 +431,10 @@ mod scanner_tests {
         let runner = CliTestRunner::new();
         // Test providing both seed phrase and view key (should fail immediately)
         let result = runner.run_scanner(&[
-            "--seed-phrase", "test seed phrase",
-            "--view-key", &"a".repeat(64)
+            "--seed-phrase",
+            "test seed phrase",
+            "--view-key",
+            &"a".repeat(64),
         ]);
 
         result.assert_failure();
@@ -485,8 +495,10 @@ mod scanner_tests {
             &"a".repeat(64),
             "--base-url",
             "not_a_valid_url",
-            "--from-block", "1",
-            "--to-block", "2"  // Limit range to avoid timeout
+            "--from-block",
+            "1",
+            "--to-block",
+            "2", // Limit range to avoid timeout
         ]);
 
         // Should fail or show connection error
@@ -499,11 +511,15 @@ mod scanner_tests {
     fn test_json_output_format() {
         let runner = CliTestRunner::new();
         let result = runner.run_scanner(&[
-            "--view-key", &"a".repeat(64), 
-            "--format", "json", 
+            "--view-key",
+            &"a".repeat(64),
+            "--format",
+            "json",
             "--quiet",
-            "--from-block", "1",
-            "--to-block", "2"  // Only scan 2 blocks to avoid timeout
+            "--from-block",
+            "1",
+            "--to-block",
+            "2", // Only scan 2 blocks to avoid timeout
         ]);
 
         // Should either produce JSON or fail gracefully
