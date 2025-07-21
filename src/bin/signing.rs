@@ -340,15 +340,16 @@ async fn get_secret_key_from_database(
     let cipher_seed = seed_phrase_to_cipher_seed(&seed_phrase, None)
         .map_err(|e| format!("Failed to convert seed phrase to CipherSeed: {}", e))?;
     
-    // Derive view and spend keys from entropy  
+    // Derive the communication node identity secret key (used for message signing)
+    // This is the exact same key that Tari wallet uses for message signing
     // Convert the entropy slice to the required array type
     let entropy_array: &[u8; 16] = cipher_seed.entropy().try_into()
         .map_err(|_| "Invalid entropy length: expected 16 bytes")?;
-    let (_, spend_key) = derive_view_and_spend_keys_from_entropy(entropy_array)
-        .map_err(|e| format!("Failed to derive spend key: {}", e))?;
+    let (_, comms_key) = derive_view_and_spend_keys_from_entropy(entropy_array)
+        .map_err(|e| format!("Failed to derive communication key: {}", e))?;
     
-    println!("Using spend key from wallet '{}' in database", wallet_name);
-    Ok(spend_key)
+    println!("Using communication key from wallet '{}' in database (Tari message signing key)", wallet_name);
+    Ok(comms_key)
 }
 
 #[cfg(feature = "storage")]

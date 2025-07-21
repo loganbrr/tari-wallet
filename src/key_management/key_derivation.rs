@@ -22,7 +22,7 @@ pub fn derive_view_and_spend_keys_from_entropy(entropy: &[u8; 16]) -> Result<(Ri
     // Tari uses specific branch seeds for view and spend keys
     // These constants match the main Tari wallet implementation
     const VIEW_KEY_BRANCH: &str = "data encryption";  // For encrypted data decryption (view key)
-    const SPEND_KEY_BRANCH: &str = "comms"; // For wallet communications and spending
+    const SPEND_KEY_BRANCH: &str = "comms"; // Communication node identity key (spending + message signing)
     
     let view_key = derive_private_key_from_entropy(entropy, VIEW_KEY_BRANCH, 0)
         .map_err(|e| KeyManagementError::view_key_derivation_failed(

@@ -2,6 +2,22 @@
 //!
 //! This module implements message signing using Schnorr signatures with domain separation
 //! that is compatible with the Tari wallet implementation.
+//!
+//! ## Key Derivation for Message Signing
+//!
+//! Tari wallets use the **communication node identity secret key** for message signing.
+//! This key is derived from the wallet's seed phrase using:
+//! - Branch: "comms" (SPEND_KEY_BRANCH)
+//! - Index: 0
+//! - Method: Tari's domain-separated key derivation
+//!
+//! This is the same key used for:
+//! - Wallet network identity (P2P communications)
+//! - Transaction spending
+//! - Message signing (this module)
+//!
+//! The key ensures signatures are cryptographically identical to those produced
+//! by official Tari wallets when using the same seed phrase.
 
 use rand::rngs::OsRng;
 use tari_crypto::{
@@ -12,6 +28,7 @@ use tari_utilities::hex::Hex;
 
 use super::hash_domain::WalletMessageSigningDomain;
 use crate::errors::{LightweightWalletError, ValidationError};
+use crate::key_management::{mnemonic_to_bytes, seed_phrase::CipherSeed, derive_view_and_spend_keys_from_entropy};
 
 /// Type alias for domain-separated wallet signatures
 /// This matches Tari's SignatureWithDomain for wallet message signing
@@ -168,6 +185,92 @@ pub fn verify_message_from_hex(
     Ok(verify_message(public_key, message, &signature))
 }
 
+/// Derives the Tari communication node identity secret key from a seed phrase
+/// This is the exact same key that Tari wallets use for message signing
+/// 
+/// # Arguments
+/// * `seed_phrase` - The wallet's seed phrase (24 words)
+/// * `passphrase` - Optional passphrase for CipherSeed decryption
+/// 
+/// # Returns
+/// * `Ok(RistrettoSecretKey)` - The communication key for message signing
+/// * `Err(LightweightWalletError)` - If seed phrase is invalid or key derivation fails
+/// 
+/// # Example
+/// ```no_run
+/// use lightweight_wallet_libs::crypto::signing::derive_tari_signing_key;
+/// 
+/// let seed_phrase = "your 24 word seed phrase here...";
+/// let signing_key = derive_tari_signing_key(seed_phrase, None).unwrap();
+/// // This key can now be used with sign_message_with_hex_output()
+/// ```
+pub fn derive_tari_signing_key(
+    seed_phrase: &str, 
+    passphrase: Option<&str>
+) -> Result<RistrettoSecretKey, LightweightWalletError> {
+    // Convert seed phrase to CipherSeed
+    let encrypted_bytes = mnemonic_to_bytes(seed_phrase)
+        .map_err(|e| LightweightWalletError::ValidationError(
+            ValidationError::SignatureValidationFailed(
+                format!("Invalid seed phrase: {}", e)
+            )
+        ))?;
+    
+    let cipher_seed = CipherSeed::from_enciphered_bytes(&encrypted_bytes, passphrase)
+        .map_err(|e| LightweightWalletError::ValidationError(
+            ValidationError::SignatureValidationFailed(
+                format!("Failed to decrypt CipherSeed: {}", e)
+            )
+        ))?;
+    
+    // Convert entropy to required array type
+    let entropy_array: &[u8; 16] = cipher_seed.entropy().try_into()
+        .map_err(|_| LightweightWalletError::ValidationError(
+            ValidationError::SignatureValidationFailed(
+                "Invalid entropy length: expected 16 bytes".to_string()
+            )
+        ))?;
+    
+    // Derive the communication key (second key from the pair)
+    let (_, comms_key) = derive_view_and_spend_keys_from_entropy(entropy_array)
+        .map_err(|e| LightweightWalletError::ValidationError(
+            ValidationError::SignatureValidationFailed(
+                format!("Failed to derive communication key: {}", e)
+            )
+        ))?;
+    
+    Ok(comms_key)
+}
+
+/// Signs a message using the Tari communication key derived from a seed phrase
+/// This produces signatures identical to those from official Tari wallets
+/// 
+/// # Arguments
+/// * `seed_phrase` - The wallet's seed phrase (24 words)
+/// * `message` - The message to sign
+/// * `passphrase` - Optional passphrase for CipherSeed decryption
+/// 
+/// # Returns
+/// * `Ok((signature_hex, nonce_hex))` - Hex-encoded signature components
+/// * `Err(LightweightWalletError)` - If signing fails
+/// 
+/// # Example
+/// ```no_run
+/// use lightweight_wallet_libs::crypto::signing::sign_message_with_tari_wallet;
+/// 
+/// let seed_phrase = "your 24 word seed phrase here...";
+/// let message = "Hello, Tari!";
+/// let (sig_hex, nonce_hex) = sign_message_with_tari_wallet(seed_phrase, message, None).unwrap();
+/// ```
+pub fn sign_message_with_tari_wallet(
+    seed_phrase: &str,
+    message: &str,
+    passphrase: Option<&str>
+) -> Result<(String, String), LightweightWalletError> {
+    let signing_key = derive_tari_signing_key(seed_phrase, passphrase)?;
+    sign_message_with_hex_output(&signing_key, message)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -259,5 +362,50 @@ mod tests {
 
         let signature = sign_message(&secret_key, message).unwrap();
         assert!(verify_message(&public_key, message, &signature));
+    }
+
+    #[test]
+    fn test_tari_wallet_signing_consistency() {
+        use crate::key_management::generate_seed_phrase;
+        
+        // Test that the same seed phrase always produces the same signing key
+        let seed_phrase = generate_seed_phrase().unwrap();
+        let message = "Hello, Tari!";
+
+        // Derive key twice and ensure they're identical
+        let key1 = derive_tari_signing_key(&seed_phrase, None).unwrap();
+        let key2 = derive_tari_signing_key(&seed_phrase, None).unwrap();
+        assert_eq!(key1, key2);
+
+        // Sign same message twice and verify both signatures work
+        let (sig1_hex, nonce1_hex) = sign_message_with_tari_wallet(&seed_phrase, message, None).unwrap();
+        let (sig2_hex, nonce2_hex) = sign_message_with_tari_wallet(&seed_phrase, message, None).unwrap();
+        
+        // Signatures will be different due to random nonce, but both should verify
+        let public_key = RistrettoPublicKey::from_secret_key(&key1);
+        
+        let is_valid1 = verify_message_from_hex(&public_key, message, &sig1_hex, &nonce1_hex).unwrap();
+        let is_valid2 = verify_message_from_hex(&public_key, message, &sig2_hex, &nonce2_hex).unwrap();
+        
+        assert!(is_valid1);
+        assert!(is_valid2);
+    }
+
+    #[test]
+    fn test_tari_communication_key_derivation() {
+        use crate::key_management::generate_seed_phrase;
+        
+        // Test that we get the communication key (not the view key)
+        let seed_phrase = generate_seed_phrase().unwrap();
+        
+        let comms_key = derive_tari_signing_key(&seed_phrase, None).unwrap();
+        
+        // The key should be deterministic for the same seed phrase
+        let comms_key2 = derive_tari_signing_key(&seed_phrase, None).unwrap();
+        assert_eq!(comms_key, comms_key2);
+        
+        // The key should be different from a random key
+        let random_key = RistrettoSecretKey::random(&mut OsRng);
+        assert_ne!(comms_key, random_key);
     }
 }

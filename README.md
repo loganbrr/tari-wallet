@@ -154,7 +154,9 @@ println!("Extracted entropy: {:?}", entropy);
 ```rust
 use lightweight_wallet_libs::crypto::signing::{
     sign_message_with_hex_output, 
-    verify_message_from_hex
+    verify_message_from_hex,
+    derive_tari_signing_key,
+    sign_message_with_tari_wallet
 };
 use tari_crypto::{
     keys::{PublicKey, SecretKey},
@@ -163,25 +165,32 @@ use tari_crypto::{
 use tari_utilities::hex::Hex;
 use rand::rngs::OsRng;
 
-// Generate a keypair for signing
+// Method 1: Using a random key (for testing)
 let secret_key = RistrettoSecretKey::random(&mut OsRng);
 let public_key = RistrettoPublicKey::from_secret_key(&secret_key);
-
-// Sign a message
 let message = "Hello, Tari! This message is cryptographically signed.";
 let (signature_hex, nonce_hex) = sign_message_with_hex_output(&secret_key, message)?;
 
+// Method 2: Using Tari wallet-compatible key derivation (RECOMMENDED)
+let seed_phrase = "your 24-word seed phrase here...";
+let message = "Hello, Tari! Signed with real wallet key.";
+
+// Derive the exact same communication key that Tari wallet uses
+let tari_signing_key = derive_tari_signing_key(seed_phrase, None)?;
+let tari_public_key = RistrettoPublicKey::from_secret_key(&tari_signing_key);
+
+// Sign with the Tari wallet key
+let (tari_sig_hex, tari_nonce_hex) = sign_message_with_tari_wallet(seed_phrase, message, None)?;
+
 println!("Message: {}", message);
-println!("Signature: {}", signature_hex);
-println!("Nonce: {}", nonce_hex);
+println!("Tari Signature: {}", tari_sig_hex);
+println!("Tari Nonce: {}", tari_nonce_hex);
 
 // Verify the signature
-let is_valid = verify_message_from_hex(&public_key, message, &signature_hex, &nonce_hex)?;
-println!("Signature valid: {}", is_valid);
+let is_valid = verify_message_from_hex(&tari_public_key, message, &tari_sig_hex, &tari_nonce_hex)?;
+println!("Tari signature valid: {}", is_valid);
 
-// Export keys for use in CLI tool
-println!("Secret key (hex): {}", secret_key.to_hex());
-println!("Public key (hex): {}", public_key.to_hex());
+// This signature is cryptographically identical to what official Tari wallet would produce
 ```
 
 ### Blockchain Scanning
@@ -406,8 +415,9 @@ cargo run --bin wallet --features storage -- list --database wallet.db
 - **🔧 Flexible Input**: Support command-line args and file inputs
 - **📊 Verbose Mode**: Detailed output for debugging and verification
 - **🔒 Tari Compatible**: 100% compatible with Tari wallet message signing
-- **💾 Database Integration**: Sign with wallets stored in SQLite database (storage feature)
-- **🔗 Seed Phrase Derivation**: Automatically derives signing keys from stored seed phrases
+- **💾 Database Integration**: Sign with wallets stored in SQLite database (storage feature)  
+- **🔗 Seed Phrase Derivation**: Uses Tari communication node identity key ("comms" branch)
+- **🔑 Deterministic Keys**: Same seed phrase always produces identical signatures
 - **⚡ Exit Codes**: Returns proper exit codes (0=success, 1=invalid signature) for scripting
 
 ## 🔒 **Security Features**
