@@ -78,6 +78,7 @@ tokio-rusqlite = { version = "0.5", optional = true }
 reqwest = { version = "0.12.22", features = ["json", "stream", "gzip"], optional = true }
 tokio = { version = "1.0", features = ["full"], optional = true }
 clap = { version = "4.4", features = ["derive"] }
+uuid = { version = "1.0", features = ["v4"] }
 
 # WASM targets - Use web-sys instead of reqwest for HTTP functionality
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -86,6 +87,7 @@ js-sys = { version = "0.3", optional = true }
 serde-wasm-bindgen = { version = "0.6", optional = true }
 getrandom = { version = "0.2", features = ["js"] }  # WASM-compatible random number generation
 wasm-bindgen-futures = { version = "0.4", optional = true }
+uuid = { version = "1.0", features = ["v4", "js"] }
 
 [dev-dependencies]
 # Test dependencies
@@ -93,10 +95,10 @@ serde_json = "1.0"
 wasm-bindgen-test = "0.3"
 tempfile = "3.0"
 # CLI Testing Framework dependencies
-uuid = { version = "1.0", features = ["v4"] }
 regex = "1.0"
 env_logger = "0.10"
-# Async runtime for integration tests
+# Async runtime for integration tests (only for non-WASM targets)
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { version = "1.0", features = ["full"] }
 
 [build-dependencies]
@@ -105,11 +107,24 @@ tonic-build = "0.10"  # GRPC code generation
 [features]
 default = ["http"]
 grpc = ["rayon", "tonic", "prost", "async-trait", "tokio", "tracing", "tracing-subscriber"]
-http = ["async-trait", "tokio", "tracing", "reqwest", "web-sys", "js-sys", "serde-wasm-bindgen", "wasm-bindgen-futures"]
+http = ["async-trait", "tracing", "reqwest", "tokio"]
 wasm = ["web-sys", "js-sys", "serde-wasm-bindgen", "wasm-bindgen-futures"]
 storage = ["rusqlite", "tokio-rusqlite", "async-trait", "tokio"]
 grpc-storage = ["grpc", "storage"]
 http-storage = ["http", "storage"]
+
+# Don't build binaries for WASM target - they use tokio/clap which are not WASM-compatible
+[[bin]]
+name = "scanner"
+required-features = ["grpc-storage"]
+
+[[bin]]
+name = "wallet" 
+required-features = ["storage"]
+
+[[bin]]
+name = "signing"
+required-features = ["http"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]

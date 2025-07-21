@@ -3,6 +3,8 @@
 //! Comprehensive testing framework for all CLI binaries using std::process::Command
 //! to execute real binary integration tests.
 
+#![cfg(not(target_arch = "wasm32"))]
+
 #[cfg(feature = "grpc-storage")]
 use serde_json::Value;
 use std::path::PathBuf;

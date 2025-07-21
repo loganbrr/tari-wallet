@@ -2,6 +2,8 @@
 //!
 //! A comprehensive wallet scanner that tracks all transactions across blocks,
 //! maintains complete transaction history, and provides accurate running balances.
+
+#![cfg(not(target_arch = "wasm32"))]
 //!
 //! ## Features
 //! - Cross-block transaction tracking

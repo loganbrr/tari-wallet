@@ -1506,6 +1506,7 @@ impl HttpScannerBuilder {
 mod tests {
     use super::*;
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_http_scanner_builder() {
         let builder = HttpScannerBuilder::new()

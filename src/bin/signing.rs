@@ -3,6 +3,8 @@
 //! A command-line utility for signing and verifying messages using Tari-compatible
 //! Schnorr signatures with domain separation.
 
+#![cfg(not(target_arch = "wasm32"))]
+
 use clap::{Parser, Subcommand};
 use rand::rngs::OsRng;
 use std::fs;

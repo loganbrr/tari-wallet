@@ -3,6 +3,8 @@
 //! Simple tests to verify that CLI binaries exist and respond correctly
 //! to basic commands like --help and --version.
 
+#![cfg(not(target_arch = "wasm32"))]
+
 use std::process::Command;
 
 /// Test that all CLI binaries exist and respond to --help

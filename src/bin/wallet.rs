@@ -1,3 +1,5 @@
+#![cfg(not(target_arch = "wasm32"))]
+
 #[cfg(feature = "storage")]
 use clap::{Parser, Subcommand};
 #[cfg(feature = "storage")]
