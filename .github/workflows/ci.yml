@@ -21,7 +21,6 @@ jobs:
           - "--features http"
           - "--features grpc"
           - "--features storage"
-          - "--features wasm"
           - "--features grpc-storage"
           - "--features http-storage"
           - "--all-features"

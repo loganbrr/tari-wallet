@@ -34,6 +34,6 @@ fn build_grpc() {
 
     // Tell cargo to rerun this build script if any of the proto files change
     for proto_file in &proto_files {
-        println!("cargo:rerun-if-changed={}", proto_file);
+        println!("cargo:rerun-if-changed={proto_file}");
     }
 }
