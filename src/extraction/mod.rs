@@ -685,7 +685,6 @@ mod tests {
                         wallet_output.value().as_u64()
                     );
                 }
-
             }
             Err(e) => {
                 println!("❌ Failed to extract wallet output: {e:?}");

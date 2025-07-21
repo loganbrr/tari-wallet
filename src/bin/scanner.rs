@@ -611,13 +611,14 @@ impl ScannerStorage {
                 println!("✅ Selected wallet: {}", selected_wallet.name);
                 Ok(selected_wallet.id)
             }
-            _ => {
-                Err(LightweightWalletError::InvalidArgument {
-                    argument: "wallet_selection".to_string(),
-                    value: choice,
-                    message: format!("Invalid selection. Please enter a number between 1 and {}, or 'q' to quit.", wallets.len()),
-                })
-            }
+            _ => Err(LightweightWalletError::InvalidArgument {
+                argument: "wallet_selection".to_string(),
+                value: choice,
+                message: format!(
+                    "Invalid selection. Please enter a number between 1 and {}, or 'q' to quit.",
+                    wallets.len()
+                ),
+            }),
         }
     }
 
@@ -1567,10 +1568,12 @@ fn extract_script_data(script_bytes: &[u8]) -> LightweightWalletResult<(Vec<u8>,
                     i += 2;
                     if i + data_len <= script_bytes.len() {
                         let data = script_bytes[i..i + data_len].to_vec();
-                        if !data.iter().all(|&b| b == 0) && !data.is_empty()
-                            && (input_data.is_empty() || data.len() > input_data.len()) {
-                                input_data = data.clone();
-                            }
+                        if !data.iter().all(|&b| b == 0)
+                            && !data.is_empty()
+                            && (input_data.is_empty() || data.len() > input_data.len())
+                        {
+                            input_data = data.clone();
+                        }
 
                         // Check for height values
                         if data.len() == 4 || data.len() == 8 {
@@ -1602,10 +1605,13 @@ fn extract_script_data(script_bytes: &[u8]) -> LightweightWalletResult<(Vec<u8>,
                     i += 3;
                     if i + data_len <= script_bytes.len() {
                         let data = script_bytes[i..i + data_len].to_vec();
-                        if !data.iter().all(|&b| b == 0) && !data.is_empty() && data.len() <= 256
-                            && (input_data.is_empty() || data.len() > input_data.len()) {
-                                input_data = data;
-                            }
+                        if !data.iter().all(|&b| b == 0)
+                            && !data.is_empty()
+                            && data.len() <= 256
+                            && (input_data.is_empty() || data.len() > input_data.len())
+                        {
+                            input_data = data;
+                        }
                         i += data_len;
                     } else {
                         break;
@@ -1904,9 +1910,7 @@ async fn scan_wallet_across_blocks_with_cancellation(
                 Some(block) => block.clone(),
                 None => {
                     if !config.quiet {
-                        println!(
-                            "\n⚠️  Block {block_height} not found in batch, skipping..."
-                        );
+                        println!("\n⚠️  Block {block_height} not found in batch, skipping...");
                     }
                     continue;
                 }
@@ -2020,8 +2024,7 @@ async fn scan_wallet_across_blocks_with_cancellation(
 
                         // Save only NEW transactions incrementally (significant performance improvement)
                         // This reduces O(n²) database writes to O(n) writes
-                        let all_transactions: Vec<_> =
-                            wallet_state.transactions.to_vec();
+                        let all_transactions: Vec<_> = wallet_state.transactions.to_vec();
 
                         if !all_transactions.is_empty() {
                             // Get the count before incremental save
@@ -2047,9 +2050,10 @@ async fn scan_wallet_across_blocks_with_cancellation(
                                 for tx in new_transactions {
                                     if tx.transaction_direction == TransactionDirection::Outbound
                                         && tx.input_index.is_none()
-                                            && !config.quiet {
-                                                println!("\n⚠️  Warning: Outbound transaction missing input_index");
-                                            }
+                                        && !config.quiet
+                                    {
+                                        println!("\n⚠️  Warning: Outbound transaction missing input_index");
+                                    }
                                 }
                             }
                         }

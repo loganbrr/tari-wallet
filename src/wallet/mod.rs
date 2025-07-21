@@ -267,9 +267,7 @@ impl Wallet {
         // Create single address
         let single_address =
             SingleAddress::new(spend_public_key, network, features).map_err(|e| {
-                KeyManagementError::SeedPhraseError(format!(
-                    "Failed to create single address: {e}"
-                ))
+                KeyManagementError::SeedPhraseError(format!("Failed to create single address: {e}"))
             })?;
 
         Ok(TariAddress::Single(single_address))

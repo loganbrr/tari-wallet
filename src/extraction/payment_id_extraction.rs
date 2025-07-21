@@ -138,9 +138,9 @@ impl PaymentIdExtractor {
         match EncryptedData::decrypt_data(decryption_key, commitment, encrypted_data) {
             Ok((_value, _mask, payment_id)) => match Self::validate_payment_id(&payment_id) {
                 Ok(()) => PaymentIdExtractionResult::success(payment_id),
-                Err(e) => PaymentIdExtractionResult::failure(format!(
-                    "Payment ID validation failed: {e}"
-                )),
+                Err(e) => {
+                    PaymentIdExtractionResult::failure(format!("Payment ID validation failed: {e}"))
+                }
             },
             Err(e) => PaymentIdExtractionResult::failure(format!("Failed to decrypt data: {e}")),
         }

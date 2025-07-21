@@ -370,9 +370,11 @@ mod tests {
         ];
 
         // Test with continue_on_error = false
-        let mut options = BatchValidationOptions::default();
-        options.continue_on_error = false;
-        options.max_errors_per_output = 1;
+        let options = BatchValidationOptions {
+            continue_on_error: false,
+            max_errors_per_output: 1,
+            ..Default::default()
+        };
 
         let result = validate_output_batch(&outputs, &options);
 
@@ -392,10 +394,12 @@ mod tests {
     fn test_batch_validation_disabled_checks() {
         let outputs = vec![create_test_output(100, false)]; // Invalid
 
-        let mut options = BatchValidationOptions::default();
-        options.validate_range_proofs = false;
-        options.validate_signatures = false;
-        options.validate_commitments = false;
+        let options = BatchValidationOptions {
+            validate_range_proofs: false,
+            validate_signatures: false,
+            validate_commitments: false,
+            ..Default::default()
+        };
 
         let result = validate_output_batch(&outputs, &options);
 

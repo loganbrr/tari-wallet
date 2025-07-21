@@ -752,8 +752,9 @@ mod test {
             bytes: vec![16, 17, 18, 19, 20],
         };
 
-        let mut execution_stack = LightweightExecutionStack::default();
-        execution_stack.items = vec![vec![21, 22], vec![23, 24, 25]];
+        let execution_stack = LightweightExecutionStack {
+            items: vec![vec![21, 22], vec![23, 24, 25]],
+        };
 
         assert_eq!(script.bytes, vec![1, 2, 3, 4, 5]);
         assert_eq!(covenant.bytes, vec![6, 7, 8, 9, 10]);
@@ -777,8 +778,10 @@ mod test {
 
     #[test]
     fn test_lightweight_wallet_output_script_lock() {
-        let mut output = LightweightWalletOutput::default();
-        output.script_lock_height = 200;
+        let output = LightweightWalletOutput {
+            script_lock_height: 200,
+            ..Default::default()
+        };
 
         assert!(!output.is_script_unlocked_at(150));
         assert!(output.is_script_unlocked_at(200));

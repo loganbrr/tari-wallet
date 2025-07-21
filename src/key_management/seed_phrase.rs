@@ -946,9 +946,7 @@ pub fn find_matching_seed_phrase(
 
         return Err(KeyManagementError::wallet_recovery_failed(
             "seed phrase search",
-            &format!(
-                "No matching seed phrase found. Errors encountered: {error_summary}"
-            ),
+            &format!("No matching seed phrase found. Errors encountered: {error_summary}"),
             "Verify that the seed phrases are correct and try with different passphrases if needed",
         ));
     }

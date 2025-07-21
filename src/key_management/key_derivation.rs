@@ -34,9 +34,7 @@ pub fn derive_view_and_spend_keys_from_entropy(
     })?;
 
     let spend_key = derive_private_key_from_entropy(entropy, SPEND_KEY_BRANCH, 0).map_err(|e| {
-        KeyManagementError::spend_key_derivation_failed(&format!(
-            "Failed to derive spend key: {e}"
-        ))
+        KeyManagementError::spend_key_derivation_failed(&format!("Failed to derive spend key: {e}"))
     })?;
 
     Ok((view_key, spend_key))

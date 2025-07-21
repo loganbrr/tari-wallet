@@ -757,9 +757,7 @@ mod test {
 
         if outputs.len() <= 97 {
             let outputs_len = outputs.len();
-            println!(
-                "❌ Block {block_height} only has {outputs_len} outputs, need at least 98"
-            );
+            println!("❌ Block {block_height} only has {outputs_len} outputs, need at least 98");
             return;
         }
 
@@ -792,9 +790,7 @@ mod test {
         // Extract sender offset public key if available
         let sender_offset_pk_bytes = target_output.sender_offset_public_key.as_bytes();
         let sender_offset_hex = hex::encode(sender_offset_pk_bytes);
-        println!(
-            "🔑 Sender offset public key: {sender_offset_hex}"
-        );
+        println!("🔑 Sender offset public key: {sender_offset_hex}");
 
         // Both test wallets
         let seeds = [
@@ -841,9 +837,7 @@ mod test {
                     let value_u64 = value.as_u64();
                     let value_t = value_u64 as f64 / 1_000_000.0;
                     let mask_hex = hex::encode(mask.as_bytes());
-                    println!(
-                        "   💰 Value: {value_u64} μT ({value_t} T)"
-                    );
+                    println!("   💰 Value: {value_u64} μT ({value_t} T)");
                     println!("   🎭 Mask: {mask_hex}");
                     println!("   🆔 Payment ID: {payment_id:?}");
 
@@ -872,9 +866,7 @@ mod test {
                         let value_u64 = value.as_u64();
                         let value_t = value_u64 as f64 / 1_000_000.0;
                         let mask_hex = hex::encode(mask.as_bytes());
-                        println!(
-                            "   💰 Value: {value_u64} μT ({value_t} T)"
-                        );
+                        println!("   💰 Value: {value_u64} μT ({value_t} T)");
                         println!("   🎭 Mask: {mask_hex}");
                         println!("   🆔 Payment ID: {payment_id:?}");
 
@@ -1454,9 +1446,7 @@ mod test {
             let commitment_prefix = &commitment_hex[..16];
             println!("  🔑 Commitment: {commitment_prefix}...");
             let encrypted_len = encrypted_data.as_bytes().len();
-            println!(
-                "  🔒 Encrypted data length: {encrypted_len} bytes"
-            );
+            println!("  🔒 Encrypted data length: {encrypted_len} bytes");
             println!("  📝 Expected payment ID: {expected_payment_id}");
 
             let mut utxo_result = (id, false, false, 0u64, String::new());
@@ -1472,10 +1462,7 @@ mod test {
                         value.as_u64(),
                         value.as_u64() as f64 / 1_000_000.0
                     );
-                    println!(
-                        "    🎭 Mask: {}...",
-                        &hex::encode(mask.as_bytes())[..16]
-                    );
+                    println!("    🎭 Mask: {}...", &hex::encode(mask.as_bytes())[..16]);
                     println!("    🆔 Payment ID: {payment_id:?}");
 
                     // Verify the value matches expectation
@@ -1514,10 +1501,7 @@ mod test {
                         value.as_u64(),
                         value.as_u64() as f64 / 1_000_000.0
                     );
-                    println!(
-                        "    🎭 Mask: {}...",
-                        &hex::encode(mask.as_bytes())[..16]
-                    );
+                    println!("    🎭 Mask: {}...", &hex::encode(mask.as_bytes())[..16]);
                     println!("    🆔 Payment ID: {payment_id:?}");
 
                     // Verify the value matches expectation
@@ -1547,9 +1531,7 @@ mod test {
         }
 
         println!("\n🏁 === FINAL EXTRACTION RESULTS ===");
-        println!(
-            "✅ Successful decryptions: {successful_decryptions}/{total_attempts}"
-        );
+        println!("✅ Successful decryptions: {successful_decryptions}/{total_attempts}");
         println!(
             "📊 Success rate: {:.1}%",
             (successful_decryptions as f64 / total_attempts as f64) * 100.0
@@ -1598,9 +1580,7 @@ mod test {
             .count();
 
         println!("🔐 Regular decryption successes: {regular_successes}/11");
-        println!(
-            "🔄 One-sided decryption successes: {one_sided_successes}/11"
-        );
+        println!("🔄 One-sided decryption successes: {one_sided_successes}/11");
         println!("🎯 Total unique UTXOs extracted: {successful_utxos}/11");
 
         if successful_utxos > 0 {
@@ -1672,9 +1652,7 @@ mod test {
                 match shared_secret_to_output_encryption_key(&shared_secret) {
                     Ok(encryption_key) => {
                         let encryption_key_hex = hex::encode(encryption_key.as_bytes());
-                        println!(
-                            "  Derived encryption key: {encryption_key_hex}"
-                        );
+                        println!("  Derived encryption key: {encryption_key_hex}");
                         let aead_key = kdf_aead(&encryption_key, &commitment);
                         let final_aead_hex = hex::encode(aead_key.reveal());
                         println!("  Final AEAD key: {final_aead_hex}");
@@ -1695,12 +1673,11 @@ mod test {
         if encrypted_bytes.len() >= 40 {
             let tag_hex = hex::encode(&encrypted_bytes[..16]);
             let nonce_hex = hex::encode(&encrypted_bytes[16..40]);
-            let ciphertext_preview = hex::encode(&encrypted_bytes[40..std::cmp::min(56, encrypted_bytes.len())]);
+            let ciphertext_preview =
+                hex::encode(&encrypted_bytes[40..std::cmp::min(56, encrypted_bytes.len())]);
             println!("Tag: {tag_hex}");
             println!("Nonce: {nonce_hex}");
-            println!(
-                "Ciphertext: {ciphertext_preview}..."
-            );
+            println!("Ciphertext: {ciphertext_preview}...");
         }
 
         // The test always passes - it's for analysis
@@ -1726,9 +1703,7 @@ mod test {
         let view_key_hex = hex::encode(view_key.as_bytes());
         println!("🔑 View key: {view_key_hex}");
         let sender_offset_hex = hex::encode(sender_offset_public.as_bytes());
-        println!(
-            "🔑 Sender offset public: {sender_offset_hex}"
-        );
+        println!("🔑 Sender offset public: {sender_offset_hex}");
 
         // Test mechanism 1: Change output (encrypted with view key directly)
         println!("\n--- Testing Mechanism 1: Change Output ---");

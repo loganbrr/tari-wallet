@@ -317,8 +317,7 @@ impl StoredWallet {
     /// Get the spend key as PrivateKey (decode from hex)
     pub fn get_spend_key(&self) -> Result<PrivateKey, String> {
         if let Some(hex_key) = &self.spend_key_hex {
-            let bytes =
-                hex::decode(hex_key).map_err(|e| format!("Invalid spend key hex: {e}"))?;
+            let bytes = hex::decode(hex_key).map_err(|e| format!("Invalid spend key hex: {e}"))?;
             if bytes.len() != 32 {
                 return Err(format!("Spend key must be 32 bytes, got {}", bytes.len()));
             }
