@@ -84,6 +84,7 @@ impl Default for LightweightExecutionStack {
 
 impl TransactionInput {
     /// Create a new transaction input
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         version: u8,
         features: u8,

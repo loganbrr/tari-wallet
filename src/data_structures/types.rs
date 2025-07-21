@@ -203,14 +203,14 @@ impl<'a> Add<&'a PrivateKey> for PrivateKey {
     }
 }
 
-impl<'a> Add<PrivateKey> for &'a PrivateKey {
+impl Add<PrivateKey> for &PrivateKey {
     type Output = PrivateKey;
     fn add(self, rhs: PrivateKey) -> PrivateKey {
         PrivateKey(self.0 + rhs.0)
     }
 }
 
-impl<'a, 'b> Add<&'a PrivateKey> for &'b PrivateKey {
+impl<'a> Add<&'a PrivateKey> for &PrivateKey {
     type Output = PrivateKey;
     fn add(self, rhs: &'a PrivateKey) -> PrivateKey {
         PrivateKey(self.0 + rhs.0)
@@ -231,14 +231,14 @@ impl<'a> Sub<&'a PrivateKey> for PrivateKey {
     }
 }
 
-impl<'a> Sub<PrivateKey> for &'a PrivateKey {
+impl Sub<PrivateKey> for &PrivateKey {
     type Output = PrivateKey;
     fn sub(self, rhs: PrivateKey) -> PrivateKey {
         PrivateKey(self.0 - rhs.0)
     }
 }
 
-impl<'a, 'b> Sub<&'a PrivateKey> for &'b PrivateKey {
+impl<'a> Sub<&'a PrivateKey> for &PrivateKey {
     type Output = PrivateKey;
     fn sub(self, rhs: &'a PrivateKey) -> PrivateKey {
         PrivateKey(self.0 - rhs.0)
@@ -259,14 +259,14 @@ impl<'a> Mul<&'a PrivateKey> for PrivateKey {
     }
 }
 
-impl<'a> Mul<PrivateKey> for &'a PrivateKey {
+impl Mul<PrivateKey> for &PrivateKey {
     type Output = PrivateKey;
     fn mul(self, rhs: PrivateKey) -> PrivateKey {
         PrivateKey(self.0 * rhs.0)
     }
 }
 
-impl<'a, 'b> Mul<&'a PrivateKey> for &'b PrivateKey {
+impl<'a> Mul<&'a PrivateKey> for &PrivateKey {
     type Output = PrivateKey;
     fn mul(self, rhs: &'a PrivateKey) -> PrivateKey {
         PrivateKey(self.0 * rhs.0)
@@ -396,16 +396,12 @@ impl HexEncodable for CompressedCommitment {
 impl HexValidatable for CompressedCommitment {}
 
 /// Compressed public key (Ristretto)
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub struct CompressedPublicKey(
     #[serde(with = "compressed_ristretto_serde")] pub CompressedRistretto,
 );
 
-impl Default for CompressedPublicKey {
-    fn default() -> Self {
-        Self(CompressedRistretto::default())
-    }
-}
+
 
 impl BorshSerialize for CompressedPublicKey {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
@@ -462,7 +458,7 @@ impl CompressedPublicKey {
 
     /// Create from private key
     pub fn from_private_key(private_key: &PrivateKey) -> Self {
-        let point = RistrettoPoint::from(private_key.0 * RISTRETTO_BASEPOINT_POINT);
+        let point = private_key.0 * RISTRETTO_BASEPOINT_POINT;
         Self::from_point(&point)
     }
 }

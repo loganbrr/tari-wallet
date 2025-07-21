@@ -254,18 +254,16 @@ impl fmt::Display for ImportStatus {
     Hash,
     BorshSerialize,
     BorshDeserialize,
+    Default,
 )]
 pub enum TransactionDirection {
     Inbound,
     Outbound,
+    #[default]
     Unknown,
 }
 
-impl Default for TransactionDirection {
-    fn default() -> Self {
-        TransactionDirection::Unknown
-    }
-}
+
 
 #[derive(Debug, Error)]
 #[error("Invalid TransactionDirection: {code}")]

@@ -104,13 +104,14 @@ pub fn validate_checksum(data: &[u8]) -> Result<&[u8], LightweightWalletError> {
 
 /// Tari Network types (exact values from source of truth)
 #[repr(u8)]
-#[derive(Clone, Debug, PartialEq, Eq, Copy, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Copy, Serialize, Deserialize, Default)]
 pub enum Network {
     MainNet = 0x00,
     StageNet = 0x01,
     NextNet = 0x02,
     LocalNet = 0x10,
     Igor = 0x24,
+    #[default]
     Esmeralda = 0x26,
 }
 
@@ -167,11 +168,7 @@ impl std::str::FromStr for Network {
     }
 }
 
-impl Default for Network {
-    fn default() -> Self {
-        Network::Esmeralda
-    }
-}
+
 
 /// Tari address features (exact implementation from source of truth)
 #[derive(Debug, Clone, PartialEq, Eq, Copy, Serialize, Deserialize)]

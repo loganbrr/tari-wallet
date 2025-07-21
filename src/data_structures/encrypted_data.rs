@@ -162,7 +162,7 @@ impl EncryptedData {
 
         // Decrypt in place - exactly like REFERENCE_tari
         cipher
-            .decrypt_in_place_detached(&nonce, ENCRYPTED_DATA_AAD, bytes.as_mut_slice(), &tag)
+            .decrypt_in_place_detached(nonce, ENCRYPTED_DATA_AAD, bytes.as_mut_slice(), tag)
             .map_err(|e| {
                 EncryptedDataError::DecryptionFailed(format!("AEAD decryption failed: {:?}", e))
             })?;
@@ -397,10 +397,7 @@ pub fn diffie_hellman_shared_secret(
     let scalar = Scalar::from_bytes_mod_order(private_key.as_bytes());
 
     // Convert the CompressedPublicKey to a RistrettoPoint
-    let point_bytes: [u8; 32] = public_key
-        .as_bytes()
-        .try_into()
-        .map_err(|_| "Invalid public key length")?;
+    let point_bytes: [u8; 32] = public_key.as_bytes().try_into().map_err(|_| "Invalid public key length")?;
 
     let point = curve25519_dalek::ristretto::CompressedRistretto(point_bytes)
         .decompress()

@@ -205,10 +205,8 @@ impl CipherSeed {
         // Verify the MAC in constant time to avoid leaking data
         // Only verify MAC for current version (version 2)
         // Legacy version 128 may use different MAC algorithm
-        if version == CIPHER_SEED_VERSION {
-            if mac.len() != expected_mac.len() || !constant_time_eq(&mac, &expected_mac) {
-                return Err(KeyManagementError::DecryptionFailed);
-            }
+        if version == CIPHER_SEED_VERSION && (mac.len() != expected_mac.len() || !constant_time_eq(&mac, &expected_mac)) {
+            return Err(KeyManagementError::DecryptionFailed);
         }
 
         Ok(Self {
@@ -1053,7 +1051,7 @@ pub fn detailed_master_key_validation(
         mnemonic_valid: true, // If we got this far, mnemonic was valid
         cipher_seed_decryption_success: true,
         master_key_derivation_success: true,
-        cipher_seed_validation: cipher_seed_validation,
+        cipher_seed_validation,
         final_master_key_match: master_key_match,
         validation_successful: master_key_match && cipher_seed_validation,
         cipher_seed_info: CipherSeedInfo {

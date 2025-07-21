@@ -190,7 +190,6 @@ pub fn extract_wallet_output(
 }
 
 /// Validate range proof using real validation logic
-
 #[cfg(test)]
 mod tests {
     use super::*;
