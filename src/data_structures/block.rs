@@ -400,9 +400,11 @@ mod tests {
         maturity: u64,
         value: u64,
     ) -> LightweightTransactionOutput {
-        let mut features = LightweightOutputFeatures::default();
-        features.output_type = output_type;
-        features.maturity = maturity;
+        let features = LightweightOutputFeatures {
+            output_type,
+            maturity,
+            ..Default::default()
+        };
 
         LightweightTransactionOutput::new(
             1,

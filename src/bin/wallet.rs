@@ -2,8 +2,7 @@
 
 #[cfg(feature = "storage")]
 use clap::{Parser, Subcommand};
-#[cfg(feature = "storage")]
-use hex;
+
 #[cfg(feature = "storage")]
 use lightweight_wallet_libs::data_structures::address::TariAddressFeatures;
 #[cfg(feature = "storage")]
@@ -258,8 +257,7 @@ async fn handle_generate(
     // Validate network
     if !is_valid_network(&network) {
         eprintln!(
-            "Error: Invalid network '{}'. Valid networks: mainnet, esmeralda, stagenet",
-            network
+            "Error: Invalid network '{network}'. Valid networks: mainnet, esmeralda, stagenet"
         );
         return Ok(());
     }
@@ -275,7 +273,7 @@ async fn handle_generate(
             // Get seed phrase
             match wallet.export_seed_phrase() {
                 Ok(seed) => {
-                    println!("Seed: {}", seed);
+                    println!("Seed: {seed}");
 
                     // Generate one-sided address using dual address method to support payment ID
                     match wallet.get_dual_address(
@@ -292,13 +290,13 @@ async fn handle_generate(
                                 println!("Payment ID included: Yes");
                             }
                         }
-                        Err(e) => eprintln!("Error generating address: {}", e),
+                        Err(e) => eprintln!("Error generating address: {e}"),
                     }
                 }
-                Err(e) => eprintln!("Error exporting seed: {}", e),
+                Err(e) => eprintln!("Error exporting seed: {e}"),
             }
         }
-        Err(e) => eprintln!("Error creating wallet: {}", e),
+        Err(e) => eprintln!("Error creating wallet: {e}"),
     }
 
     Ok(())
@@ -314,8 +312,7 @@ async fn handle_new_address(
     // Validate network
     if !is_valid_network(&network) {
         eprintln!(
-            "Error: Invalid network '{}'. Valid networks: mainnet, esmeralda, stagenet",
-            network
+            "Error: Invalid network '{network}'. Valid networks: mainnet, esmeralda, stagenet"
         );
         return Ok(());
     }
@@ -342,10 +339,10 @@ async fn handle_new_address(
                         println!("Payment ID included: Yes");
                     }
                 }
-                Err(e) => eprintln!("Error generating address: {}", e),
+                Err(e) => eprintln!("Error generating address: {e}"),
             }
         }
-        Err(e) => eprintln!("Error creating wallet from seed: {}", e),
+        Err(e) => eprintln!("Error creating wallet from seed: {e}"),
     }
 
     Ok(())
@@ -494,7 +491,7 @@ async fn handle_utxo(
                     .chars()
                     .all(|c| c.is_ascii_graphic() || c.is_ascii_whitespace())
                 {
-                    println!("   Input data: \"{}\"", text);
+                    println!("   Input data: \"{text}\"");
                 } else {
                     println!(
                         "   Input data (hex): {}",
@@ -550,7 +547,7 @@ async fn handle_info(
         "View-only wallet"
     };
 
-    println!("Wallet type:    {}", wallet_type);
+    println!("Wallet type:    {wallet_type}");
     println!("Birthday block: {}", format_number(wallet.birthday_block));
 
     if let Some(latest_scanned) = stats.latest_scanned_block {
@@ -769,7 +766,7 @@ async fn select_wallet(
         if let Some(wallet) = storage.get_wallet_by_name(&name).await? {
             return Ok(wallet);
         } else {
-            return Err(format!("Wallet '{}' not found", name).into());
+            return Err(format!("Wallet '{name}' not found").into());
         }
     }
 
@@ -777,7 +774,7 @@ async fn select_wallet(
     let wallets = storage.list_wallets().await?;
 
     if wallets.is_empty() {
-        return Err("No wallets found in database. Use 'wallet add-wallet' to create one.".into());
+        Err("No wallets found in database. Use 'wallet add-wallet' to create one.".into())
     } else if wallets.len() == 1 {
         println!("📂 Using wallet: {}", wallets[0].name);
         return Ok(wallets[0].clone());
@@ -850,9 +847,9 @@ async fn handle_list_wallets(database_path: String) -> Result<(), Box<dyn std::e
     // List wallets
     let wallets = storage.list_wallets().await?;
     if wallets.is_empty() {
-        println!("📂 No wallets found in database: {}", database_path);
+        println!("📂 No wallets found in database: {database_path}");
     } else {
-        println!("📂 Available wallets in database: {}", database_path);
+        println!("📂 Available wallets in database: {database_path}");
         for wallet in &wallets {
             let wallet_type = if wallet.has_seed_phrase() {
                 "Full (seed phrase)"
@@ -902,8 +899,7 @@ async fn handle_create_wallet(
     // Validate network
     if !is_valid_network(&network) {
         eprintln!(
-            "Error: Invalid network '{}'. Valid networks: mainnet, esmeralda, stagenet",
-            network
+            "Error: Invalid network '{network}'. Valid networks: mainnet, esmeralda, stagenet"
         );
         return Ok(());
     }
@@ -921,7 +917,7 @@ async fn handle_create_wallet(
 
     // Check if wallet name already exists
     if storage.wallet_name_exists(&wallet_name).await? {
-        eprintln!("Error: Wallet name '{}' already exists", wallet_name);
+        eprintln!("Error: Wallet name '{wallet_name}' already exists");
         return Ok(());
     }
 
@@ -1000,14 +996,13 @@ async fn handle_create_wallet(
     };
 
     println!(
-        "✅ Created {} '{}' with ID {} in database: {}",
-        wallet_type, wallet_name, wallet_id, database_path
+        "✅ Created {wallet_type} '{wallet_name}' with ID {wallet_id} in database: {database_path}"
     );
     println!(
         "   Birthday: block {}",
         format_number(stored_wallet.birthday_block)
     );
-    println!("   Network: {}", network);
+    println!("   Network: {network}");
 
     if !stored_wallet.has_seed_phrase() {
         println!("   ⚠️  This is a view-only wallet - you cannot spend from it");
@@ -1030,8 +1025,7 @@ async fn handle_clear_database(
 
     // Confirm action
     println!(
-        "⚠️  WARNING: This will permanently delete ALL data from: {}",
-        database_path
+        "⚠️  WARNING: This will permanently delete ALL data from: {database_path}"
     );
     let confirmation = if !no_prompt {
         print!("Are you sure you want to continue? (yes/no): ");
@@ -1056,7 +1050,7 @@ async fn handle_clear_database(
     // Clear all data
     storage.clear_all_transactions().await?;
 
-    println!("✅ Database cleared successfully: {}", database_path);
+    println!("✅ Database cleared successfully: {database_path}");
 
     Ok(())
 }

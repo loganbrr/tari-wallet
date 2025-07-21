@@ -38,7 +38,7 @@ pub fn format_number<T: std::fmt::Display>(val: T) -> String {
     };
 
     if is_negative {
-        result = format!("-{}", result);
+        result = format!("-{result}");
     }
     result
 }

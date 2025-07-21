@@ -35,7 +35,7 @@ pub fn check_simple_one_sided_structure(script: &TariScript) -> Option<String> {
 
     if let Some(Opcode::PushPubKey(key)) = script.opcode(0) {
         // Use debug representation as a simple way to get a comparable string
-        Some(format!("{:?}", key))
+        Some(format!("{key:?}"))
     } else {
         None
     }
@@ -49,7 +49,7 @@ pub fn check_stealth_one_sided_structure(script: &TariScript) -> Option<(String,
 
     // Check pattern: PushPubKey(nonce), Drop, PushPubKey(scanned_pk)
     let nonce_hex = match script.opcode(0) {
-        Some(Opcode::PushPubKey(key)) => format!("{:?}", key),
+        Some(Opcode::PushPubKey(key)) => format!("{key:?}"),
         _ => return None,
     };
 
@@ -58,7 +58,7 @@ pub fn check_stealth_one_sided_structure(script: &TariScript) -> Option<(String,
     }
 
     if let Some(Opcode::PushPubKey(scanned_key)) = script.opcode(2) {
-        let key_hex = format!("{:?}", scanned_key);
+        let key_hex = format!("{scanned_key:?}");
         Some((nonce_hex, key_hex))
     } else {
         None

@@ -82,8 +82,7 @@ impl GrpcBlockchainScanner {
             .map_err(|e| {
                 LightweightWalletError::ScanningError(
                     crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "Invalid URL: {}",
-                        e
+                        "Invalid URL: {e}"
                     )),
                 )
             })?
@@ -93,8 +92,7 @@ impl GrpcBlockchainScanner {
             .map_err(|e| {
                 LightweightWalletError::ScanningError(
                     crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "Connection failed: {}",
-                        e
+                        "Connection failed: {e}"
                     )),
                 )
             })?;
@@ -120,8 +118,7 @@ impl GrpcBlockchainScanner {
             .map_err(|e| {
                 LightweightWalletError::ScanningError(
                     crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "Invalid URL: {}",
-                        e
+                        "Invalid URL: {e}"
                     )),
                 )
             })?
@@ -131,8 +128,7 @@ impl GrpcBlockchainScanner {
             .map_err(|e| {
                 LightweightWalletError::ScanningError(
                     crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "Connection failed: {}",
-                        e
+                        "Connection failed: {e}"
                     )),
                 )
             })?;
@@ -378,11 +374,7 @@ impl GrpcBlockchainScanner {
             burn_commitment: if !grpc_kernel.burn_commitment.is_empty() {
                 let mut commitment = [0u8; 32];
                 if grpc_kernel.burn_commitment.len() >= 32 {
-                    if grpc_kernel.burn_commitment.len() == 32 {
-                        commitment.copy_from_slice(&grpc_kernel.burn_commitment[..32]);
-                    } else if grpc_kernel.burn_commitment.len() >= 32 {
-                        commitment.copy_from_slice(&grpc_kernel.burn_commitment[..32]);
-                    }
+                    commitment.copy_from_slice(&grpc_kernel.burn_commitment[..32]);
                 }
                 Some(CompressedCommitment::new(commitment))
             } else {
@@ -427,7 +419,7 @@ impl GrpcBlockchainScanner {
             crate::key_management::key_derivation::derive_view_and_spend_keys_from_entropy(
                 &entropy,
             )
-            .map_err(|e| LightweightWalletError::KeyManagementError(e))?;
+            .map_err(LightweightWalletError::KeyManagementError)?;
 
         // Convert RistrettoSecretKey to PrivateKey
         let view_key_bytes = view_key.as_bytes();
@@ -561,8 +553,7 @@ impl GrpcBlockchainScanner {
             .map_err(|e| {
                 LightweightWalletError::ScanningError(
                     crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "GRPC error: {}",
-                        e
+                        "GRPC error: {e}"
                     )),
                 )
             })?
@@ -571,8 +562,7 @@ impl GrpcBlockchainScanner {
         if let Some(grpc_block) = stream.message().await.map_err(|e| {
             LightweightWalletError::ScanningError(
                 crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                    "Stream error: {}",
-                    e
+                    "Stream error: {e}"
                 )),
             )
         })? {
@@ -603,8 +593,7 @@ impl GrpcBlockchainScanner {
             .map_err(|e| {
                 LightweightWalletError::ScanningError(
                     crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "GRPC error: {}",
-                        e
+                        "GRPC error: {e}"
                     )),
                 )
             })?
@@ -613,8 +602,7 @@ impl GrpcBlockchainScanner {
         if let Some(grpc_block) = stream.message().await.map_err(|e| {
             LightweightWalletError::ScanningError(
                 crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                    "Stream error: {}",
-                    e
+                    "Stream error: {e}"
                 )),
             )
         })? {
@@ -644,8 +632,7 @@ impl GrpcBlockchainScanner {
             .map_err(|e| {
                 LightweightWalletError::ScanningError(
                     crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "GRPC error: {}",
-                        e
+                        "GRPC error: {e}"
                     )),
                 )
             })?
@@ -654,8 +641,7 @@ impl GrpcBlockchainScanner {
         if let Some(grpc_block) = stream.message().await.map_err(|e| {
             LightweightWalletError::ScanningError(
                 crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                    "Stream error: {}",
-                    e
+                    "Stream error: {e}"
                 )),
             )
         })? {
@@ -685,8 +671,7 @@ impl GrpcBlockchainScanner {
             .map_err(|e| {
                 LightweightWalletError::ScanningError(
                     crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "GRPC error: {}",
-                        e
+                        "GRPC error: {e}"
                     )),
                 )
             })?
@@ -695,8 +680,7 @@ impl GrpcBlockchainScanner {
         if let Some(grpc_block) = stream.message().await.map_err(|e| {
             LightweightWalletError::ScanningError(
                 crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                    "Stream error: {}",
-                    e
+                    "Stream error: {e}"
                 )),
             )
         })? {
@@ -766,8 +750,7 @@ impl GrpcBlockchainScanner {
             .map_err(|e| {
                 LightweightWalletError::ScanningError(
                     crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "GRPC error: {}",
-                        e
+                        "GRPC error: {e}"
                     )),
                 )
             })?
@@ -777,8 +760,7 @@ impl GrpcBlockchainScanner {
         while let Some(grpc_block) = stream.message().await.map_err(|e| {
             LightweightWalletError::ScanningError(
                 crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                    "GRPC stream error: {}",
-                    e
+                    "GRPC stream error: {e}"
                 )),
             )
         })? {
@@ -828,8 +810,7 @@ impl BlockchainScanner for GrpcBlockchainScanner {
                 .map_err(|e| {
                     LightweightWalletError::ScanningError(
                         crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                            "GRPC error: {}",
-                            e
+                            "GRPC error: {e}"
                         )),
                     )
                 })?
@@ -839,8 +820,7 @@ impl BlockchainScanner for GrpcBlockchainScanner {
             while let Some(grpc_block) = stream.message().await.map_err(|e| {
                 LightweightWalletError::ScanningError(
                     crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "Stream error: {}",
-                        e
+                        "Stream error: {e}"
                     )),
                 )
             })? {
@@ -917,8 +897,7 @@ impl BlockchainScanner for GrpcBlockchainScanner {
             .map_err(|e| {
                 LightweightWalletError::ScanningError(
                     crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "GRPC error: {}",
-                        e
+                        "GRPC error: {e}"
                     )),
                 )
             })?;
@@ -941,8 +920,7 @@ impl BlockchainScanner for GrpcBlockchainScanner {
             .map_err(|e| {
                 LightweightWalletError::ScanningError(
                     crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "GRPC error: {}",
-                        e
+                        "GRPC error: {e}"
                     )),
                 )
             })?
@@ -952,8 +930,7 @@ impl BlockchainScanner for GrpcBlockchainScanner {
         while let Some(grpc_block) = stream.message().await.map_err(|e| {
             LightweightWalletError::ScanningError(
                 crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                    "Stream error: {}",
-                    e
+                    "Stream error: {e}"
                 )),
             )
         })? {
@@ -1000,8 +977,7 @@ impl BlockchainScanner for GrpcBlockchainScanner {
             .map_err(|e| {
                 LightweightWalletError::ScanningError(
                     crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "GRPC error: {}",
-                        e
+                        "GRPC error: {e}"
                     )),
                 )
             })?
@@ -1011,8 +987,7 @@ impl BlockchainScanner for GrpcBlockchainScanner {
         while let Some(response) = stream.message().await.map_err(|e| {
             LightweightWalletError::ScanningError(
                 crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                    "Stream error: {}",
-                    e
+                    "Stream error: {e}"
                 )),
             )
         })? {
@@ -1042,8 +1017,7 @@ impl BlockchainScanner for GrpcBlockchainScanner {
             .map_err(|e| {
                 LightweightWalletError::ScanningError(
                     crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "GRPC error: {}",
-                        e
+                        "GRPC error: {e}"
                     )),
                 )
             })?
@@ -1053,8 +1027,7 @@ impl BlockchainScanner for GrpcBlockchainScanner {
         while let Some(grpc_block) = stream.message().await.map_err(|e| {
             LightweightWalletError::ScanningError(
                 crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                    "GRPC stream error: {}",
-                    e
+                    "GRPC stream error: {e}"
                 )),
             )
         })? {

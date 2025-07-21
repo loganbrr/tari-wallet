@@ -715,7 +715,7 @@ mod test {
 
         // Test display
         let display_amount = MicroMinotari::new(1500000);
-        assert_eq!(format!("{}", display_amount), "1500000 μT");
+        assert_eq!(format!("{display_amount}"), "1500000 μT");
 
         // Test ordering
         assert!(MicroMinotari::new(100) < MicroMinotari::new(200));
@@ -878,7 +878,7 @@ mod test {
         assert_eq!(default_key.as_bytes(), [0u8; 32]);
 
         // Test display
-        let display_str = format!("{}", key);
+        let display_str = format!("{key}");
         assert_eq!(display_str, hex);
 
         // Test from private key
@@ -923,7 +923,7 @@ mod test {
 
         // Test display
         let display_array: SafeArray<4> = SafeArray::new([0xDE, 0xAD, 0xBE, 0xEF]);
-        assert_eq!(format!("{}", display_array), "deadbeef");
+        assert_eq!(format!("{display_array}"), "deadbeef");
 
         // Test hex encoding edge cases
         let empty_like: SafeArray<0> = SafeArray::new([]);

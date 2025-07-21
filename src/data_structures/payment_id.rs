@@ -685,7 +685,7 @@ impl PaymentId {
     pub fn user_data_as_string(&self) -> String {
         match self {
             PaymentId::Empty => self.to_string(),
-            PaymentId::U256(v) => format!("{}", v),
+            PaymentId::U256(v) => format!("{v}"),
             PaymentId::Open { user_data, .. } => PaymentId::stringify_bytes(user_data),
             PaymentId::AddressAndData { user_data, .. } => PaymentId::stringify_bytes(user_data),
             PaymentId::TransactionInfo { user_data, .. } => PaymentId::stringify_bytes(user_data),

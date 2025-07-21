@@ -97,8 +97,7 @@ impl LightweightMinimumValuePromiseValidator {
             if value > max_allowed {
                 return Err(ValidationError::minimum_value_promise_validation_failed(
                     &format!(
-                        "Minimum value promise {} exceeds maximum allowed value {}",
-                        value, max_allowed
+                        "Minimum value promise {value} exceeds maximum allowed value {max_allowed}"
                     ),
                 ));
             }

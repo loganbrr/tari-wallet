@@ -233,7 +233,7 @@ impl<'a> fmt::Display for HexDisplay<'a> {
 
 impl<'a> fmt::Debug for HexDisplay<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "HexDisplay(\"{}\")", self)
+        write!(f, "HexDisplay(\"{self}\")")
     }
 }
 
@@ -251,7 +251,7 @@ impl<'a> fmt::Display for HexDisplayWithPrefix<'a> {
 
 impl<'a> fmt::Debug for HexDisplayWithPrefix<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "HexDisplayWithPrefix(\"{}\")", self)
+        write!(f, "HexDisplayWithPrefix(\"{self}\")")
     }
 }
 
@@ -531,7 +531,7 @@ mod tests {
         let commitment = CompressedCommitment::new([0u8; 32]);
         let public_key = CompressedPublicKey::new([0x56; 32]);
         let safe_array = SafeArray::new([0x78; 16]);
-        let encrypted_data = EncryptedData::from_bytes(&vec![0x9a; 80]).unwrap();
+        let encrypted_data = EncryptedData::from_bytes(&[0x9a; 80]).unwrap();
         let payment_id = PaymentId::U256(U256::from(0x123456789abcdef0u64));
 
         // Test that they all have hex methods

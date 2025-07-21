@@ -1009,8 +1009,7 @@ impl KeyManagementError {
                 position + 1
             )),
             Self::InvalidWordCount { expected, .. } => Some(format!(
-                "Ensure your seed phrase has exactly {} words separated by spaces.",
-                expected
+                "Ensure your seed phrase has exactly {expected} words separated by spaces."
             )),
             Self::InvalidSeedChecksum => {
                 Some("Verify all words are spelled correctly and in the right order.".to_string())

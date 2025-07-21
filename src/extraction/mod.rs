@@ -150,12 +150,12 @@ pub fn extract_wallet_output(
 
     // If decryption failed, this output doesn't belong to our wallet
     if !decryption_result.is_success() {
+        let error_msg = decryption_result
+            .error_message()
+            .unwrap_or("decryption failed");
         return Err(
             crate::errors::LightweightWalletError::OperationNotSupported(format!(
-                "Output does not belong to wallet: {}",
-                decryption_result
-                    .error_message()
-                    .unwrap_or("decryption failed")
+                "Output does not belong to wallet: {error_msg}"
             )),
         );
     }
@@ -188,6 +188,9 @@ pub fn extract_wallet_output(
 
     Ok(wallet_output)
 }
+
+pub use stealth_address_key_recovery::*;
+pub use wallet_output_reconstruction::*;
 
 /// Validate range proof using real validation logic
 #[cfg(test)]
@@ -335,7 +338,7 @@ mod tests {
                 );
             }
             Err(ref e) => {
-                println!("✗ Failed to extract output 100: {}", e);
+                println!("✗ Failed to extract output 100: {e}");
                 // This means it doesn't belong to our wallet
             }
         }
@@ -356,7 +359,7 @@ mod tests {
                 );
             }
             Err(ref e) => {
-                println!("✗ Failed to extract output 109: {}", e);
+                println!("✗ Failed to extract output 109: {e}");
                 // This means it doesn't belong to our wallet
             }
         }
@@ -398,7 +401,7 @@ mod tests {
         entropy.copy_from_slice(&master_key_bytes[..16]);
 
         println!("Master key first 16 bytes: {:?}", &master_key_bytes[..16]);
-        println!("Entropy: {:?}", entropy);
+        println!("Entropy: {entropy:?}");
 
         let (view_key, _spend_key) =
             crate::key_management::derive_view_and_spend_keys_from_entropy(&entropy)
@@ -432,7 +435,7 @@ mod tests {
 
         match key_store.add_imported_key(imported_key) {
             Ok(_) => println!("✓ Successfully added key to key store"),
-            Err(e) => println!("✗ Failed to add key to key store: {}", e),
+            Err(e) => println!("✗ Failed to add key to key store: {e}"),
         }
 
         // Test decryptor creation
@@ -456,17 +459,17 @@ mod tests {
                     result.is_success()
                 );
                 if let Some(error) = result.error_message() {
-                    println!("  Error message: {}", error);
+                    println!("  Error message: {error}");
                 }
                 if let Some(value) = &result.value {
-                    println!("  Decrypted value: {}", value.as_u64());
+                    println!("  Decrypted value: {value}");
                 }
                 if let Some(payment_id) = &result.payment_id {
-                    println!("  Payment ID: {:?}", payment_id);
+                    println!("  Payment ID: {payment_id:?}");
                 }
             }
             Err(e) => {
-                println!("✗ Decryption failed: {}", e);
+                println!("✗ Decryption failed: {e}");
             }
         }
 
@@ -480,7 +483,7 @@ mod tests {
                 );
             }
             Err(e) => {
-                println!("✗ Full extraction failed: {}", e);
+                println!("✗ Full extraction failed: {e}");
             }
         }
     }
@@ -683,10 +686,9 @@ mod tests {
                     );
                 }
 
-                assert!(true, "Extraction should succeed for output 98");
             }
             Err(e) => {
-                println!("❌ Failed to extract wallet output: {:?}", e);
+                println!("❌ Failed to extract wallet output: {e:?}");
 
                 // This means the output doesn't belong to our wallet, which is expected behavior if the keys don't match
                 println!("This is expected if the output doesn't belong to this wallet");
@@ -751,7 +753,7 @@ mod tests {
         let mut successful_extractions = 0;
 
         for (output_num, encrypted_data_bytes) in &test_outputs {
-            println!("\n--- Testing Output {} ---", output_num);
+            println!("\n--- Testing Output {output_num} ---");
 
             // Create a test output with this encrypted data
             let features = LightweightOutputFeatures {
@@ -768,7 +770,7 @@ mod tests {
             let encrypted_data = match EncryptedData::from_bytes(encrypted_data_bytes) {
                 Ok(data) => data,
                 Err(_) => {
-                    println!("❌ Invalid encrypted data for output {}", output_num);
+                    println!("❌ Invalid encrypted data for output {output_num}");
                     continue;
                 }
             };
@@ -796,7 +798,7 @@ mod tests {
             match extract_wallet_output(&output, &config) {
                 Ok(wallet_output) => {
                     successful_extractions += 1;
-                    println!("✅ Successfully extracted output {}!", output_num);
+                    println!("✅ Successfully extracted output {output_num}!");
                     println!("💰 Value: {} microTari", wallet_output.value().as_u64());
 
                     let payment_id_str = format!("{:?}", wallet_output.payment_id);
@@ -805,7 +807,7 @@ mod tests {
                     if payment_id_str.contains("TEST-ABC") {
                         found_test_abc = true;
                         println!("🎯 ✅ FOUND THE TEST-ABC PAYMENT ID!");
-                        println!("📍 This is output {} from block 34926", output_num);
+                        println!("📍 This is output {output_num} from block 34926");
                         println!("💰 Value: {} microTari", wallet_output.value().as_u64());
 
                         // Check if value is in expected range for 2T minus fee
@@ -816,20 +818,18 @@ mod tests {
                     }
                 }
                 Err(e) => {
-                    println!("❌ Output {} does not belong to wallet: {}", output_num, e);
+                    println!("❌ Output {output_num} does not belong to wallet: {e}");
                 }
             }
         }
 
         println!("\n=== SCAN SUMMARY ===");
-        println!("Total outputs tested: {}", test_outputs.len());
-        println!("Successful extractions: {}", successful_extractions);
-        println!("Found TEST-ABC payment ID: {}", found_test_abc);
+        println!("Successful extractions: {successful_extractions}");
+        println!("Found TEST-ABC payment ID: {found_test_abc}");
 
         if successful_extractions > 0 {
             println!(
-                "✅ Extraction logic is working - found {} wallet outputs",
-                successful_extractions
+                "✅ Extraction logic is working - found {successful_extractions} wallet outputs",
             );
         }
 
@@ -857,6 +857,3 @@ mod tests {
         data
     }
 }
-
-pub use stealth_address_key_recovery::*;
-pub use wallet_output_reconstruction::*;

@@ -241,7 +241,7 @@ impl Wallet {
             payment_id,
         )
         .map_err(|e| {
-            KeyManagementError::SeedPhraseError(format!("Failed to create dual address: {}", e))
+            KeyManagementError::SeedPhraseError(format!("Failed to create dual address: {e}"))
         })?;
 
         Ok(TariAddress::Dual(dual_address))
@@ -268,8 +268,7 @@ impl Wallet {
         let single_address =
             SingleAddress::new(spend_public_key, network, features).map_err(|e| {
                 KeyManagementError::SeedPhraseError(format!(
-                    "Failed to create single address: {}",
-                    e
+                    "Failed to create single address: {e}"
                 ))
             })?;
 
@@ -292,7 +291,7 @@ impl Wallet {
         // with branch seeds as specified in the Tari key management documentation
 
         let view_key = PrivateKey::from_canonical_bytes(master_key_bytes).map_err(|e| {
-            KeyManagementError::SeedPhraseError(format!("Failed to create view key: {}", e))
+            KeyManagementError::SeedPhraseError(format!("Failed to create view key: {e}"))
         })?;
 
         // Create spend key by hashing master_key + "spend" string
@@ -308,7 +307,7 @@ impl Wallet {
             })?;
 
         let spend_key = PrivateKey::from_canonical_bytes(&spend_key_bytes).map_err(|e| {
-            KeyManagementError::SeedPhraseError(format!("Failed to create spend key: {}", e))
+            KeyManagementError::SeedPhraseError(format!("Failed to create spend key: {e}"))
         })?;
 
         Ok((view_key, spend_key))
@@ -575,8 +574,7 @@ mod tests {
             for j in i + 1..keys.len() {
                 assert_ne!(
                     keys[i], keys[j],
-                    "Wallets {} and {} have the same master key",
-                    i, j
+                    "Wallets {i} and {j} have the same master key"
                 );
             }
         }
@@ -862,8 +860,7 @@ mod tests {
             for j in i + 1..keys.len() {
                 assert_ne!(
                     keys[i], keys[j],
-                    "Wallets {} and {} have the same master key",
-                    i, j
+                    "Wallets {i} and {j} have the same master key"
                 );
             }
         }

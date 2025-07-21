@@ -470,9 +470,9 @@ impl WalletState {
             progress_percent,
             phase,
             crate::common::format_number(block_height),
-            crate::common::format_number(format!("{:.6}", balance_t)),
-            crate::common::format_number(format!("{:.6}", unspent_t)),
-            crate::common::format_number(format!("{:.6}", spent_t)),
+            crate::common::format_number(format!("{balance_t:.6}")),
+            crate::common::format_number(format!("{unspent_t:.6}")),
+            crate::common::format_number(format!("{spent_t:.6}")),
             crate::common::format_number(self.transactions.len())
         )
     }

@@ -165,13 +165,12 @@ impl LightweightEncryptedDataValidator {
         for (index, encrypted_data) in encrypted_data_items.iter().enumerate() {
             if let Err(e) = self.validate_integrity(encrypted_data) {
                 failed_count += 1;
-                println!("Item {}: {}", index, e);
+                println!("Item {index}: {e}");
             }
         }
         if failed_count > 0 {
             return Err(ValidationError::IntegrityCheckFailed(format!(
-                "Batch validation failed: {} items failed",
-                failed_count
+                "Batch validation failed: {failed_count} items failed"
             )));
         }
         Ok(())

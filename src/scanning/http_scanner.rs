@@ -177,20 +177,18 @@ impl HttpBlockchainScanner {
             let client = Client::builder().timeout(timeout).build().map_err(|e| {
                 LightweightWalletError::ScanningError(
                     crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "Failed to create HTTP client: {}",
-                        e
+                        "Failed to create HTTP client: {e}"
                     )),
                 )
             })?;
 
             // Test the connection
-            let test_url = format!("{}/api/tip", base_url);
+            let test_url = format!("{base_url}/api/tip");
             let response = client.get(&test_url).send().await;
             if response.is_err() {
                 return Err(LightweightWalletError::ScanningError(
                     crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "Failed to connect to {}",
-                        base_url
+                        "Failed to connect to {base_url}"
                     )),
                 ));
             }
@@ -256,20 +254,18 @@ impl HttpBlockchainScanner {
         let client = Client::builder().timeout(timeout).build().map_err(|e| {
             LightweightWalletError::ScanningError(
                 crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                    "Failed to create HTTP client: {}",
-                    e
+                    "Failed to create HTTP client: {e}"
                 )),
             )
         })?;
 
         // Test the connection
-        let test_url = format!("{}/api/tip", base_url);
+        let test_url = format!("{base_url}/api/tip");
         let response = client.get(&test_url).send().await;
         if response.is_err() {
             return Err(LightweightWalletError::ScanningError(
                 crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                    "Failed to connect to {}",
-                    base_url
+                    "Failed to connect to {base_url}"
                 )),
             ));
         }
@@ -327,7 +323,7 @@ impl HttpBlockchainScanner {
         // Parse encrypted data
         let encrypted_data =
             EncryptedData::from_bytes(&http_output.encrypted_data).map_err(|e| {
-                LightweightWalletError::ConversionError(format!("Invalid encrypted data: {}", e))
+                LightweightWalletError::ConversionError(format!("Invalid encrypted data: {e}"))
             })?;
 
         // Convert features
@@ -478,7 +474,7 @@ impl HttpBlockchainScanner {
             crate::key_management::key_derivation::derive_view_and_spend_keys_from_entropy(
                 &entropy,
             )
-            .map_err(|e| LightweightWalletError::KeyManagementError(e))?;
+            .map_err(LightweightWalletError::KeyManagementError)?;
 
         // Convert RistrettoSecretKey to PrivateKey
         let view_key_bytes = view_key.as_bytes();
@@ -619,8 +615,7 @@ impl HttpBlockchainScanner {
                 .map_err(|e| {
                     LightweightWalletError::ScanningError(
                         crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                            "HTTP request failed: {}",
-                            e
+                            "HTTP request failed: {e}"
                         )),
                     )
                 })?;
@@ -637,8 +632,7 @@ impl HttpBlockchainScanner {
             let http_response: HttpBlockResponse = response.json().await.map_err(|e| {
                 LightweightWalletError::ScanningError(
                     crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "Failed to parse response: {}",
-                        e
+                        "Failed to parse response: {e}"
                     )),
                 )
             })?;
@@ -884,8 +878,7 @@ impl BlockchainScanner for HttpBlockchainScanner {
             let response = self.client.get(&url).send().await.map_err(|e| {
                 LightweightWalletError::ScanningError(
                     crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "HTTP request failed: {}",
-                        e
+                        "HTTP request failed: {e}"
                     )),
                 )
             })?;
@@ -902,8 +895,7 @@ impl BlockchainScanner for HttpBlockchainScanner {
             let tip_response: HttpTipInfoResponse = response.json().await.map_err(|e| {
                 LightweightWalletError::ScanningError(
                     crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "Failed to parse response: {}",
-                        e
+                        "Failed to parse response: {e}"
                     )),
                 )
             })?;
@@ -1017,8 +1009,7 @@ impl BlockchainScanner for HttpBlockchainScanner {
                 .map_err(|e| {
                     LightweightWalletError::ScanningError(
                         crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                            "HTTP request failed: {}",
-                            e
+                            "HTTP request failed: {e}"
                         )),
                     )
                 })?;
@@ -1035,8 +1026,7 @@ impl BlockchainScanner for HttpBlockchainScanner {
             let http_response: HttpBlockResponse = response.json().await.map_err(|e| {
                 LightweightWalletError::ScanningError(
                     crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "Failed to parse response: {}",
-                        e
+                        "Failed to parse response: {e}"
                     )),
                 )
             })?;
@@ -1153,8 +1143,7 @@ impl BlockchainScanner for HttpBlockchainScanner {
                 .map_err(|e| {
                     LightweightWalletError::ScanningError(
                         crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                            "HTTP request failed: {}",
-                            e
+                            "HTTP request failed: {e}"
                         )),
                     )
                 })?;
@@ -1171,8 +1160,7 @@ impl BlockchainScanner for HttpBlockchainScanner {
             let outputs: Vec<HttpOutputData> = response.json().await.map_err(|e| {
                 LightweightWalletError::ScanningError(
                     crate::errors::ScanningError::blockchain_connection_failed(&format!(
-                        "Failed to parse response: {}",
-                        e
+                        "Failed to parse response: {e}"
                     )),
                 )
             })?;
@@ -1362,8 +1350,7 @@ impl HttpBlockchainScanner {
                 EncryptedData::from_bytes(&http_output.encrypted_data).map_err(|e| {
                     LightweightWalletError::DataStructureError(
                         crate::errors::DataStructureError::invalid_output_value(&format!(
-                            "Invalid encrypted data: {}",
-                            e
+                            "Invalid encrypted data: {e}"
                         )),
                     )
                 })?;

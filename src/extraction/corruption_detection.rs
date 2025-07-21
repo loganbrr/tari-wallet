@@ -664,7 +664,7 @@ mod tests {
 
     #[test]
     fn test_detect_encrypted_data_corruption_empty() {
-        let encrypted_data = EncryptedData::from_bytes(&vec![0u8; 80]).unwrap();
+        let encrypted_data = EncryptedData::from_bytes(&[0u8; 80]).unwrap();
         let detector = CorruptionDetector::new();
         let result = detector.detect_encrypted_data_corruption(&encrypted_data);
 
@@ -679,7 +679,7 @@ mod tests {
 
     #[test]
     fn test_detect_encrypted_data_corruption_all_zeros() {
-        let encrypted_data = EncryptedData::from_bytes(&vec![0u8; 80]).unwrap();
+        let encrypted_data = EncryptedData::from_bytes(&[0u8; 80]).unwrap();
         let detector = CorruptionDetector::new();
         let result = detector.detect_encrypted_data_corruption(&encrypted_data);
 

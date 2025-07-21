@@ -39,8 +39,8 @@ pub enum LightweightKeyId {
 impl std::fmt::Display for LightweightKeyId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LightweightKeyId::String(s) => write!(f, "{}", s),
-            LightweightKeyId::PublicKey(pk) => write!(f, "{}", pk),
+            LightweightKeyId::String(s) => write!(f, "{s}"),
+            LightweightKeyId::PublicKey(pk) => write!(f, "{pk}"),
             LightweightKeyId::Zero => write!(f, "zero"),
         }
     }
@@ -625,10 +625,11 @@ mod test {
         let encrypted_data = EncryptedData::from_bytes(&[1, 2, 3, 4, 5]).unwrap_or_default();
         let payment_id = PaymentId::Empty;
 
-        let mut features = LightweightOutputFeatures::default();
-        features.output_type = LightweightOutputType::Coinbase;
-        features.maturity = 50;
-        features.range_proof_type = LightweightRangeProofType::RevealedValue;
+        let features = LightweightOutputFeatures {
+            output_type: LightweightOutputType::Coinbase,
+            maturity: 50,
+            range_proof_type: LightweightRangeProofType::RevealedValue,
+        };
 
         let script = LightweightScript {
             bytes: vec![10, 20, 30],
@@ -1012,7 +1013,7 @@ mod test {
     #[test]
     fn test_debug_formatting() {
         let output = LightweightWalletOutput::default();
-        let debug_str = format!("{:?}", output);
+        let debug_str = format!("{output:?}");
         assert!(debug_str.contains("LightweightWalletOutput"));
         assert!(debug_str.contains("version"));
         assert!(debug_str.contains("value"));

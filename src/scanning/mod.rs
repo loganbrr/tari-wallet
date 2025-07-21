@@ -361,7 +361,7 @@ impl DefaultScanningLogic {
                 |e| LightweightWalletError::InvalidArgument {
                     argument: "entropy".to_string(),
                     value: "key_derivation".to_string(),
-                    message: format!("Key derivation failed: {}", e),
+                    message: format!("Key derivation failed: {e}"),
                 },
             )?;
 
@@ -441,7 +441,7 @@ impl DefaultScanningLogic {
             .map_err(|e| LightweightWalletError::InvalidArgument {
                 argument: "private_key".to_string(),
                 value: "key_derivation".to_string(),
-                message: format!("Invalid private key: {}", e),
+                message: format!("Invalid private key: {e}"),
             })?;
 
         // Decompress public key to RistrettoPublicKey
@@ -450,7 +450,7 @@ impl DefaultScanningLogic {
                 LightweightWalletError::InvalidArgument {
                     argument: "public_key".to_string(),
                     value: "key_derivation".to_string(),
-                    message: format!("Invalid public key: {}", e),
+                    message: format!("Invalid public key: {e}"),
                 }
             })?;
 
@@ -800,6 +800,12 @@ impl DefaultScanningLogic {
 pub struct MockBlockchainScanner {
     blocks: Vec<BlockInfo>,
     tip_info: TipInfo,
+}
+
+impl Default for MockBlockchainScanner {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MockBlockchainScanner {
