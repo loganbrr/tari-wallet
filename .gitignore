@@ -4,3 +4,4 @@ target
 .vscode
 /REFERENCE_*
 *.db
+*.db-journal
