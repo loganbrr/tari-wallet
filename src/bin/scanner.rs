@@ -774,12 +774,12 @@ impl ScanProgress {
 
         print!("\r🔍 Progress: {:.1}% ({}/{}) | Block {} | {:.1} blocks/s | Found: {} outputs, {} spent   ",
             progress_percent,
-            self.blocks_processed,
-            self.total_blocks,
-            self.current_block,
+            format_number(self.blocks_processed),
+            format_number(self.total_blocks),
+            format_number(self.current_block),
             blocks_per_sec,
-            self.outputs_found,
-            self.inputs_found
+            format_number(self.outputs_found),
+            format_number(self.inputs_found)
         );
         std::io::Write::flush(&mut std::io::stdout()).unwrap();
     }
