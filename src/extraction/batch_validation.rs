@@ -114,7 +114,9 @@ pub fn validate_output_batch(
         // Validate range proofs
         if options.validate_range_proofs {
             if let Some(proof) = output.proof() {
-                if let Err(e) = validate_range_proof(proof, output.commitment(), output.minimum_value_promise()) {
+                if let Err(e) =
+                    validate_range_proof(proof, output.commitment(), output.minimum_value_promise())
+                {
                     errors.push(e);
                     is_valid = false;
                     if !options.continue_on_error || errors.len() >= options.max_errors_per_output {
@@ -181,10 +183,16 @@ pub fn validate_output_batch_parallel(
             // Validate range proofs
             if options.validate_range_proofs {
                 if let Some(proof) = output.proof() {
-                    if let Err(e) = validate_range_proof(proof, output.commitment(), output.minimum_value_promise()) {
+                    if let Err(e) = validate_range_proof(
+                        proof,
+                        output.commitment(),
+                        output.minimum_value_promise(),
+                    ) {
                         errors.push(e);
                         is_valid = false;
-                        if !options.continue_on_error || errors.len() >= options.max_errors_per_output {
+                        if !options.continue_on_error
+                            || errors.len() >= options.max_errors_per_output
+                        {
                             return OutputValidationResult {
                                 index,
                                 is_valid,
@@ -216,7 +224,9 @@ pub fn validate_output_batch_parallel(
 }
 
 // Helper functions for validation
-fn validate_commitment_integrity(output: &LightweightTransactionOutput) -> Result<(), ValidationError> {
+fn validate_commitment_integrity(
+    output: &LightweightTransactionOutput,
+) -> Result<(), ValidationError> {
     // Basic commitment validation
     let commitment_bytes = output.commitment().as_bytes();
     if commitment_bytes.len() != 32 {
@@ -224,14 +234,14 @@ fn validate_commitment_integrity(output: &LightweightTransactionOutput) -> Resul
             "Commitment must be 32 bytes",
         ));
     }
-    
+
     // Check commitment prefix (should be 0x08 for valid commitments)
     if commitment_bytes[0] != 0x08 {
         return Err(ValidationError::commitment_validation_failed(
             "Invalid commitment prefix",
         ));
     }
-    
+
     Ok(())
 }
 
@@ -246,21 +256,20 @@ fn validate_range_proof(
             "Range proof cannot be empty",
         ));
     }
-    
+
     // Check that the proof has a reasonable size
-    if proof.bytes.len() > 10000 { // 10KB as a reasonable upper bound
+    if proof.bytes.len() > 10000 {
+        // 10KB as a reasonable upper bound
         return Err(ValidationError::range_proof_validation_failed(
             "Range proof is unreasonably large",
         ));
     }
-    
+
     // For now, we'll do basic structure validation
     // In a full implementation, this would validate the actual proof
-    
+
     Ok(())
 }
-
-
 
 #[cfg(test)]
 mod tests {
@@ -269,7 +278,10 @@ mod tests {
         encrypted_data::EncryptedData,
         transaction_output::LightweightTransactionOutput,
         types::{CompressedCommitment, CompressedPublicKey, MicroMinotari},
-        wallet_output::{LightweightCovenant, LightweightOutputFeatures, LightweightRangeProof, LightweightScript, LightweightSignature},
+        wallet_output::{
+            LightweightCovenant, LightweightOutputFeatures, LightweightRangeProof,
+            LightweightScript, LightweightSignature,
+        },
     };
 
     fn create_test_output(_value: u64, is_valid: bool) -> LightweightTransactionOutput {
@@ -282,7 +294,9 @@ mod tests {
         let encrypted_data = EncryptedData::from_hex("0102030405060708090a0b0c0d0e0f10").unwrap();
 
         let range_proof = if is_valid {
-            Some(LightweightRangeProof { bytes: vec![0x01, 0x02, 0x03, 0x04] })
+            Some(LightweightRangeProof {
+                bytes: vec![0x01, 0x02, 0x03, 0x04],
+            })
         } else {
             Some(LightweightRangeProof { bytes: vec![] }) // Invalid empty proof
         };
@@ -294,7 +308,9 @@ mod tests {
             range_proof,
             LightweightScript::default(),
             CompressedPublicKey::new([0x01; 32]),
-            LightweightSignature { bytes: vec![0x01; 64] },
+            LightweightSignature {
+                bytes: vec![0x01; 64],
+            },
             LightweightCovenant::default(),
             encrypted_data,
             MicroMinotari::from(0),
@@ -414,7 +430,9 @@ mod tests {
             OutputValidationResult {
                 index: 1,
                 is_valid: false,
-                errors: vec![ValidationError::CommitmentValidationFailed("Invalid commitment".to_string())],
+                errors: vec![ValidationError::CommitmentValidationFailed(
+                    "Invalid commitment".to_string(),
+                )],
             },
             OutputValidationResult {
                 index: 2,
@@ -430,4 +448,4 @@ mod tests {
         assert_eq!(summary.invalid_outputs, 1);
         assert!((summary.success_rate - 66.67).abs() < 0.01);
     }
-} 
+}

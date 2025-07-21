@@ -1,5 +1,5 @@
 use std::fmt;
-use std::ops::{Add, Sub, Mul};
+use std::ops::{Add, Mul, Sub};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use curve25519_dalek::{
@@ -7,7 +7,7 @@ use curve25519_dalek::{
     ristretto::{CompressedRistretto, RistrettoPoint},
     scalar::Scalar,
 };
-use hex::{ToHex};
+use hex::ToHex;
 use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use zeroize::Zeroize;
@@ -89,7 +89,6 @@ mod scalar_borsh {
     }
 }
 
-
 /// A wrapper around a private key that provides zeroization on drop
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PrivateKey(#[serde(with = "scalar_serde")] pub Scalar);
@@ -103,10 +102,12 @@ impl BorshSerialize for PrivateKey {
 impl BorshDeserialize for PrivateKey {
     fn deserialize_reader<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
         let bytes = <[u8; 32]>::deserialize_reader(reader)?;
-        Ok(Self(Scalar::from_canonical_bytes(bytes).unwrap_or_else(|| {
-            // Fallback to zero scalar if bytes are not canonical
-            Scalar::from_bytes_mod_order([0u8; 32])
-        })))
+        Ok(Self(Scalar::from_canonical_bytes(bytes).unwrap_or_else(
+            || {
+                // Fallback to zero scalar if bytes are not canonical
+                Scalar::from_bytes_mod_order([0u8; 32])
+            },
+        )))
     }
 }
 
@@ -202,14 +203,14 @@ impl<'a> Add<&'a PrivateKey> for PrivateKey {
     }
 }
 
-impl<'a> Add<PrivateKey> for &'a PrivateKey {
+impl Add<PrivateKey> for &PrivateKey {
     type Output = PrivateKey;
     fn add(self, rhs: PrivateKey) -> PrivateKey {
         PrivateKey(self.0 + rhs.0)
     }
 }
 
-impl<'a, 'b> Add<&'a PrivateKey> for &'b PrivateKey {
+impl<'a> Add<&'a PrivateKey> for &PrivateKey {
     type Output = PrivateKey;
     fn add(self, rhs: &'a PrivateKey) -> PrivateKey {
         PrivateKey(self.0 + rhs.0)
@@ -230,14 +231,14 @@ impl<'a> Sub<&'a PrivateKey> for PrivateKey {
     }
 }
 
-impl<'a> Sub<PrivateKey> for &'a PrivateKey {
+impl Sub<PrivateKey> for &PrivateKey {
     type Output = PrivateKey;
     fn sub(self, rhs: PrivateKey) -> PrivateKey {
         PrivateKey(self.0 - rhs.0)
     }
 }
 
-impl<'a, 'b> Sub<&'a PrivateKey> for &'b PrivateKey {
+impl<'a> Sub<&'a PrivateKey> for &PrivateKey {
     type Output = PrivateKey;
     fn sub(self, rhs: &'a PrivateKey) -> PrivateKey {
         PrivateKey(self.0 - rhs.0)
@@ -258,14 +259,14 @@ impl<'a> Mul<&'a PrivateKey> for PrivateKey {
     }
 }
 
-impl<'a> Mul<PrivateKey> for &'a PrivateKey {
+impl Mul<PrivateKey> for &PrivateKey {
     type Output = PrivateKey;
     fn mul(self, rhs: PrivateKey) -> PrivateKey {
         PrivateKey(self.0 * rhs.0)
     }
 }
 
-impl<'a, 'b> Mul<&'a PrivateKey> for &'b PrivateKey {
+impl<'a> Mul<&'a PrivateKey> for &PrivateKey {
     type Output = PrivateKey;
     fn mul(self, rhs: &'a PrivateKey) -> PrivateKey {
         PrivateKey(self.0 * rhs.0)
@@ -274,7 +275,18 @@ impl<'a, 'b> Mul<&'a PrivateKey> for &'b PrivateKey {
 
 /// Micro Minotari amount (smallest unit)
 #[derive(
-    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash, BorshSerialize, BorshDeserialize,
+    Debug,
+    Clone,
+    Copy,
+    Serialize,
+    Deserialize,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    BorshSerialize,
+    BorshDeserialize,
 )]
 pub struct MicroMinotari(u64);
 
@@ -319,10 +331,15 @@ impl From<MicroMinotari> for u64 {
 }
 
 /// Compressed commitment (32 bytes)
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
+)]
 pub struct CompressedCommitment {
     /// The commitment bytes
-    #[serde(serialize_with = "crate::hex_utils::serde_helpers::serialize_array_32", deserialize_with = "crate::hex_utils::serde_helpers::deserialize_array_32")]
+    #[serde(
+        serialize_with = "crate::hex_utils::serde_helpers::serialize_array_32",
+        deserialize_with = "crate::hex_utils::serde_helpers::deserialize_array_32"
+    )]
     pub bytes: [u8; 32],
 }
 
@@ -361,7 +378,7 @@ impl HexEncodable for CompressedCommitment {
     fn to_hex(&self) -> String {
         self.bytes.encode_hex()
     }
-    
+
     fn from_hex(hex: &str) -> Result<Self, HexError> {
         let bytes = hex::decode(hex).map_err(|e| HexError::InvalidHex(e.to_string()))?;
         if bytes.len() != 32 {
@@ -379,14 +396,10 @@ impl HexEncodable for CompressedCommitment {
 impl HexValidatable for CompressedCommitment {}
 
 /// Compressed public key (Ristretto)
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct CompressedPublicKey(#[serde(with = "compressed_ristretto_serde")] pub CompressedRistretto);
-
-impl Default for CompressedPublicKey {
-    fn default() -> Self {
-        Self(CompressedRistretto::default())
-    }
-}
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub struct CompressedPublicKey(
+    #[serde(with = "compressed_ristretto_serde")] pub CompressedRistretto,
+);
 
 impl BorshSerialize for CompressedPublicKey {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
@@ -443,7 +456,7 @@ impl CompressedPublicKey {
 
     /// Create from private key
     pub fn from_private_key(private_key: &PrivateKey) -> Self {
-        let point = RistrettoPoint::from(private_key.0 * RISTRETTO_BASEPOINT_POINT);
+        let point = private_key.0 * RISTRETTO_BASEPOINT_POINT;
         Self::from_point(&point)
     }
 }
@@ -472,15 +485,16 @@ pub struct SafeArray<const N: usize> {
     pub data: [u8; N],
 }
 
+impl<const N: usize> Default for SafeArray<N> {
+    fn default() -> Self {
+        Self { data: [0u8; N] }
+    }
+}
+
 impl<const N: usize> SafeArray<N> {
     /// Create a new safe array
     pub fn new(data: [u8; N]) -> Self {
         Self { data }
-    }
-
-    /// Create a default safe array
-    pub fn default() -> Self {
-        Self { data: [0u8; N] }
     }
 
     /// Get the array data
@@ -567,7 +581,7 @@ impl EncryptedDataKey {
     }
 
     /// Get the key as a mutable byte slice
-    pub fn as_mut(&mut self) -> &mut [u8; 32] {
+    pub fn as_mut_bytes(&mut self) -> &mut [u8; 32] {
         &mut self.0.data
     }
 }
@@ -575,14 +589,19 @@ impl EncryptedDataKey {
 impl From<SafeArray<32>> for EncryptedDataKey {
     fn from(safe_array: SafeArray<32>) -> Self {
         Self(safe_array)
-          }
-  }
+    }
+}
 
 /// Fixed hash type (32 bytes) used for transaction hashes and outputs
-#[derive(Debug, Clone, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize, Serialize, Deserialize,
+)]
 pub struct FixedHash {
     /// The hash bytes
-    #[serde(serialize_with = "crate::hex_utils::serde_helpers::serialize_array_32", deserialize_with = "crate::hex_utils::serde_helpers::deserialize_array_32")]
+    #[serde(
+        serialize_with = "crate::hex_utils::serde_helpers::serialize_array_32",
+        deserialize_with = "crate::hex_utils::serde_helpers::deserialize_array_32"
+    )]
     pub bytes: [u8; 32],
 }
 
@@ -653,7 +672,7 @@ impl HexEncodable for FixedHash {
     fn to_hex(&self) -> String {
         self.bytes.encode_hex()
     }
-    
+
     fn from_hex(hex: &str) -> Result<Self, HexError> {
         let bytes = hex::decode(hex).map_err(|e| HexError::InvalidHex(e.to_string()))?;
         if bytes.len() != 32 {

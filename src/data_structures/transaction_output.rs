@@ -1,16 +1,19 @@
 use crate::data_structures::{
-    types::{CompressedCommitment, CompressedPublicKey, MicroMinotari},
     encrypted_data::EncryptedData,
-    wallet_output::{LightweightCovenant, LightweightOutputFeatures, LightweightRangeProof, LightweightScript, LightweightSignature, LightweightOutputType},
     transaction_input::TransactionInput,
+    types::{CompressedCommitment, CompressedPublicKey, MicroMinotari},
+    wallet_output::{
+        LightweightCovenant, LightweightOutputFeatures, LightweightOutputType,
+        LightweightRangeProof, LightweightScript, LightweightSignature,
+    },
 };
-use crate::hex_utils::{HexEncodable, HexValidatable, HexError};
-use crate::errors::{LightweightWalletError, ValidationError, SerializationError};
-use serde::{Deserialize, Serialize};
-use borsh::{BorshSerialize, BorshDeserialize};
-use hex::ToHex;
+use crate::errors::{LightweightWalletError, SerializationError, ValidationError};
+use crate::hex_utils::{HexEncodable, HexError, HexValidatable};
 use blake2::{Blake2b, Digest};
+use borsh::{BorshDeserialize, BorshSerialize};
 use digest::consts::{U32, U64};
+use hex::ToHex;
+use serde::{Deserialize, Serialize};
 use std::{
     cmp::Ordering,
     fmt::{Display, Formatter},
@@ -100,39 +103,39 @@ impl LightweightTransactionOutput {
     pub fn version(&self) -> u8 {
         self.version
     }
-    
+
     pub fn features(&self) -> &LightweightOutputFeatures {
         &self.features
     }
-    
+
     pub fn commitment(&self) -> &CompressedCommitment {
         &self.commitment
     }
-    
+
     pub fn proof(&self) -> Option<&LightweightRangeProof> {
         self.proof.as_ref()
     }
-    
+
     pub fn script(&self) -> &LightweightScript {
         &self.script
     }
-    
+
     pub fn sender_offset_public_key(&self) -> &CompressedPublicKey {
         &self.sender_offset_public_key
     }
-    
+
     pub fn metadata_signature(&self) -> &LightweightSignature {
         &self.metadata_signature
     }
-    
+
     pub fn covenant(&self) -> &LightweightCovenant {
         &self.covenant
     }
-    
+
     pub fn encrypted_data(&self) -> &EncryptedData {
         &self.encrypted_data
     }
-    
+
     pub fn minimum_value_promise(&self) -> MicroMinotari {
         self.minimum_value_promise
     }
@@ -142,24 +145,24 @@ impl LightweightTransactionOutput {
         // For lightweight implementation, we use a simple hash of the serialized output
         // This matches the structure of the reference implementation
         let mut hasher = Blake2b::<U32>::new();
-        hasher.update(&[self.version]);
-        hasher.update(&borsh::to_vec(&self.features).unwrap_or_default());
+        hasher.update([self.version]);
+        hasher.update(borsh::to_vec(&self.features).unwrap_or_default());
         hasher.update(self.commitment.as_bytes());
-        
+
         // Hash range proof if present
         if let Some(proof) = &self.proof {
             hasher.update(&proof.bytes);
         } else {
-            hasher.update(&[0u8; 32]); // Zero hash for None
+            hasher.update([0u8; 32]); // Zero hash for None
         }
-        
+
         hasher.update(&self.script.bytes);
         hasher.update(self.sender_offset_public_key.as_bytes());
         hasher.update(&self.metadata_signature.bytes);
         hasher.update(&self.covenant.bytes);
-        hasher.update(&borsh::to_vec(&self.encrypted_data).unwrap_or_default());
-        hasher.update(&self.minimum_value_promise.as_u64().to_le_bytes());
-        
+        hasher.update(borsh::to_vec(&self.encrypted_data).unwrap_or_default());
+        hasher.update(self.minimum_value_promise.as_u64().to_le_bytes());
+
         let hash = hasher.finalize();
         hash.into()
     }
@@ -169,9 +172,9 @@ impl LightweightTransactionOutput {
         let utxo_hash = self.hash();
         let mut hasher = Blake2b::<U32>::new();
         hasher.update(b"smt_hash"); // Domain separator
-        hasher.update(&utxo_hash);
-        hasher.update(&mined_height.to_le_bytes());
-        
+        hasher.update(utxo_hash);
+        hasher.update(mined_height.to_le_bytes());
+
         let hash = hasher.finalize();
         hash.into()
     }
@@ -214,12 +217,16 @@ impl LightweightTransactionOutput {
     /// Get the size of features, scripts and covenant in bytes
     pub fn get_features_and_scripts_size(&self) -> Result<usize, LightweightWalletError> {
         let features_size = borsh::to_vec(&self.features)
-            .map_err(|e| LightweightWalletError::SerializationError(SerializationError::BorshSerializationError(e.to_string())))?
+            .map_err(|e| {
+                LightweightWalletError::SerializationError(
+                    SerializationError::BorshSerializationError(e.to_string()),
+                )
+            })?
             .len();
         let script_size = self.script.bytes.len();
         let covenant_size = self.covenant.bytes.len();
         let encrypted_data_size = self.encrypted_data.get_payment_id_size();
-        
+
         Ok(features_size + script_size + covenant_size + encrypted_data_size)
     }
 
@@ -228,17 +235,21 @@ impl LightweightTransactionOutput {
         // For the lightweight implementation, we perform a basic signature validation
         // This is a simplified version compared to the full cryptographic verification
         // in the reference implementation
-        
+
         if self.metadata_signature.bytes.is_empty() {
             return Err(LightweightWalletError::ValidationError(
-                ValidationError::MetadataSignatureValidationFailed("Metadata signature is empty".to_string())
+                ValidationError::MetadataSignatureValidationFailed(
+                    "Metadata signature is empty".to_string(),
+                ),
             ));
         }
 
         // Basic length and format validation
         if self.metadata_signature.bytes.len() != 64 {
             return Err(LightweightWalletError::ValidationError(
-                ValidationError::MetadataSignatureValidationFailed("Invalid metadata signature length".to_string())
+                ValidationError::MetadataSignatureValidationFailed(
+                    "Invalid metadata signature length".to_string(),
+                ),
             ));
         }
 
@@ -250,12 +261,17 @@ impl LightweightTransactionOutput {
     /// Verify validator node signature (simplified for lightweight implementation)
     pub fn verify_validator_node_signature(&self) -> Result<(), LightweightWalletError> {
         // Check if this is a validator node registration output
-        if matches!(self.features.output_type, LightweightOutputType::ValidatorNodeRegistration) {
+        if matches!(
+            self.features.output_type,
+            LightweightOutputType::ValidatorNodeRegistration
+        ) {
             // For lightweight implementation, perform basic validation
             // The full implementation would verify cryptographic signatures
             if self.metadata_signature.bytes.is_empty() {
                 return Err(LightweightWalletError::ValidationError(
-                    ValidationError::SignatureValidationFailed("Validator node signature is not valid".to_string())
+                    ValidationError::SignatureValidationFailed(
+                        "Validator node signature is not valid".to_string(),
+                    ),
                 ));
             }
         }
@@ -263,6 +279,7 @@ impl LightweightTransactionOutput {
     }
 
     /// Build metadata signature challenge (simplified for lightweight implementation)
+    #[allow(clippy::too_many_arguments)]
     pub fn build_metadata_signature_challenge(
         version: u8,
         script: &LightweightScript,
@@ -304,13 +321,13 @@ impl LightweightTransactionOutput {
     ) -> [u8; 64] {
         let mut hasher = Blake2b::<U64>::new();
         hasher.update(b"metadata_signature"); // Domain separator
-        hasher.update(&[version]);
+        hasher.update([version]);
         hasher.update(ephemeral_pubkey);
         hasher.update(ephemeral_commitment);
         hasher.update(sender_offset_public_key.as_bytes());
         hasher.update(commitment.as_bytes());
         hasher.update(message);
-        
+
         let hash = hasher.finalize();
         hash.into()
     }
@@ -344,12 +361,12 @@ impl LightweightTransactionOutput {
     ) -> [u8; 32] {
         let mut hasher = Blake2b::<U32>::new();
         hasher.update(b"metadata_message"); // Domain separator
-        hasher.update(&[version]);
-        hasher.update(&borsh::to_vec(features).unwrap_or_default());
+        hasher.update([version]);
+        hasher.update(borsh::to_vec(features).unwrap_or_default());
         hasher.update(&covenant.bytes);
-        hasher.update(&borsh::to_vec(encrypted_data).unwrap_or_default());
-        hasher.update(&minimum_value_promise.as_u64().to_le_bytes());
-        
+        hasher.update(borsh::to_vec(encrypted_data).unwrap_or_default());
+        hasher.update(minimum_value_promise.as_u64().to_le_bytes());
+
         let hash = hasher.finalize();
         hash.into()
     }
@@ -363,7 +380,7 @@ impl LightweightTransactionOutput {
         hasher.update(b"metadata_message"); // Domain separator
         hasher.update(&script.bytes);
         hasher.update(common);
-        
+
         let hash = hasher.finalize();
         hash.into()
     }
@@ -397,7 +414,7 @@ impl Display for LightweightTransactionOutput {
             hex::encode(&self.script.bytes),
             hex::encode(self.sender_offset_public_key.as_bytes()),
             hex::encode(&self.metadata_signature.bytes),
-            hex::encode(&borsh::to_vec(&self.encrypted_data).unwrap_or_default()),
+            hex::encode(borsh::to_vec(&self.encrypted_data).unwrap_or_default()),
             self.proof_hex_display(false),
         )
     }
@@ -421,7 +438,7 @@ impl HexEncodable for LightweightTransactionOutput {
         let bytes = borsh::to_vec(self).unwrap_or_default();
         bytes.encode_hex()
     }
-    
+
     fn from_hex(hex: &str) -> Result<Self, HexError> {
         let bytes = hex::decode(hex).map_err(|e| HexError::InvalidHex(e.to_string()))?;
         borsh::from_slice(&bytes).map_err(|e| HexError::InvalidHex(e.to_string()))
@@ -493,7 +510,7 @@ mod test {
         let smt_hash1 = output.smt_hash(100);
         let smt_hash2 = output.smt_hash(100);
         let smt_hash3 = output.smt_hash(101);
-        
+
         assert_eq!(smt_hash1, smt_hash2); // Same height should give same hash
         assert_ne!(smt_hash1, smt_hash3); // Different heights should give different hashes
         assert_eq!(smt_hash1.len(), 32); // Should be 32 bytes
@@ -503,7 +520,7 @@ mod test {
     fn test_is_coinbase() {
         let mut output = LightweightTransactionOutput::default();
         assert!(!output.is_coinbase());
-        
+
         output.features.output_type = LightweightOutputType::Coinbase;
         assert!(output.is_coinbase());
     }
@@ -512,7 +529,7 @@ mod test {
     fn test_is_burned() {
         let mut output = LightweightTransactionOutput::default();
         assert!(!output.is_burned());
-        
+
         output.features.output_type = LightweightOutputType::Burn;
         assert!(output.is_burned());
     }
@@ -527,7 +544,7 @@ mod test {
             commitment: CompressedCommitment::new([2u8; 32]),
             ..Default::default()
         };
-        
+
         assert!(output1 < output2);
         assert!(output2 > output1);
     }
@@ -546,7 +563,7 @@ mod test {
         let output = LightweightTransactionOutput::default();
         // With empty signature, should fail
         assert!(output.verify_metadata_signature().is_err());
-        
+
         let mut output_with_sig = output;
         output_with_sig.metadata_signature.bytes = [1u8; 64].to_vec();
         // With proper length signature, should pass basic validation
@@ -590,15 +607,17 @@ mod test {
     #[test]
     fn test_proof_hex_display() {
         let mut output = LightweightTransactionOutput::default();
-        
+
         // Test with no proof
         let hex_display = output.proof_hex_display(false);
         assert!(hex_display.starts_with("None("));
-        
+
         // Test with proof
-        output.proof = Some(LightweightRangeProof { bytes: vec![1, 2, 3, 4] });
+        output.proof = Some(LightweightRangeProof {
+            bytes: vec![1, 2, 3, 4],
+        });
         let hex_display = output.proof_hex_display(true);
         assert!(hex_display.starts_with("Some("));
         assert!(hex_display.contains("01020304"));
     }
-} 
+}

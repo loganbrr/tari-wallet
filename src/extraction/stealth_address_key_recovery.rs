@@ -4,13 +4,8 @@
 //! and integrate with the UTXO extraction process.
 
 use crate::{
-    data_structures::{
-        types::{ PrivateKey},
-    },
-    errors::LightweightWalletError,
-    key_management::{
-        StealthAddress,
-    },
+    data_structures::types::PrivateKey, errors::LightweightWalletError,
+    key_management::StealthAddress,
 };
 
 /// Result of stealth address key recovery
@@ -60,22 +55,22 @@ impl Default for StealthKeyRecoveryOptions {
 pub enum StealthKeyRecoveryError {
     #[error("Failed to recover stealth private key: {0}")]
     RecoveryFailed(String),
-    
+
     #[error("No suitable key found for recovery")]
     NoSuitableKey,
-    
+
     #[error("Invalid stealth address: {0}")]
     InvalidStealthAddress(String),
-    
+
     #[error("Key validation failed: {0}")]
     KeyValidationFailed(String),
-    
+
     #[error("Decryption failed: {0}")]
     DecryptionFailed(#[from] LightweightWalletError),
 }
 
 /// Stealth address key recovery manager
-/// 
+///
 /// This struct will be implemented once the entropy-based key derivation is complete.
 /// For now, individual functions provide the key recovery functionality.
 pub struct StealthKeyRecoveryManager {

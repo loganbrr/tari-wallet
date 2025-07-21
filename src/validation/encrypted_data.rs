@@ -1,15 +1,12 @@
 //! Encrypted data integrity validation for lightweight wallets
-//! 
+//!
 //! This module provides validation for encrypted data structure and integrity
 //! without requiring decryption.
 
-use crate::{
-    data_structures::encrypted_data::EncryptedData,
-    errors::ValidationError,
-};
+use crate::{data_structures::encrypted_data::EncryptedData, errors::ValidationError};
 
 /// Lightweight encrypted data integrity validator
-/// 
+///
 /// This provides validation for encrypted data structure and integrity
 /// without requiring the encryption key or decryption.
 #[derive(Debug, Clone)]
@@ -32,10 +29,7 @@ impl Default for LightweightEncryptedDataValidator {
 impl LightweightEncryptedDataValidator {
     /// Create a new validator with custom size limits
     pub fn new(min_size: usize, max_size: usize) -> Self {
-        Self {
-            min_size,
-            max_size,
-        }
+        Self { min_size, max_size }
     }
 
     /// Get the maximum allowed size
@@ -49,26 +43,37 @@ impl LightweightEncryptedDataValidator {
     }
 
     /// Validate encrypted data integrity
-    /// 
+    ///
     /// # Arguments
     /// * `encrypted_data` - The encrypted data to validate
-    /// 
+    ///
     /// # Returns
     /// * `Ok(())` if the data is valid
     /// * `Err(ValidationError)` if the data is invalid
-    pub fn validate_integrity(&self, encrypted_data: &EncryptedData) -> Result<(), ValidationError> {
+    pub fn validate_integrity(
+        &self,
+        encrypted_data: &EncryptedData,
+    ) -> Result<(), ValidationError> {
         let data_bytes = encrypted_data.as_bytes();
 
         // Check size constraints
         if data_bytes.len() < self.min_size {
             return Err(ValidationError::IntegrityCheckFailed(
-                format!("Encrypted data too small: {} bytes (minimum: {} bytes)", data_bytes.len(), self.min_size).into(),
+                format!(
+                    "Encrypted data too small: {} bytes (minimum: {} bytes)",
+                    data_bytes.len(),
+                    self.min_size
+                ),
             ));
         }
 
         if data_bytes.len() > self.max_size {
             return Err(ValidationError::IntegrityCheckFailed(
-                format!("Encrypted data too large: {} bytes (maximum: {} bytes)", data_bytes.len(), self.max_size).into(),
+                format!(
+                    "Encrypted data too large: {} bytes (maximum: {} bytes)",
+                    data_bytes.len(),
+                    self.max_size
+                ),
             ));
         }
 
@@ -123,14 +128,14 @@ impl LightweightEncryptedDataValidator {
         if data_bytes.len() >= 8 {
             let pattern_size = data_bytes.len() / 8;
             let mut has_repeating_pattern = true;
-            
+
             for i in 0..pattern_size {
                 if data_bytes[i] != data_bytes[i + pattern_size] {
                     has_repeating_pattern = false;
                     break;
                 }
             }
-            
+
             if has_repeating_pattern {
                 return Err(ValidationError::IntegrityCheckFailed(
                     "Encrypted data contains suspicious repeating patterns".into(),
@@ -149,24 +154,27 @@ impl LightweightEncryptedDataValidator {
     }
 
     /// Validate multiple encrypted data items in batch
-    /// 
+    ///
     /// # Arguments
     /// * `encrypted_data_items` - Vector of encrypted data to validate
-    /// 
+    ///
     /// # Returns
     /// * `Ok(())` if all data is valid
     /// * `Err(ValidationError)` if any data is invalid
-    pub fn validate_batch(&self, encrypted_data_items: &[EncryptedData]) -> Result<(), ValidationError> {
+    pub fn validate_batch(
+        &self,
+        encrypted_data_items: &[EncryptedData],
+    ) -> Result<(), ValidationError> {
         let mut failed_count = 0;
         for (index, encrypted_data) in encrypted_data_items.iter().enumerate() {
             if let Err(e) = self.validate_integrity(encrypted_data) {
                 failed_count += 1;
-                println!("Item {}: {}", index, e.to_string());
+                println!("Item {}: {}", index, e);
             }
         }
         if failed_count > 0 {
             return Err(ValidationError::IntegrityCheckFailed(
-                format!("Batch validation failed: {} items failed", failed_count).into(),
+                format!("Batch validation failed: {} items failed", failed_count),
             ));
         }
         Ok(())
@@ -193,7 +201,7 @@ impl LightweightEncryptedDataValidator {
     }
 
     /// Check if encrypted data appears to be properly encrypted
-    /// 
+    ///
     /// This is a heuristic check that looks for characteristics of properly encrypted data
     pub fn appears_properly_encrypted(&self, encrypted_data: &EncryptedData) -> bool {
         let data_bytes = encrypted_data.as_bytes();
@@ -236,9 +244,11 @@ impl LightweightEncryptedDataValidator {
         // Check for alternating patterns
         if data.len() >= 4 {
             let pattern = [data[0], data[1]];
-            if data.chunks(2).take(4).all(|chunk| {
-                chunk.len() == 2 && chunk[0] == pattern[0] && chunk[1] == pattern[1]
-            }) {
+            if data
+                .chunks(2)
+                .take(4)
+                .all(|chunk| chunk.len() == 2 && chunk[0] == pattern[0] && chunk[1] == pattern[1])
+            {
                 return true;
             }
         }
@@ -397,7 +407,10 @@ mod tests {
 
         let result = validator.validate_integrity(&pattern_data);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("repeating patterns"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("repeating patterns"));
     }
 
     #[test]
@@ -424,7 +437,10 @@ mod tests {
         let batch = vec![valid_data, invalid_data];
         let result = validator.validate_batch(&batch);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Batch validation failed"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Batch validation failed"));
     }
 
     #[test]
@@ -460,4 +476,4 @@ mod tests {
         assert_eq!(result.size, 64);
         assert!(!result.errors.is_empty());
     }
-} 
+}

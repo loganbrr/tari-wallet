@@ -11,11 +11,11 @@ pub fn format_number<T: std::fmt::Display>(val: T) -> String {
     let val_str = val.to_string();
     let is_negative = val_str.starts_with('-');
     let abs_str = if is_negative { &val_str[1..] } else { &val_str };
-    
+
     // Split on decimal point if present
     let parts: Vec<&str> = abs_str.split('.').collect();
     let integer_part = parts[0];
-    
+
     // Format the integer part with commas - return "Invalid" on error
     let formatted_integer = match integer_part
         .as_bytes()
@@ -27,7 +27,7 @@ pub fn format_number<T: std::fmt::Display>(val: T) -> String {
         Ok(chunks) => chunks.join(","),
         Err(_) => return "Invalid".to_string(),
     };
-    
+
     // Reconstruct the number
     let mut result = if parts.len() > 1 {
         // Has decimal part - join with decimal point
@@ -36,7 +36,7 @@ pub fn format_number<T: std::fmt::Display>(val: T) -> String {
         // No decimal part
         formatted_integer
     };
-    
+
     if is_negative {
         result = format!("-{}", result);
     }
@@ -75,7 +75,8 @@ pub fn validate_network_string(network_str: &str) -> Result<(), LightweightWalle
         _ => Err(LightweightWalletError::InvalidArgument {
             argument: "network".to_string(),
             value: network_str.to_string(),
-            message: "Must be one of: mainnet, stagenet, localnet, esmeralda, nextnet, igor".to_string(),
+            message: "Must be one of: mainnet, stagenet, localnet, esmeralda, nextnet, igor"
+                .to_string(),
         }),
     }
 }
@@ -118,7 +119,7 @@ mod tests {
         assert!(validate_network_string("esme").is_ok());
         assert!(validate_network_string("nextnet").is_ok());
         assert!(validate_network_string("igor").is_ok());
-        
+
         assert!(validate_network_string("invalid").is_err());
         assert!(validate_network_string("").is_err());
     }

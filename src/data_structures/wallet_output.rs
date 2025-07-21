@@ -3,8 +3,8 @@ use crate::data_structures::{
     payment_id::PaymentId,
     types::{CompressedPublicKey, MicroMinotari},
 };
-use crate::hex_utils::{HexEncodable, HexValidatable, HexError};
-use borsh::{BorshSerialize, BorshDeserialize};
+use crate::hex_utils::{HexEncodable, HexError, HexValidatable};
+use borsh::{BorshDeserialize, BorshSerialize};
 use hex::ToHex;
 use primitive_types::U256;
 use serde::{Deserialize, Serialize};
@@ -14,21 +14,20 @@ use std::{
 };
 
 /// Simplified key identifier for lightweight wallet operations
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize, Default,
+)]
 pub enum LightweightKeyId {
     /// A simple string identifier for keys
     String(String),
     /// A public key identifier
     PublicKey(CompressedPublicKey),
     /// Zero key (for special cases)
+    #[default]
     Zero,
 }
 
-impl Default for LightweightKeyId {
-    fn default() -> Self {
-        LightweightKeyId::Zero
-    }
-}
+
 
 impl std::fmt::Display for LightweightKeyId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -41,7 +40,9 @@ impl std::fmt::Display for LightweightKeyId {
 }
 
 /// Simplified output features for lightweight wallet operations
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize,
+)]
 pub struct LightweightOutputFeatures {
     /// Output type (payment, coinbase, burn, etc.)
     pub output_type: LightweightOutputType,
@@ -69,8 +70,11 @@ impl Default for LightweightOutputFeatures {
 }
 
 /// Simplified output types
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize, Default,
+)]
 pub enum LightweightOutputType {
+    #[default]
     Payment,
     Coinbase,
     Burn,
@@ -78,53 +82,46 @@ pub enum LightweightOutputType {
     CodeTemplateRegistration,
 }
 
-impl Default for LightweightOutputType {
-    fn default() -> Self {
-        LightweightOutputType::Payment
-    }
-}
+
 
 /// Simplified range proof types
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize, Default,
+)]
 pub enum LightweightRangeProofType {
+    #[default]
     BulletProofPlus,
     RevealedValue,
 }
 
-impl Default for LightweightRangeProofType {
-    fn default() -> Self {
-        LightweightRangeProofType::BulletProofPlus
-    }
-}
+
 
 /// Simplified script for lightweight wallet operations
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize, Default,
+)]
 pub struct LightweightScript {
     /// Script bytes
     pub bytes: Vec<u8>,
 }
 
-impl Default for LightweightScript {
-    fn default() -> Self {
-        Self { bytes: vec![] }
-    }
-}
+
 
 /// Simplified covenant for lightweight wallet operations
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize, Default,
+)]
 pub struct LightweightCovenant {
     /// Covenant bytes
     pub bytes: Vec<u8>,
 }
 
-impl Default for LightweightCovenant {
-    fn default() -> Self {
-        Self { bytes: vec![] }
-    }
-}
+
 
 /// Simplified execution stack for lightweight wallet operations
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize, Default,
+)]
 pub struct LightweightExecutionStack {
     /// Stack items as bytes
     pub items: Vec<Vec<u8>>,
@@ -137,37 +134,29 @@ impl LightweightExecutionStack {
     }
 }
 
-impl Default for LightweightExecutionStack {
-    fn default() -> Self {
-        Self { items: vec![] }
-    }
-}
+
 
 /// Simplified signature for lightweight wallet operations
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize, Default,
+)]
 pub struct LightweightSignature {
     /// Signature bytes
     pub bytes: Vec<u8>,
 }
 
-impl Default for LightweightSignature {
-    fn default() -> Self {
-        Self { bytes: vec![] }
-    }
-}
+
 
 /// Simplified range proof for lightweight wallet operations
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize, Default,
+)]
 pub struct LightweightRangeProof {
     /// Range proof bytes
     pub bytes: Vec<u8>,
 }
 
-impl Default for LightweightRangeProof {
-    fn default() -> Self {
-        Self { bytes: vec![] }
-    }
-}
+
 
 /// A lightweight wallet output where the value and spending key are known
 /// This is a simplified version of the full WalletOutput for use in lightweight wallets
@@ -412,7 +401,8 @@ impl PartialOrd<LightweightWalletOutput> for LightweightWalletOutput {
 impl Ord for LightweightWalletOutput {
     fn cmp(&self, other: &Self) -> Ordering {
         // Primary sort by maturity, then by value
-        self.features.maturity
+        self.features
+            .maturity
             .cmp(&other.features.maturity)
             .then(self.value.cmp(&other.value))
     }
@@ -459,7 +449,7 @@ impl HexEncodable for LightweightWalletOutput {
         let bytes = borsh::to_vec(self).unwrap_or_default();
         bytes.encode_hex()
     }
-    
+
     fn from_hex(hex: &str) -> Result<Self, HexError> {
         let bytes = hex::decode(hex).map_err(|e| HexError::InvalidHex(e.to_string()))?;
         borsh::from_slice(&bytes).map_err(|e| HexError::InvalidHex(e.to_string()))
@@ -472,7 +462,7 @@ impl HexEncodable for LightweightScript {
     fn to_hex(&self) -> String {
         self.bytes.encode_hex()
     }
-    
+
     fn from_hex(hex: &str) -> Result<Self, HexError> {
         let bytes = hex::decode(hex).map_err(|e| HexError::InvalidHex(e.to_string()))?;
         Ok(Self { bytes })
@@ -485,7 +475,7 @@ impl HexEncodable for LightweightSignature {
     fn to_hex(&self) -> String {
         self.bytes.encode_hex()
     }
-    
+
     fn from_hex(hex: &str) -> Result<Self, HexError> {
         let bytes = hex::decode(hex).map_err(|e| HexError::InvalidHex(e.to_string()))?;
         Ok(Self { bytes })
@@ -498,7 +488,7 @@ impl HexEncodable for LightweightRangeProof {
     fn to_hex(&self) -> String {
         self.bytes.encode_hex()
     }
-    
+
     fn from_hex(hex: &str) -> Result<Self, HexError> {
         let bytes = hex::decode(hex).map_err(|e| HexError::InvalidHex(e.to_string()))?;
         Ok(Self { bytes })
@@ -511,7 +501,7 @@ impl HexEncodable for LightweightCovenant {
     fn to_hex(&self) -> String {
         self.bytes.encode_hex()
     }
-    
+
     fn from_hex(hex: &str) -> Result<Self, HexError> {
         let bytes = hex::decode(hex).map_err(|e| HexError::InvalidHex(e.to_string()))?;
         Ok(Self { bytes })
@@ -526,10 +516,11 @@ impl HexEncodable for LightweightExecutionStack {
         let bytes = borsh::to_vec(&self.items).unwrap_or_default();
         bytes.encode_hex()
     }
-    
+
     fn from_hex(hex: &str) -> Result<Self, HexError> {
         let bytes = hex::decode(hex).map_err(|e| HexError::InvalidHex(e.to_string()))?;
-        let items: Vec<Vec<u8>> = borsh::from_slice(&bytes).map_err(|e| HexError::InvalidHex(e.to_string()))?;
+        let items: Vec<Vec<u8>> =
+            borsh::from_slice(&bytes).map_err(|e| HexError::InvalidHex(e.to_string()))?;
         Ok(Self { items })
     }
 }
@@ -594,15 +585,15 @@ mod test {
         output.features.maturity = 100;
         output.script_lock_height = 200;
 
-        assert!(!output.can_be_spent_at(50));  // Neither mature nor unlocked
+        assert!(!output.can_be_spent_at(50)); // Neither mature nor unlocked
         assert!(!output.can_be_spent_at(150)); // Mature but not unlocked
-        assert!(output.can_be_spent_at(250));  // Both mature and unlocked
+        assert!(output.can_be_spent_at(250)); // Both mature and unlocked
     }
 
     #[test]
     fn test_lightweight_wallet_output_types() {
         let mut output = LightweightWalletOutput::default();
-        
+
         // Test default (payment)
         assert!(!output.is_coinbase());
         assert!(!output.is_burn());
@@ -638,4 +629,4 @@ mod test {
         // output1 should come before output3 due to lower value (same maturity)
         assert!(output1 < output3);
     }
-} 
+}

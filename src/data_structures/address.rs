@@ -2,12 +2,12 @@
 //!
 //! This module provides functionality to load and parse Tari addresses
 //! from various formats including base58, hex, and emoji.
-//! 
+//!
 //! This implementation follows the exact specification from the core Tari implementation
 //! in base_layer/common_types/src/tari_address/
 
-use crate::errors::{LightweightWalletError, DataStructureError};
-use crate::data_structures::types::{CompressedPublicKey, };
+use crate::data_structures::types::CompressedPublicKey;
+use crate::errors::{DataStructureError, LightweightWalletError};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::convert::TryFrom;
@@ -23,20 +23,22 @@ const MAX_ENCRYPTED_DATA_SIZE: usize = 256;
 
 /// The correct Tari emoji set (exactly as in source of truth)
 pub const EMOJI: [char; 256] = [
-    '🐢', '📟', '🌈', '🌊', '🎯', '🐋', '🌙', '🤔', '🌕', '⭐', '🎋', '🌰', '🌴', '🌵', '🌲', '🌸', '🌹', '🌻', '🌽',
-    '🍀', '🍁', '🍄', '🥑', '🍆', '🍇', '🍈', '🍉', '🍊', '🍋', '🍌', '🍍', '🍎', '🍐', '🍑', '🍒', '🍓', '🍔', '🍕',
-    '🍗', '🍚', '🍞', '🍟', '🥝', '🍣', '🍦', '🍩', '🍪', '🍫', '🍬', '🍭', '🍯', '🥐', '🍳', '🥄', '🍵', '🍶', '🍷',
-    '🍸', '🍾', '🍺', '🍼', '🎀', '🎁', '🎂', '🎃', '🤖', '🎈', '🎉', '🎒', '🎓', '🎠', '🎡', '🎢', '🎣', '🎤', '🎥',
-    '🎧', '🎨', '🎩', '🎪', '🎬', '🎭', '🎮', '🎰', '🎱', '🎲', '🎳', '🎵', '🎷', '🎸', '🎹', '🎺', '🎻', '🎼', '🎽',
-    '🎾', '🎿', '🏀', '🏁', '🏆', '🏈', '⚽', '🏠', '🏥', '🏦', '🏭', '🏰', '🐀', '🐉', '🐊', '🐌', '🐍', '🦁', '🐐',
-    '🐑', '🐔', '🙈', '🐗', '🐘', '🐙', '🐚', '🐛', '🐜', '🐝', '🐞', '🦋', '🐣', '🐨', '🦀', '🐪', '🐬', '🐭', '🐮',
-    '🐯', '🐰', '🦆', '🦂', '🐴', '🐵', '🐶', '🐷', '🐸', '🐺', '🐻', '🐼', '🐽', '🐾', '👀', '👅', '👑', '👒', '🧢',
-    '💅', '👕', '👖', '👗', '👘', '👙', '💃', '👛', '👞', '👟', '👠', '🥊', '👢', '👣', '🤡', '👻', '👽', '👾', '🤠',
-    '👃', '💄', '💈', '💉', '💊', '💋', '👂', '💍', '💎', '💐', '💔', '🔒', '🧩', '💡', '💣', '💤', '💦', '💨', '💩',
-    '➕', '💯', '💰', '💳', '💵', '💺', '💻', '💼', '📈', '📜', '📌', '📎', '📖', '📿', '📡', '⏰', '📱', '📷', '🔋',
-    '🔌', '🚰', '🔑', '🔔', '🔥', '🔦', '🔧', '🔨', '🔩', '🔪', '🔫', '🔬', '🔭', '🔮', '🔱', '🗽', '😂', '😇', '😈',
-    '🤑', '😍', '😎', '😱', '😷', '🤢', '👍', '👶', '🚀', '🚁', '🚂', '🚚', '🚑', '🚒', '🚓', '🛵', '🚗', '🚜', '🚢',
-    '🚦', '🚧', '🚨', '🚪', '🚫', '🚲', '🚽', '🚿', '🧲',
+    '🐢', '📟', '🌈', '🌊', '🎯', '🐋', '🌙', '🤔', '🌕', '⭐', '🎋', '🌰', '🌴', '🌵', '🌲', '🌸',
+    '🌹', '🌻', '🌽', '🍀', '🍁', '🍄', '🥑', '🍆', '🍇', '🍈', '🍉', '🍊', '🍋', '🍌', '🍍', '🍎',
+    '🍐', '🍑', '🍒', '🍓', '🍔', '🍕', '🍗', '🍚', '🍞', '🍟', '🥝', '🍣', '🍦', '🍩', '🍪', '🍫',
+    '🍬', '🍭', '🍯', '🥐', '🍳', '🥄', '🍵', '🍶', '🍷', '🍸', '🍾', '🍺', '🍼', '🎀', '🎁', '🎂',
+    '🎃', '🤖', '🎈', '🎉', '🎒', '🎓', '🎠', '🎡', '🎢', '🎣', '🎤', '🎥', '🎧', '🎨', '🎩', '🎪',
+    '🎬', '🎭', '🎮', '🎰', '🎱', '🎲', '🎳', '🎵', '🎷', '🎸', '🎹', '🎺', '🎻', '🎼', '🎽', '🎾',
+    '🎿', '🏀', '🏁', '🏆', '🏈', '⚽', '🏠', '🏥', '🏦', '🏭', '🏰', '🐀', '🐉', '🐊', '🐌', '🐍',
+    '🦁', '🐐', '🐑', '🐔', '🙈', '🐗', '🐘', '🐙', '🐚', '🐛', '🐜', '🐝', '🐞', '🦋', '🐣', '🐨',
+    '🦀', '🐪', '🐬', '🐭', '🐮', '🐯', '🐰', '🦆', '🦂', '🐴', '🐵', '🐶', '🐷', '🐸', '🐺', '🐻',
+    '🐼', '🐽', '🐾', '👀', '👅', '👑', '👒', '🧢', '💅', '👕', '👖', '👗', '👘', '👙', '💃', '👛',
+    '👞', '👟', '👠', '🥊', '👢', '👣', '🤡', '👻', '👽', '👾', '🤠', '👃', '💄', '💈', '💉', '💊',
+    '💋', '👂', '💍', '💎', '💐', '💔', '🔒', '🧩', '💡', '💣', '💤', '💦', '💨', '💩', '➕', '💯',
+    '💰', '💳', '💵', '💺', '💻', '💼', '📈', '📜', '📌', '📎', '📖', '📿', '📡', '⏰', '📱', '📷',
+    '🔋', '🔌', '🚰', '🔑', '🔔', '🔥', '🔦', '🔧', '🔨', '🔩', '🔪', '🔫', '🔬', '🔭', '🔮', '🔱',
+    '🗽', '😂', '😇', '😈', '🤑', '😍', '😎', '😱', '😷', '🤢', '👍', '👶', '🚀', '🚁', '🚂', '🚚',
+    '🚑', '🚒', '🚓', '🛵', '🚗', '🚜', '🚢', '🚦', '🚧', '🚨', '🚪', '🚫', '🚲', '🚽', '🚿', '🧲',
 ];
 
 // Create reverse emoji mapping for parsing emoji addresses
@@ -85,28 +87,31 @@ pub fn validate_checksum(data: &[u8]) -> Result<&[u8], LightweightWalletError> {
     if data.is_empty() {
         return Err(DataStructureError::InvalidChecksum("Empty data".to_string()).into());
     }
-    
+
     let (data_part, checksum) = data.split_at(data.len() - 1);
     let expected_checksum = compute_checksum(data_part);
-    
+
     if checksum[0] == expected_checksum {
         Ok(data_part)
     } else {
         Err(DataStructureError::InvalidChecksum(format!(
-            "Expected checksum {}, got {}", expected_checksum, checksum[0]
-        )).into())
+            "Expected checksum {}, got {}",
+            expected_checksum, checksum[0]
+        ))
+        .into())
     }
 }
 
 /// Tari Network types (exact values from source of truth)
 #[repr(u8)]
-#[derive(Clone, Debug, PartialEq, Eq, Copy, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Copy, Serialize, Deserialize, Default)]
 pub enum Network {
     MainNet = 0x00,
-    StageNet = 0x01, 
+    StageNet = 0x01,
     NextNet = 0x02,
     LocalNet = 0x10,
     Igor = 0x24,
+    #[default]
     Esmeralda = 0x26,
 }
 
@@ -118,7 +123,7 @@ impl Network {
     pub fn as_key_str(self) -> &'static str {
         match self {
             Network::MainNet => "mainnet",
-            Network::StageNet => "stagenet", 
+            Network::StageNet => "stagenet",
             Network::NextNet => "nextnet",
             Network::LocalNet => "localnet",
             Network::Igor => "igor",
@@ -134,11 +139,15 @@ impl TryFrom<u8> for Network {
         match value {
             0x00 => Ok(Network::MainNet),
             0x01 => Ok(Network::StageNet),
-            0x02 => Ok(Network::NextNet), 
+            0x02 => Ok(Network::NextNet),
             0x10 => Ok(Network::LocalNet),
             0x24 => Ok(Network::Igor),
             0x26 => Ok(Network::Esmeralda),
-            _ => Err(DataStructureError::InvalidNetwork(format!("Unknown network byte: 0x{:02x}", value)).into()),
+            _ => Err(DataStructureError::InvalidNetwork(format!(
+                "Unknown network byte: 0x{:02x}",
+                value
+            ))
+            .into()),
         }
     }
 }
@@ -156,12 +165,6 @@ impl std::str::FromStr for Network {
             "esmeralda" | "esme" => Ok(Network::Esmeralda),
             _ => Err(DataStructureError::InvalidNetwork(format!("Unknown network: {}", s)).into()),
         }
-    }
-}
-
-impl Default for Network {
-    fn default() -> Self {
-        Network::Esmeralda
     }
 }
 
@@ -188,7 +191,9 @@ impl TariAddressFeatures {
 
     pub fn from_bits(bits: u8) -> Option<Self> {
         // Validate that only known feature flags are set
-        const VALID_FLAGS: u8 = TariAddressFeatures::PAYMENT_ID | TariAddressFeatures::INTERACTIVE_ONLY | TariAddressFeatures::ONE_SIDED_ONLY;
+        const VALID_FLAGS: u8 = TariAddressFeatures::PAYMENT_ID
+            | TariAddressFeatures::INTERACTIVE_ONLY
+            | TariAddressFeatures::ONE_SIDED_ONLY;
         if (bits & !VALID_FLAGS) == 0 {
             Some(TariAddressFeatures(bits))
         } else {
@@ -238,7 +243,9 @@ impl MaxSizeBytes {
     }
 
     pub fn from_bytes_truncate(bytes: &[u8]) -> Self {
-        Self { bytes: bytes.to_vec() }
+        Self {
+            bytes: bytes.to_vec(),
+        }
     }
 
     pub fn empty() -> Self {
@@ -305,11 +312,14 @@ impl DualAddress {
         let payment_id_user_data = match payment_id_user_data {
             Some(data) => {
                 if data.len() > MAX_ENCRYPTED_DATA_SIZE {
-                    return Err(DataStructureError::InvalidAddress("Payment ID too large".to_string()).into());
+                    return Err(DataStructureError::InvalidAddress(
+                        "Payment ID too large".to_string(),
+                    )
+                    .into());
                 }
                 features.set(TariAddressFeatures::PAYMENT_ID, true);
                 MaxSizeBytes::from_bytes_truncate(&data)
-            },
+            }
             None => MaxSizeBytes::empty(),
         };
         Ok(Self {
@@ -327,12 +337,23 @@ impl DualAddress {
         spend_key: CompressedPublicKey,
         network: Network,
     ) -> Result<Self, LightweightWalletError> {
-        Self::new(view_key, spend_key, network, TariAddressFeatures::default(), None)
+        Self::new(
+            view_key,
+            spend_key,
+            network,
+            TariAddressFeatures::default(),
+            None,
+        )
     }
 
-    pub fn add_payment_id_user_data(&mut self, data: Vec<u8>) -> Result<(), LightweightWalletError> {
+    pub fn add_payment_id_user_data(
+        &mut self,
+        data: Vec<u8>,
+    ) -> Result<(), LightweightWalletError> {
         if data.len() > MAX_ENCRYPTED_DATA_SIZE {
-            return Err(DataStructureError::InvalidAddress("Payment ID too large".to_string()).into());
+            return Err(
+                DataStructureError::InvalidAddress("Payment ID too large".to_string()).into(),
+            );
         }
         self.features.set(TariAddressFeatures::PAYMENT_ID, true);
         self.payment_id_user_data = MaxSizeBytes::from_bytes_truncate(&data);
@@ -342,17 +363,23 @@ impl DualAddress {
     /// helper function to convert emojis to u8
     pub fn emoji_to_bytes(emoji: &str) -> Result<Vec<u8>, LightweightWalletError> {
         let length = emoji.chars().count();
-        if !(TARI_ADDRESS_INTERNAL_DUAL_SIZE..=TARI_ADDRESS_INTERNAL_DUAL_SIZE + MAX_ENCRYPTED_DATA_SIZE)
+        if !(TARI_ADDRESS_INTERNAL_DUAL_SIZE
+            ..=TARI_ADDRESS_INTERNAL_DUAL_SIZE + MAX_ENCRYPTED_DATA_SIZE)
             .contains(&length)
         {
-            return Err(DataStructureError::InvalidAddress("Invalid emoji length".to_string()).into());
+            return Err(
+                DataStructureError::InvalidAddress("Invalid emoji length".to_string()).into(),
+            );
         }
         let mut bytes = Vec::with_capacity(length);
         for c in emoji.chars() {
             if let Some(&i) = REVERSE_EMOJI.get(&c) {
                 bytes.push(i);
             } else {
-                return Err(DataStructureError::InvalidAddress("Invalid emoji character".to_string()).into());
+                return Err(DataStructureError::InvalidAddress(
+                    "Invalid emoji character".to_string(),
+                )
+                .into());
             }
         }
         Ok(bytes)
@@ -397,9 +424,12 @@ impl DualAddress {
 
     /// Construct Tari Address from bytes
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, LightweightWalletError>
-    where Self: Sized {
+    where
+        Self: Sized,
+    {
         let length = bytes.len();
-        if !(TARI_ADDRESS_INTERNAL_DUAL_SIZE..=TARI_ADDRESS_INTERNAL_DUAL_SIZE + MAX_ENCRYPTED_DATA_SIZE)
+        if !(TARI_ADDRESS_INTERNAL_DUAL_SIZE
+            ..=TARI_ADDRESS_INTERNAL_DUAL_SIZE + MAX_ENCRYPTED_DATA_SIZE)
             .contains(&length)
         {
             return Err(DataStructureError::InvalidAddress("Invalid size".to_string()).into());
@@ -411,16 +441,16 @@ impl DualAddress {
             .map_err(|_| DataStructureError::InvalidAddress("Invalid network".to_string()))?;
         let features = TariAddressFeatures::from_bits(bytes[1])
             .ok_or_else(|| DataStructureError::InvalidAddress("Invalid features".to_string()))?;
-        
+
         // Use from_canonical_bytes equivalent for CompressedPublicKey
         let mut view_key_bytes = [0u8; 32];
         view_key_bytes.copy_from_slice(&bytes[2..34]);
         let public_view_key = CompressedPublicKey::new(view_key_bytes);
-        
+
         let mut spend_key_bytes = [0u8; 32];
         spend_key_bytes.copy_from_slice(&bytes[34..66]);
         let public_spend_key = CompressedPublicKey::new(spend_key_bytes);
-        
+
         let payment_id_user_data = MaxSizeBytes::from_bytes_truncate(&bytes[66..length - 1]);
         Ok(Self {
             network,
@@ -457,8 +487,12 @@ impl DualAddress {
 
     /// Construct Tari Address from Base58 (exact format from source of truth)
     pub fn from_base58(base58_str: &str) -> Result<Self, LightweightWalletError> {
-        if base58_str.len() < INTERNAL_DUAL_BASE58_MIN_SIZE || base58_str.len() > INTERNAL_DUAL_BASE58_MAX_SIZE {
-            return Err(DataStructureError::InvalidAddress("Invalid base58 size".to_string()).into());
+        if base58_str.len() < INTERNAL_DUAL_BASE58_MIN_SIZE
+            || base58_str.len() > INTERNAL_DUAL_BASE58_MAX_SIZE
+        {
+            return Err(
+                DataStructureError::InvalidAddress("Invalid base58 size".to_string()).into(),
+            );
         }
 
         // Split the base58 string into three parts as per source of truth:
@@ -470,22 +504,22 @@ impl DualAddress {
         let (network, features) = first
             .split_at_checked(1)
             .ok_or_else(|| DataStructureError::InvalidAddress("Invalid character".to_string()))?;
-        
+
         // Decode each part separately
-        let mut result = bs58::decode(network)
-            .into_vec()
-            .map_err(|_| DataStructureError::InvalidAddress("Cannot recover network".to_string()))?;
-        let mut features_bytes = bs58::decode(features)
-            .into_vec()
-            .map_err(|_| DataStructureError::InvalidAddress("Cannot recover features".to_string()))?;
-        let mut rest_bytes = bs58::decode(rest)
-            .into_vec()
-            .map_err(|_| DataStructureError::InvalidAddress("Cannot recover public keys".to_string()))?;
-        
+        let mut result = bs58::decode(network).into_vec().map_err(|_| {
+            DataStructureError::InvalidAddress("Cannot recover network".to_string())
+        })?;
+        let mut features_bytes = bs58::decode(features).into_vec().map_err(|_| {
+            DataStructureError::InvalidAddress("Cannot recover features".to_string())
+        })?;
+        let mut rest_bytes = bs58::decode(rest).into_vec().map_err(|_| {
+            DataStructureError::InvalidAddress("Cannot recover public keys".to_string())
+        })?;
+
         // Reconstruct the full byte array
         result.append(&mut features_bytes);
         result.append(&mut rest_bytes);
-        
+
         Self::from_bytes(&result)
     }
 
@@ -498,12 +532,16 @@ impl DualAddress {
     /// Construct Tari Address from emoji format (using correct EMOJI array)
     pub fn from_emoji(emoji_str: &str) -> Result<Self, LightweightWalletError> {
         let mut bytes = Vec::new();
-        
+
         for emoji_char in emoji_str.chars() {
             if let Some(&byte_val) = REVERSE_EMOJI.get(&emoji_char) {
                 bytes.push(byte_val);
             } else {
-                return Err(DataStructureError::InvalidAddress(format!("Invalid emoji character: {}", emoji_char)).into());
+                return Err(DataStructureError::InvalidAddress(format!(
+                    "Invalid emoji character: {}",
+                    emoji_char
+                ))
+                .into());
             }
         }
 
@@ -518,8 +556,9 @@ impl DualAddress {
 
     /// Creates Tari dual Address from hex
     pub fn from_hex(hex_str: &str) -> Result<Self, LightweightWalletError> {
-        let buf = hex::decode(hex_str)
-            .map_err(|_| DataStructureError::InvalidAddress("Cannot recover public key".to_string()))?;
+        let buf = hex::decode(hex_str).map_err(|_| {
+            DataStructureError::InvalidAddress("Cannot recover public key".to_string())
+        })?;
         Self::from_bytes(buf.as_slice())
     }
 }
@@ -561,7 +600,11 @@ impl SingleAddress {
         spend_key: CompressedPublicKey,
         network: Network,
     ) -> Result<Self, LightweightWalletError> {
-        Self::new(spend_key, network, TariAddressFeatures::create_interactive_only())
+        Self::new(
+            spend_key,
+            network,
+            TariAddressFeatures::create_interactive_only(),
+        )
     }
 
     /// helper function to convert emojis to u8
@@ -569,7 +612,9 @@ impl SingleAddress {
         // The string must be the correct size, including the checksum
         let length = emoji.chars().count();
         if length != TARI_ADDRESS_INTERNAL_SINGLE_SIZE {
-            return Err(DataStructureError::InvalidAddress("Invalid emoji length".to_string()).into());
+            return Err(
+                DataStructureError::InvalidAddress("Invalid emoji length".to_string()).into(),
+            );
         }
 
         // Convert the emoji string to a byte array
@@ -578,7 +623,10 @@ impl SingleAddress {
             if let Some(&i) = REVERSE_EMOJI.get(&c) {
                 bytes.push(i);
             } else {
-                return Err(DataStructureError::InvalidAddress("Invalid emoji character".to_string()).into());
+                return Err(DataStructureError::InvalidAddress(
+                    "Invalid emoji character".to_string(),
+                )
+                .into());
             }
         }
         Ok(bytes)
@@ -614,7 +662,9 @@ impl SingleAddress {
 
     /// Construct Tari Address from bytes
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, LightweightWalletError>
-    where Self: Sized {
+    where
+        Self: Sized,
+    {
         let length = bytes.len();
         if length != TARI_ADDRESS_INTERNAL_SINGLE_SIZE {
             return Err(DataStructureError::InvalidAddress("Invalid size".to_string()).into());
@@ -626,7 +676,7 @@ impl SingleAddress {
             .map_err(|_| DataStructureError::InvalidAddress("Invalid network".to_string()))?;
         let features = TariAddressFeatures::from_bits(bytes[1])
             .ok_or_else(|| DataStructureError::InvalidAddress("Invalid features".to_string()))?;
-        
+
         // Use from_canonical_bytes equivalent for CompressedPublicKey
         let mut spend_key_bytes = [0u8; 32];
         spend_key_bytes.copy_from_slice(&bytes[2..34]);
@@ -661,8 +711,12 @@ impl SingleAddress {
 
     /// Construct Tari Address from Base58 (exact format from source of truth)  
     pub fn from_base58(base58_str: &str) -> Result<Self, LightweightWalletError> {
-        if base58_str.len() < INTERNAL_SINGLE_MIN_BASE58_SIZE || base58_str.len() > INTERNAL_SINGLE_MAX_BASE58_SIZE {
-            return Err(DataStructureError::InvalidAddress("Invalid base58 size".to_string()).into());
+        if base58_str.len() < INTERNAL_SINGLE_MIN_BASE58_SIZE
+            || base58_str.len() > INTERNAL_SINGLE_MAX_BASE58_SIZE
+        {
+            return Err(
+                DataStructureError::InvalidAddress("Invalid base58 size".to_string()).into(),
+            );
         }
 
         // Split the base58 string into three parts as per source of truth:
@@ -674,22 +728,22 @@ impl SingleAddress {
         let (network, features) = first
             .split_at_checked(1)
             .ok_or_else(|| DataStructureError::InvalidAddress("Invalid character".to_string()))?;
-        
+
         // Decode each part separately
-        let mut result = bs58::decode(network)
-            .into_vec()
-            .map_err(|_| DataStructureError::InvalidAddress("Cannot recover network".to_string()))?;
-        let mut features_bytes = bs58::decode(features)
-            .into_vec()
-            .map_err(|_| DataStructureError::InvalidAddress("Cannot recover features".to_string()))?;
-        let mut rest_bytes = bs58::decode(rest)
-            .into_vec()
-            .map_err(|_| DataStructureError::InvalidAddress("Cannot recover public key".to_string()))?;
-        
+        let mut result = bs58::decode(network).into_vec().map_err(|_| {
+            DataStructureError::InvalidAddress("Cannot recover network".to_string())
+        })?;
+        let mut features_bytes = bs58::decode(features).into_vec().map_err(|_| {
+            DataStructureError::InvalidAddress("Cannot recover features".to_string())
+        })?;
+        let mut rest_bytes = bs58::decode(rest).into_vec().map_err(|_| {
+            DataStructureError::InvalidAddress("Cannot recover public key".to_string())
+        })?;
+
         // Reconstruct the full byte array
         result.append(&mut features_bytes);
         result.append(&mut rest_bytes);
-        
+
         Self::from_bytes(&result)
     }
 
@@ -702,12 +756,16 @@ impl SingleAddress {
     /// Construct Tari Address from emoji format (using correct EMOJI array)
     pub fn from_emoji(emoji_str: &str) -> Result<Self, LightweightWalletError> {
         let mut bytes = Vec::new();
-        
+
         for emoji_char in emoji_str.chars() {
             if let Some(&byte_val) = REVERSE_EMOJI.get(&emoji_char) {
                 bytes.push(byte_val);
             } else {
-                return Err(DataStructureError::InvalidAddress(format!("Invalid emoji character: {}", emoji_char)).into());
+                return Err(DataStructureError::InvalidAddress(format!(
+                    "Invalid emoji character: {}",
+                    emoji_char
+                ))
+                .into());
             }
         }
 
@@ -722,8 +780,9 @@ impl SingleAddress {
 
     /// Creates Tari single Address from hex
     pub fn from_hex(hex_str: &str) -> Result<Self, LightweightWalletError> {
-        let buf = hex::decode(hex_str)
-            .map_err(|_| DataStructureError::InvalidAddress("Cannot recover public key".to_string()))?;
+        let buf = hex::decode(hex_str).map_err(|_| {
+            DataStructureError::InvalidAddress("Cannot recover public key".to_string())
+        })?;
         Self::from_bytes(buf.as_slice())
     }
 }
@@ -760,9 +819,7 @@ impl TariAddress {
         features: TariAddressFeatures,
     ) -> Result<Self, LightweightWalletError> {
         Ok(TariAddress::Single(SingleAddress::new(
-            spend_key,
-            network,
-            features,
+            spend_key, network, features,
         )?))
     }
 
@@ -773,9 +830,7 @@ impl TariAddress {
         network: Network,
     ) -> Result<Self, LightweightWalletError> {
         Ok(TariAddress::Dual(DualAddress::new_with_default_features(
-            view_key,
-            spend_key,
-            network,
+            view_key, spend_key, network,
         )?))
     }
 
@@ -784,18 +839,20 @@ impl TariAddress {
         spend_key: CompressedPublicKey,
         network: Network,
     ) -> Result<Self, LightweightWalletError> {
-        Ok(TariAddress::Single(SingleAddress::new_with_interactive_only(
-            spend_key,
-            network,
-        )?))
+        Ok(TariAddress::Single(
+            SingleAddress::new_with_interactive_only(spend_key, network)?,
+        ))
     }
 
     /// Construct Tari Address from an emoji string
     pub fn from_emoji_string(emoji: &str) -> Result<Self, LightweightWalletError> {
         let length = emoji.chars().count();
         if length == TARI_ADDRESS_INTERNAL_SINGLE_SIZE {
-            Ok(TariAddress::Single(SingleAddress::from_emoji_string(emoji)?))
-        } else if (TARI_ADDRESS_INTERNAL_DUAL_SIZE..=TARI_ADDRESS_INTERNAL_DUAL_SIZE + MAX_ENCRYPTED_DATA_SIZE)
+            Ok(TariAddress::Single(SingleAddress::from_emoji_string(
+                emoji,
+            )?))
+        } else if (TARI_ADDRESS_INTERNAL_DUAL_SIZE
+            ..=TARI_ADDRESS_INTERNAL_DUAL_SIZE + MAX_ENCRYPTED_DATA_SIZE)
             .contains(&length)
         {
             Ok(TariAddress::Dual(DualAddress::from_emoji_string(emoji)?))
@@ -807,7 +864,9 @@ impl TariAddress {
     /// Construct Tari Address from Base58
     pub fn from_base58(base58_str: &str) -> Result<Self, LightweightWalletError> {
         if base58_str.len() < INTERNAL_SINGLE_MIN_BASE58_SIZE {
-            return Err(DataStructureError::InvalidAddress("Invalid base58 size".to_string()).into());
+            return Err(
+                DataStructureError::InvalidAddress("Invalid base58 size".to_string()).into(),
+            );
         }
 
         let (first, rest) = base58_str
@@ -816,15 +875,15 @@ impl TariAddress {
         let (network, features) = first
             .split_at_checked(1)
             .ok_or_else(|| DataStructureError::InvalidAddress("Invalid character".to_string()))?;
-        let mut result = bs58::decode(network)
-            .into_vec()
-            .map_err(|_| DataStructureError::InvalidAddress("Cannot recover network".to_string()))?;
-        let mut features = bs58::decode(features)
-            .into_vec()
-            .map_err(|_| DataStructureError::InvalidAddress("Cannot recover feature".to_string()))?;
-        let mut rest = bs58::decode(rest)
-            .into_vec()
-            .map_err(|_| DataStructureError::InvalidAddress("Cannot recover public key".to_string()))?;
+        let mut result = bs58::decode(network).into_vec().map_err(|_| {
+            DataStructureError::InvalidAddress("Cannot recover network".to_string())
+        })?;
+        let mut features = bs58::decode(features).into_vec().map_err(|_| {
+            DataStructureError::InvalidAddress("Cannot recover feature".to_string())
+        })?;
+        let mut rest = bs58::decode(rest).into_vec().map_err(|_| {
+            DataStructureError::InvalidAddress("Cannot recover public key".to_string())
+        })?;
         result.append(&mut features);
         result.append(&mut rest);
 
@@ -840,10 +899,12 @@ impl TariAddress {
 
     /// Construct Tari Address from bytes
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, LightweightWalletError>
-    where Self: Sized {
-        if !(bytes.len() == TARI_ADDRESS_INTERNAL_SINGLE_SIZE ||
-            (bytes.len() >= TARI_ADDRESS_INTERNAL_DUAL_SIZE &&
-                bytes.len() <= (TARI_ADDRESS_INTERNAL_DUAL_SIZE + MAX_ENCRYPTED_DATA_SIZE)))
+    where
+        Self: Sized,
+    {
+        if !(bytes.len() == TARI_ADDRESS_INTERNAL_SINGLE_SIZE
+            || (bytes.len() >= TARI_ADDRESS_INTERNAL_DUAL_SIZE
+                && bytes.len() <= (TARI_ADDRESS_INTERNAL_DUAL_SIZE + MAX_ENCRYPTED_DATA_SIZE)))
         {
             return Err(DataStructureError::InvalidAddress("Invalid size".to_string()).into());
         }
@@ -929,24 +990,32 @@ impl TariAddress {
         if let Ok(address) = Self::from_emoji_string(input) {
             return Ok(address);
         }
-        
+
         // Try hex
         if let Ok(address) = Self::from_hex(input) {
             return Ok(address);
         }
-        
+
         // Try base58
         if let Ok(address) = Self::from_base58(input) {
             return Ok(address);
         }
-        
-        Err(DataStructureError::InvalidAddress("Cannot parse address in any known format".to_string()).into())
+
+        Err(DataStructureError::InvalidAddress(
+            "Cannot parse address in any known format".to_string(),
+        )
+        .into())
     }
 }
 
 impl Default for TariAddress {
     fn default() -> Self {
-        TariAddress::new_dual_address_with_default_features(CompressedPublicKey::default(), CompressedPublicKey::default(),    Network::Esmeralda).unwrap()
+        TariAddress::new_dual_address_with_default_features(
+            CompressedPublicKey::default(),
+            CompressedPublicKey::default(),
+            Network::Esmeralda,
+        )
+        .unwrap()
     }
 }
 
@@ -977,18 +1046,28 @@ mod tests {
         let spend_key = CompressedPublicKey::from_private_key(&PrivateKey::random());
 
         // Generate a dual address from the public keys and ensure we recover it
-        let emoji_id_from_public_key =
-            DualAddress::new_with_default_features(view_key.clone(), spend_key.clone(), Network::Esmeralda).unwrap();
+        let emoji_id_from_public_key = DualAddress::new_with_default_features(
+            view_key.clone(),
+            spend_key.clone(),
+            Network::Esmeralda,
+        )
+        .unwrap();
         assert_eq!(emoji_id_from_public_key.public_spend_key(), &spend_key);
         assert_eq!(emoji_id_from_public_key.public_view_key(), &view_key);
 
         // Check the size of the corresponding emoji string
         let emoji_string = emoji_id_from_public_key.to_emoji_string();
-        assert_eq!(emoji_string.chars().count(), TARI_ADDRESS_INTERNAL_DUAL_SIZE);
+        assert_eq!(
+            emoji_string.chars().count(),
+            TARI_ADDRESS_INTERNAL_DUAL_SIZE
+        );
 
         let features = emoji_id_from_public_key.features();
-        assert_eq!(features, TariAddressFeatures::create_interactive_and_one_sided());
-        
+        assert_eq!(
+            features,
+            TariAddressFeatures::create_interactive_and_one_sided()
+        );
+
         // Generate a dual address from the emoji string and ensure we recover it
         let emoji_id_from_emoji_string = DualAddress::from_emoji_string(&emoji_string).unwrap();
         assert_eq!(emoji_id_from_emoji_string.to_emoji_string(), emoji_string);
@@ -1005,7 +1084,8 @@ mod tests {
 
         // Generate a single address from the public key and ensure we recover it
         let emoji_id_from_public_key =
-            SingleAddress::new_with_interactive_only(public_key.clone(), Network::Esmeralda).unwrap();
+            SingleAddress::new_with_interactive_only(public_key.clone(), Network::Esmeralda)
+                .unwrap();
         assert_eq!(emoji_id_from_public_key.public_spend_key(), &public_key);
 
         let features = emoji_id_from_public_key.features();
@@ -1013,7 +1093,10 @@ mod tests {
 
         // Check the size of the corresponding emoji string
         let emoji_string = emoji_id_from_public_key.to_emoji_string();
-        assert_eq!(emoji_string.chars().count(), TARI_ADDRESS_INTERNAL_SINGLE_SIZE);
+        assert_eq!(
+            emoji_string.chars().count(),
+            TARI_ADDRESS_INTERNAL_SINGLE_SIZE
+        );
 
         // Generate an emoji ID from the emoji string and ensure we recover it
         let emoji_id_from_emoji_string = SingleAddress::from_emoji_string(&emoji_string).unwrap();
@@ -1030,7 +1113,12 @@ mod tests {
         let spend_key = CompressedPublicKey::from_private_key(&PrivateKey::random());
 
         // Generate a dual address from the public keys
-        let address = DualAddress::new_with_default_features(view_key.clone(), spend_key.clone(), Network::Esmeralda).unwrap();
+        let address = DualAddress::new_with_default_features(
+            view_key.clone(),
+            spend_key.clone(),
+            Network::Esmeralda,
+        )
+        .unwrap();
 
         let buff = address.to_vec();
         let base58 = address.to_base58();
@@ -1044,7 +1132,10 @@ mod tests {
         assert_eq!(address_buff.features(), address.features());
 
         let address_base58 = DualAddress::from_base58(&base58).unwrap();
-        assert_eq!(address_base58.public_spend_key(), address.public_spend_key());
+        assert_eq!(
+            address_base58.public_spend_key(),
+            address.public_spend_key()
+        );
         assert_eq!(address_base58.public_view_key(), address.public_view_key());
         assert_eq!(address_base58.network(), address.network());
         assert_eq!(address_base58.features(), address.features());
@@ -1068,7 +1159,9 @@ mod tests {
         let public_key = CompressedPublicKey::from_private_key(&PrivateKey::random());
 
         // Generate a single address from the public key
-        let address = SingleAddress::new_with_interactive_only(public_key.clone(), Network::Esmeralda).unwrap();
+        let address =
+            SingleAddress::new_with_interactive_only(public_key.clone(), Network::Esmeralda)
+                .unwrap();
 
         let buff = address.to_vec();
         let base58 = address.to_base58();
@@ -1081,7 +1174,10 @@ mod tests {
         assert_eq!(address_buff.features(), address.features());
 
         let address_base58 = SingleAddress::from_base58(&base58).unwrap();
-        assert_eq!(address_base58.public_spend_key(), address.public_spend_key());
+        assert_eq!(
+            address_base58.public_spend_key(),
+            address.public_spend_key()
+        );
         assert_eq!(address_base58.network(), address.network());
         assert_eq!(address_base58.features(), address.features());
 
@@ -1103,13 +1199,24 @@ mod tests {
         let spend_key = CompressedPublicKey::from_private_key(&PrivateKey::random());
 
         // Generate a dual address from the public keys
-        let address = DualAddress::new_with_default_features(view_key.clone(), spend_key.clone(), Network::Esmeralda).unwrap();
+        let address = DualAddress::new_with_default_features(
+            view_key.clone(),
+            spend_key.clone(),
+            Network::Esmeralda,
+        )
+        .unwrap();
         let hex_string = address.to_hex();
-        
+
         // Parse it back and verify
         let address_from_hex = DualAddress::from_hex(&hex_string).unwrap();
-        assert_eq!(address_from_hex.public_spend_key(), address.public_spend_key());
-        assert_eq!(address_from_hex.public_view_key(), address.public_view_key());
+        assert_eq!(
+            address_from_hex.public_spend_key(),
+            address.public_spend_key()
+        );
+        assert_eq!(
+            address_from_hex.public_view_key(),
+            address.public_view_key()
+        );
         assert_eq!(address_from_hex.network(), address.network());
         assert_eq!(address_from_hex.features(), address.features());
     }
@@ -1120,12 +1227,17 @@ mod tests {
         let public_key = CompressedPublicKey::from_private_key(&PrivateKey::random());
 
         // Generate a single address from the public key
-        let address = SingleAddress::new_with_interactive_only(public_key.clone(), Network::Esmeralda).unwrap();
+        let address =
+            SingleAddress::new_with_interactive_only(public_key.clone(), Network::Esmeralda)
+                .unwrap();
         let hex_string = address.to_hex();
-        
+
         // Parse it back and verify
         let address_from_hex = SingleAddress::from_hex(&hex_string).unwrap();
-        assert_eq!(address_from_hex.public_spend_key(), address.public_spend_key());
+        assert_eq!(
+            address_from_hex.public_spend_key(),
+            address.public_spend_key()
+        );
         assert_eq!(address_from_hex.network(), address.network());
         assert_eq!(address_from_hex.features(), address.features());
     }
@@ -1136,9 +1248,13 @@ mod tests {
         let public_key = CompressedPublicKey::from_private_key(&PrivateKey::random());
 
         // Create single address
-        let address = TariAddress::new_single_address_with_interactive_only(public_key.clone(), Network::Esmeralda).unwrap();
+        let address = TariAddress::new_single_address_with_interactive_only(
+            public_key.clone(),
+            Network::Esmeralda,
+        )
+        .unwrap();
         let emoji_string = address.to_emoji_string();
-        
+
         // Auto-detect format
         let parsed_address = TariAddress::from_string(&emoji_string).unwrap();
         assert_eq!(parsed_address.public_spend_key(), &public_key);
@@ -1151,9 +1267,13 @@ mod tests {
         let public_key = CompressedPublicKey::from_private_key(&PrivateKey::random());
 
         // Create single address
-        let address = TariAddress::new_single_address_with_interactive_only(public_key.clone(), Network::Esmeralda).unwrap();
+        let address = TariAddress::new_single_address_with_interactive_only(
+            public_key.clone(),
+            Network::Esmeralda,
+        )
+        .unwrap();
         let hex_string = address.to_hex();
-        
+
         // Auto-detect format
         let parsed_address = TariAddress::from_string(&hex_string).unwrap();
         assert_eq!(parsed_address.public_spend_key(), &public_key);
@@ -1166,9 +1286,13 @@ mod tests {
         let public_key = CompressedPublicKey::from_private_key(&PrivateKey::random());
 
         // Create single address
-        let address = TariAddress::new_single_address_with_interactive_only(public_key.clone(), Network::Esmeralda).unwrap();
+        let address = TariAddress::new_single_address_with_interactive_only(
+            public_key.clone(),
+            Network::Esmeralda,
+        )
+        .unwrap();
         let base58_string = address.to_base58();
-        
+
         // Auto-detect format
         let parsed_address = TariAddress::from_string(&base58_string).unwrap();
         assert_eq!(parsed_address.public_spend_key(), &public_key);
@@ -1218,7 +1342,8 @@ mod tests {
             Network::Esmeralda,
             TariAddressFeatures::default(),
             Some(payment_id.clone()),
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(address.public_spend_key(), &spend_key);
         assert_eq!(address.public_view_key(), &view_key);
@@ -1226,7 +1351,10 @@ mod tests {
 
         // Check the size of the corresponding emoji string
         let emoji_string = address.to_emoji_string();
-        assert_eq!(emoji_string.chars().count(), TARI_ADDRESS_INTERNAL_DUAL_SIZE + 8);
+        assert_eq!(
+            emoji_string.chars().count(),
+            TARI_ADDRESS_INTERNAL_DUAL_SIZE + 8
+        );
 
         let features = address.features();
         assert!(features.contains(TariAddressFeatures::PAYMENT_ID));
@@ -1236,7 +1364,10 @@ mod tests {
         assert_eq!(address_from_emoji.to_emoji_string(), emoji_string);
         assert_eq!(address_from_emoji.public_spend_key(), &spend_key);
         assert_eq!(address_from_emoji.public_view_key(), &view_key);
-        assert_eq!(address_from_emoji.get_payment_id_user_data_bytes(), payment_id);
+        assert_eq!(
+            address_from_emoji.get_payment_id_user_data_bytes(),
+            payment_id
+        );
     }
 
     #[test]
@@ -1245,14 +1376,17 @@ mod tests {
         let public_key = CompressedPublicKey::from_private_key(&PrivateKey::random());
 
         // Create single address
-        let address = SingleAddress::new_with_interactive_only(public_key.clone(), Network::Esmeralda).unwrap();
+        let address =
+            SingleAddress::new_with_interactive_only(public_key.clone(), Network::Esmeralda)
+                .unwrap();
         let mut bytes = address.to_vec();
-        
+
         // Verify valid checksum passes
         assert!(validate_checksum(&bytes).is_ok());
-        
+
         // Corrupt the checksum and verify it fails
-        bytes[TARI_ADDRESS_INTERNAL_SINGLE_SIZE - 1] = !bytes[TARI_ADDRESS_INTERNAL_SINGLE_SIZE - 1];
+        bytes[TARI_ADDRESS_INTERNAL_SINGLE_SIZE - 1] =
+            !bytes[TARI_ADDRESS_INTERNAL_SINGLE_SIZE - 1];
         assert!(validate_checksum(&bytes).is_err());
         assert!(SingleAddress::from_bytes(&bytes).is_err());
     }
@@ -1263,10 +1397,17 @@ mod tests {
         let public_key = CompressedPublicKey::from_private_key(&PrivateKey::random());
 
         // Create single address for each network
-        for network in [Network::MainNet, Network::StageNet, Network::NextNet, Network::LocalNet, Network::Igor] {
-            let address = SingleAddress::new_with_interactive_only(public_key.clone(), network).unwrap();
+        for network in [
+            Network::MainNet,
+            Network::StageNet,
+            Network::NextNet,
+            Network::LocalNet,
+            Network::Igor,
+        ] {
+            let address =
+                SingleAddress::new_with_interactive_only(public_key.clone(), network).unwrap();
             assert_eq!(address.network(), network);
-            
+
             // Verify round-trip
             let bytes = address.to_vec();
             let parsed_address = SingleAddress::from_bytes(&bytes).unwrap();
@@ -1287,13 +1428,14 @@ mod tests {
         ];
 
         for features in features_list {
-            let address = SingleAddress::new(public_key.clone(), Network::Esmeralda, features).unwrap();
+            let address =
+                SingleAddress::new(public_key.clone(), Network::Esmeralda, features).unwrap();
             assert_eq!(address.features(), features);
-            
+
             // Verify round-trip
             let bytes = address.to_vec();
             let parsed_address = SingleAddress::from_bytes(&bytes).unwrap();
             assert_eq!(parsed_address.features(), features);
         }
     }
-} 
+}

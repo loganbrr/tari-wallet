@@ -1,5 +1,5 @@
 //! UTXO scanning module for lightweight wallet libraries
-//! 
+//!
 //! This module provides a lightweight interface for scanning the Tari blockchain
 //! for wallet outputs. It uses a trait-based approach that allows different
 //! backend implementations (gRPC, HTTP, etc.) to be plugged in.
@@ -11,27 +11,22 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     data_structures::{
-        transaction_output::LightweightTransactionOutput,
-        wallet_output::LightweightWalletOutput,
-        types::{ PrivateKey, CompressedPublicKey},
         encrypted_data::EncryptedData,
         transaction_input::TransactionInput,
         transaction_kernel::TransactionKernel,
+        transaction_output::LightweightTransactionOutput,
+        types::{CompressedPublicKey, PrivateKey},
+        wallet_output::LightweightWalletOutput,
     },
     errors::{LightweightWalletError, LightweightWalletResult},
-    extraction::{
-        extract_wallet_output,
-        ExtractionConfig,
-    },
+    extraction::{extract_wallet_output, ExtractionConfig},
     key_management::{self, KeyManager, KeyStore},
 };
+use blake2::{Blake2b, Digest};
+use tari_crypto::ristretto::{RistrettoPublicKey, RistrettoSecretKey};
 use tari_utilities::ByteArray;
 #[cfg(feature = "tracing")]
-use tracing::{debug,info};
-use blake2::{Blake2b, Digest};
-use tari_crypto::{
-    ristretto::{RistrettoSecretKey, RistrettoPublicKey},
-};
+use tracing::{debug, info};
 
 // Include GRPC scanner when the feature is enabled
 #[cfg(feature = "grpc")]
@@ -105,10 +100,7 @@ mod duration_serde {
 
 impl ScanConfig {
     /// Create a new scan config with a progress callback
-    pub fn with_progress_callback(
-        self,
-        callback: ProgressCallback,
-    ) -> ScanConfigWithCallback {
+    pub fn with_progress_callback(self, callback: ProgressCallback) -> ScanConfigWithCallback {
         ScanConfigWithCallback {
             config: self,
             progress_callback: Some(callback),
@@ -283,7 +275,7 @@ pub struct BlockInfo {
 }
 
 /// Blockchain scanner trait for scanning UTXOs
-/// 
+///
 /// This trait provides a lightweight interface that can be implemented by
 /// different backend providers (gRPC, HTTP, etc.) without requiring heavy
 /// dependencies in the core library.
@@ -324,7 +316,7 @@ pub trait BlockchainScanner: Send + Sync {
 }
 
 /// Wallet scanner trait for scanning with wallet keys
-/// 
+///
 /// This trait extends the basic blockchain scanner with wallet-specific
 /// functionality for scanning with key management.
 #[async_trait(?Send)]
@@ -364,21 +356,25 @@ impl DefaultScanningLogic {
         transaction_output: &LightweightTransactionOutput,
     ) -> Result<Option<LightweightWalletOutput>, LightweightWalletError> {
         // Derive view key using the same method as reference
-        let (view_key_ristretto, _spend_key) = key_management::derive_view_and_spend_keys_from_entropy(&self.entropy)
-            .map_err(|e| LightweightWalletError::InvalidArgument {
-                argument: "entropy".to_string(),
-                value: "key_derivation".to_string(),
-                message: format!("Key derivation failed: {}", e),
-            })?;
-        
+        let (view_key_ristretto, _spend_key) =
+            key_management::derive_view_and_spend_keys_from_entropy(&self.entropy).map_err(
+                |e| LightweightWalletError::InvalidArgument {
+                    argument: "entropy".to_string(),
+                    value: "key_derivation".to_string(),
+                    message: format!("Key derivation failed: {}", e),
+                },
+            )?;
+
         // Convert RistrettoSecretKey to PrivateKey
         let view_key_bytes = view_key_ristretto.as_bytes();
         let mut view_key_array = [0u8; 32];
         view_key_array.copy_from_slice(view_key_bytes);
         let view_key = PrivateKey::new(view_key_array);
-        
+
         // Try Diffie-Hellman shared secret approach (reference implementation method)
-        if let Some(wallet_output) = self.try_diffie_hellman_recovery(transaction_output, &view_key)? {
+        if let Some(wallet_output) =
+            self.try_diffie_hellman_recovery(transaction_output, &view_key)?
+        {
             return Ok(Some(wallet_output));
         }
 
@@ -393,15 +389,20 @@ impl DefaultScanningLogic {
     ) -> Result<Option<LightweightWalletOutput>, LightweightWalletError> {
         // Get sender offset public key from the output
         let sender_offset_public_key = transaction_output.sender_offset_public_key();
-        
+
         // Compute Diffie-Hellman shared secret: view_private_key * sender_offset_public_key
-        let shared_secret = self.compute_diffie_hellman_shared_secret(view_private_key, sender_offset_public_key)?;
-        
+        let shared_secret =
+            self.compute_diffie_hellman_shared_secret(view_private_key, sender_offset_public_key)?;
+
         // Derive encryption key from shared secret (same as reference implementation)
         let encryption_key = self.shared_secret_to_encryption_key(&shared_secret)?;
-        
+
         // Try to decrypt the encrypted data
-        match EncryptedData::decrypt_data(&encryption_key, transaction_output.commitment(), transaction_output.encrypted_data()) {
+        match EncryptedData::decrypt_data(
+            &encryption_key,
+            transaction_output.commitment(),
+            transaction_output.encrypted_data(),
+        ) {
             Ok((value, _mask, payment_id)) => {
                 #[cfg(feature = "tracing")]
                 info!(
@@ -409,7 +410,7 @@ impl DefaultScanningLogic {
                     value.as_u64(),
                     payment_id
                 );
-                
+
                 // Use the extraction logic to create a proper wallet output
                 let extraction_config = ExtractionConfig::with_private_key(encryption_key);
                 match extract_wallet_output(transaction_output, &extraction_config) {
@@ -420,7 +421,7 @@ impl DefaultScanningLogic {
                         Ok(None) // For now, return None to avoid constructor complexity
                     }
                 }
-            },
+            }
             Err(e) => {
                 #[cfg(feature = "tracing")]
                 debug!("DH decryption failed: {}", e);
@@ -428,7 +429,7 @@ impl DefaultScanningLogic {
             }
         }
     }
-    
+
     /// Compute Diffie-Hellman shared secret: private_key * public_key
     fn compute_diffie_hellman_shared_secret(
         &self,
@@ -442,25 +443,27 @@ impl DefaultScanningLogic {
                 value: "key_derivation".to_string(),
                 message: format!("Invalid private key: {}", e),
             })?;
-        
+
         // Decompress public key to RistrettoPublicKey
-        let pub_key = RistrettoPublicKey::from_canonical_bytes(&public_key.as_bytes())
-            .map_err(|e| LightweightWalletError::InvalidArgument {
-                argument: "public_key".to_string(),
-                value: "key_derivation".to_string(),
-                message: format!("Invalid public key: {}", e),
+        let pub_key =
+            RistrettoPublicKey::from_canonical_bytes(&public_key.as_bytes()).map_err(|e| {
+                LightweightWalletError::InvalidArgument {
+                    argument: "public_key".to_string(),
+                    value: "key_derivation".to_string(),
+                    message: format!("Invalid public key: {}", e),
+                }
             })?;
-        
+
         // Compute shared secret: private_key * public_key
         let shared_secret_point = pub_key * secret_key;
-        
+
         // Convert to bytes - need to convert properly
         let shared_secret_bytes = shared_secret_point.as_bytes();
         let mut result = [0u8; 32];
         result.copy_from_slice(shared_secret_bytes);
         Ok(result)
     }
-    
+
     /// Convert shared secret to encryption key (mimics reference implementation)
     fn shared_secret_to_encryption_key(
         &self,
@@ -471,15 +474,18 @@ impl DefaultScanningLogic {
         let mut hasher = Blake2b::<digest::consts::U32>::new();
         hasher.update(b"TARI_SHARED_SECRET_TO_ENCRYPTION_KEY");
         hasher.update(shared_secret);
-        
+
         let result = hasher.finalize();
-        let key_bytes: [u8; 32] = result.as_slice().try_into()
-            .map_err(|_| LightweightWalletError::InvalidArgument {
-                argument: "shared_secret".to_string(),
-                value: "key_derivation".to_string(),
-                message: "Failed to convert hash to key".to_string(),
-            })?;
-        
+        let key_bytes: [u8; 32] =
+            result
+                .as_slice()
+                .try_into()
+                .map_err(|_| LightweightWalletError::InvalidArgument {
+                    argument: "shared_secret".to_string(),
+                    value: "key_derivation".to_string(),
+                    message: "Failed to convert hash to key".to_string(),
+                })?;
+
         Ok(PrivateKey::new(key_bytes))
     }
 
@@ -492,7 +498,7 @@ impl DefaultScanningLogic {
 
         for block in blocks {
             let mut wallet_outputs = Vec::new();
-            
+
             for output in &block.outputs {
                 match extract_wallet_output(output, extraction_config) {
                     Ok(wallet_output) => wallet_outputs.push(wallet_output),
@@ -529,29 +535,31 @@ impl DefaultScanningLogic {
 
         for block in blocks {
             let mut wallet_outputs = Vec::new();
-            
+
             for output in &block.outputs {
                 // Try to find wallet outputs using multiple scanning strategies
                 let mut found_output = false;
-                
-                 // Strategy 1: One-sided payments (different detection logic)
-                 if !found_output {
-                    if let Some(wallet_output) = Self::scan_for_one_sided_payment(output, extraction_config)? {
+
+                // Strategy 1: One-sided payments (different detection logic)
+                if !found_output {
+                    if let Some(wallet_output) =
+                        Self::scan_for_one_sided_payment(output, extraction_config)?
+                    {
                         wallet_outputs.push(wallet_output);
                         found_output = true;
                     }
                 }
-                
 
                 // Strategy 2: Regular recoverable outputs (encrypted data decryption)
                 if !found_output {
-                    if let Some(wallet_output) = Self::scan_for_recoverable_output(output, extraction_config)? {
+                    if let Some(wallet_output) =
+                        Self::scan_for_recoverable_output(output, extraction_config)?
+                    {
                         wallet_outputs.push(wallet_output);
                         found_output = true;
                     }
                 }
-                
-               
+
                 // Strategy 3: Coinbase outputs (special handling)
                 if !found_output {
                     if let Some(wallet_output) = Self::scan_for_coinbase_output(output)? {
@@ -559,9 +567,8 @@ impl DefaultScanningLogic {
                         // found_output = true; // Leaving this here in case we add additional strategies in the future
                     }
                 }
-
             }
-            
+
             results.push(BlockScanResult {
                 height: block.height,
                 block_hash: block.hash.clone(),
@@ -580,7 +587,10 @@ impl DefaultScanningLogic {
         extraction_config: &ExtractionConfig,
     ) -> LightweightWalletResult<Option<LightweightWalletOutput>> {
         // Skip non-payment outputs for this scan type
-        if !matches!(output.features().output_type, crate::data_structures::wallet_output::LightweightOutputType::Payment) {
+        if !matches!(
+            output.features().output_type,
+            crate::data_structures::wallet_output::LightweightOutputType::Payment
+        ) {
             return Ok(None);
         }
 
@@ -597,10 +607,13 @@ impl DefaultScanningLogic {
         extraction_config: &ExtractionConfig,
     ) -> LightweightWalletResult<Option<LightweightWalletOutput>> {
         // Skip non-payment outputs for this scan type
-        if !matches!(output.features().output_type, crate::data_structures::wallet_output::LightweightOutputType::Payment) {
+        if !matches!(
+            output.features().output_type,
+            crate::data_structures::wallet_output::LightweightOutputType::Payment
+        ) {
             return Ok(None);
         }
-        
+
         // For one-sided payments, use the same extraction logic
         // The difference is in how the outputs are created, not how they're decrypted
         match extract_wallet_output(output, extraction_config) {
@@ -609,21 +622,23 @@ impl DefaultScanningLogic {
         }
     }
 
-
     /// Scan for coinbase outputs (special handling for mining rewards)
     fn scan_for_coinbase_output(
         output: &LightweightTransactionOutput,
     ) -> LightweightWalletResult<Option<LightweightWalletOutput>> {
         // Only handle coinbase outputs
-        if !matches!(output.features().output_type, crate::data_structures::wallet_output::LightweightOutputType::Coinbase) {
+        if !matches!(
+            output.features().output_type,
+            crate::data_structures::wallet_output::LightweightOutputType::Coinbase
+        ) {
             return Ok(None);
         }
-        
+
         // For coinbase outputs, the value is typically revealed in the minimum value promise
         if output.minimum_value_promise().as_u64() > 0 {
-            use crate::data_structures::wallet_output::*;
             use crate::data_structures::payment_id::PaymentId;
-            
+            use crate::data_structures::wallet_output::*;
+
             let wallet_output = LightweightWalletOutput::new(
                 output.version(),
                 output.minimum_value_promise(),
@@ -641,10 +656,10 @@ impl DefaultScanningLogic {
                 output.proof().cloned(),
                 PaymentId::Empty,
             );
-            
+
             return Ok(Some(wallet_output));
         }
-        
+
         Ok(None)
     }
 
@@ -668,19 +683,23 @@ impl DefaultScanningLogic {
 
         while current_height <= end_height {
             let batch_end = std::cmp::min(current_height + config.batch_size - 1, end_height);
-            
+
             // Get blocks in this batch
             let heights: Vec<u64> = (current_height..=batch_end).collect();
             let blocks = scanner.get_blocks_by_heights(heights).await?;
-            
+
             // Process blocks
             let batch_results = Self::process_blocks(blocks, &config.extraction_config)?;
             all_results.extend(batch_results);
 
             // Update progress
             if let Some(callback) = progress_callback {
-                let total_outputs: u64 = all_results.iter().map(|r| r.wallet_outputs.len() as u64).sum();
-                let total_value: u64 = all_results.iter()
+                let total_outputs: u64 = all_results
+                    .iter()
+                    .map(|r| r.wallet_outputs.len() as u64)
+                    .sum();
+                let total_value: u64 = all_results
+                    .iter()
                     .flat_map(|r| &r.wallet_outputs)
                     .map(|wo| wo.value().as_u64())
                     .sum();
@@ -719,20 +738,27 @@ impl DefaultScanningLogic {
         });
 
         while current_height <= end_height {
-            let batch_end = std::cmp::min(current_height + config.scan_config.batch_size - 1, end_height);
-            
+            let batch_end = std::cmp::min(
+                current_height + config.scan_config.batch_size - 1,
+                end_height,
+            );
+
             // Get blocks in this batch
             let heights: Vec<u64> = (current_height..=batch_end).collect();
             let blocks = scanner.get_blocks_by_heights(heights).await?;
-            
+
             // Process blocks with wallet keys
             let batch_results = Self::process_blocks_with_wallet_keys(blocks, &config)?;
             all_results.extend(batch_results);
 
             // Update progress
             if let Some(callback) = progress_callback {
-                let total_outputs: u64 = all_results.iter().map(|r| r.wallet_outputs.len() as u64).sum();
-                let total_value: u64 = all_results.iter()
+                let total_outputs: u64 = all_results
+                    .iter()
+                    .map(|r| r.wallet_outputs.len() as u64)
+                    .sum();
+                let total_value: u64 = all_results
+                    .iter()
                     .flat_map(|r| &r.wallet_outputs)
                     .map(|wo| wo.value().as_u64())
                     .sum();
@@ -749,8 +775,12 @@ impl DefaultScanningLogic {
             current_height = batch_end + 1;
         }
 
-        let total_wallet_outputs: u64 = all_results.iter().map(|r| r.wallet_outputs.len() as u64).sum();
-        let total_value: u64 = all_results.iter()
+        let total_wallet_outputs: u64 = all_results
+            .iter()
+            .map(|r| r.wallet_outputs.len() as u64)
+            .sum();
+        let total_value: u64 = all_results
+            .iter()
             .flat_map(|r| &r.wallet_outputs)
             .map(|wo| wo.value().as_u64())
             .sum();
@@ -759,13 +789,11 @@ impl DefaultScanningLogic {
             block_results: all_results,
             total_wallet_outputs,
             total_value,
-            addresses_scanned: 0, // Will be calculated during implementation 
+            addresses_scanned: 0, // Will be calculated during implementation
             accounts_scanned: 0,  // Will be calculated during implementation
             scan_duration: start_time.elapsed(),
         })
     }
-
-    
 }
 
 /// Mock implementation for testing
@@ -861,7 +889,9 @@ pub enum ScannerType {
     Mock,
     // Add other scanner types here as needed
     #[cfg(feature = "grpc")]
-    Grpc { url: String },
+    Grpc {
+        url: String,
+    },
     // Http { url: String },
 }
 
@@ -903,7 +933,7 @@ impl BlockchainScannerBuilder {
                 Ok(Box::new(scanner))
             }
             None => Err(LightweightWalletError::ConfigurationError(
-                "Scanner type not specified".to_string()
+                "Scanner type not specified".to_string(),
             )),
         }
     }
@@ -989,11 +1019,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_scanner_builder() {
-        let builder = BlockchainScannerBuilder::new()
-            .with_type(ScannerType::Mock);
-        
+        let builder = BlockchainScannerBuilder::new().with_type(ScannerType::Mock);
+
         let mut scanner = builder.build().await.unwrap();
         let tip_info = scanner.get_tip_info().await.unwrap();
         assert_eq!(tip_info.best_block_height, 1000);
     }
-} 
+}
