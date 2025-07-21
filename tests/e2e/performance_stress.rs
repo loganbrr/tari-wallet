@@ -167,7 +167,7 @@ impl DatasetGenerator {
     }
 
     fn create_mock_output(&self, value: u64) -> LightweightTransactionOutput {
-        use tari_wallet::data_structures::{
+        use lightweight_wallet_libs::data_structures::{
             covenant::Covenant,
             encrypted_data::EncryptedData,
             metadata_signature::MetadataSignature,

@@ -3,12 +3,11 @@
 //! Tests the full lifecycle of wallet operations from creation to address generation
 //! to transaction handling, covering the complete user journey.
 
-use lightweight_wallet_libs::crypto::*;
 use lightweight_wallet_libs::data_structures::address::{TariAddress, TariAddressFeatures};
-use lightweight_wallet_libs::data_structures::{Network, PrivateKey};
-use lightweight_wallet_libs::errors::*;
+use lightweight_wallet_libs::data_structures::Network;
 use lightweight_wallet_libs::key_management::*;
 use lightweight_wallet_libs::wallet::*;
+use zeroize::Zeroize;
 
 #[cfg(feature = "storage")]
 use lightweight_wallet_libs::storage::*;

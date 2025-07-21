@@ -129,7 +129,7 @@ fn create_test_output(
     view_key: &PrivateKey,
     spend_key: &PrivateKey,
 ) -> Result<LightweightTransactionOutput, LightweightWalletError> {
-    use tari_wallet::data_structures::{
+    use lightweight_wallet_libs::data_structures::{
         covenant::Covenant, metadata_signature::MetadataSignature, payment_id::PaymentId,
         script::TariScript, wallet_output::LightweightExecutionStack,
     };

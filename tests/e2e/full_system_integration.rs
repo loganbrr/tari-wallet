@@ -6,16 +6,16 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use tari_wallet::data_structures::{
+use lightweight_wallet_libs::data_structures::{
     address::{TariAddress, TariAddressFeatures},
     types::{MicroMinotari, PrivateKey},
     Network,
 };
-use tari_wallet::errors::*;
-use tari_wallet::extraction::ExtractionConfig;
-use tari_wallet::key_management::*;
-use tari_wallet::scanning::*;
-use tari_wallet::wallet::*;
+use lightweight_wallet_libs::errors::*;
+use lightweight_wallet_libs::extraction::ExtractionConfig;
+use lightweight_wallet_libs::key_management::*;
+use lightweight_wallet_libs::scanning::*;
+use lightweight_wallet_libs::wallet::*;
 
 /// Integration test scenario: Full wallet lifecycle
 #[tokio::test]
@@ -479,7 +479,7 @@ fn create_test_output(
     view_key: &PrivateKey,
     spend_key: &PrivateKey,
 ) -> Result<LightweightTransactionOutput, LightweightWalletError> {
-    use tari_wallet::data_structures::{
+    use lightweight_wallet_libs::data_structures::{
         covenant::Covenant,
         encrypted_data::EncryptedData,
         metadata_signature::MetadataSignature,
