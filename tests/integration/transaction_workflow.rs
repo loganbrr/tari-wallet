@@ -6,20 +6,19 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use lightweight_wallet_libs::crypto::signing::*;
+use lightweight_wallet_libs::crypto::signing::{
+    derive_tari_signing_key, sign_message_with_hex_output, verify_message_from_hex,
+};
 use lightweight_wallet_libs::data_structures::{
     address::{TariAddress, TariAddressFeatures},
     types::{CompressedPublicKey, MicroMinotari, PrivateKey},
-    wallet_output::{LightweightOutputFeatures, LightweightOutputType, LightweightWalletOutput},
-    Network,
 };
-use lightweight_wallet_libs::errors::*;
-use lightweight_wallet_libs::key_management::*;
-use lightweight_wallet_libs::validation::*;
+use lightweight_wallet_libs::errors::{LightweightWalletError, ValidationError};
+
 use lightweight_wallet_libs::wallet::*;
 
-use tari_crypto::keys::{PublicKey, SecretKey};
-use tari_crypto::ristretto::{RistrettoPublicKey, RistrettoSecretKey};
+use tari_crypto::keys::PublicKey;
+use tari_crypto::ristretto::RistrettoPublicKey;
 
 /// Mock transaction structure for testing
 #[derive(Debug, Clone)]
@@ -34,8 +33,10 @@ struct MockTransaction {
 #[derive(Debug, Clone)]
 struct MockTransactionInput {
     output_hash: Vec<u8>,
+    #[allow(dead_code)]
     commitment: Vec<u8>,
     value: MicroMinotari,
+    #[allow(dead_code)]
     script: Vec<u8>,
 }
 
@@ -43,8 +44,11 @@ struct MockTransactionInput {
 struct MockTransactionOutput {
     commitment: Vec<u8>,
     value: MicroMinotari,
+    #[allow(dead_code)]
     script: Vec<u8>,
+    #[allow(dead_code)]
     recipient_address: Option<TariAddress>,
+    #[allow(dead_code)]
     sender_offset_public_key: CompressedPublicKey,
 }
 
@@ -123,15 +127,12 @@ impl MockTransactionBuilder {
         let total_with_fee = total_output + self.fee.as_u64();
 
         if total_input < total_with_fee {
-            return Err(LightweightWalletError::ValidationError {
-                field: "transaction".to_string(),
-                message: format!(
-                    "Insufficient funds: input {} < output {} + fee {}",
-                    total_input,
-                    total_output,
+            return Err(LightweightWalletError::ValidationError(
+                ValidationError::TransactionValidationFailed(format!(
+                    "Insufficient funds: input {total_input} < output {total_output} + fee {}",
                     self.fee.as_u64()
-                ),
-            });
+                )),
+            ));
         }
 
         Ok(MockTransaction {
@@ -144,11 +145,12 @@ impl MockTransactionBuilder {
     }
 
     fn build_and_sign(self) -> Result<MockTransaction, LightweightWalletError> {
+        let wallet = self.wallet.clone();
         let mut transaction = self.build()?;
 
         // Sign transaction if wallet is available
-        if let Some(wallet) = &self.wallet {
-            let signature = self.sign_transaction(&transaction, wallet)?;
+        if let Some(wallet) = wallet {
+            let signature = MockTransactionBuilder::sign_transaction(&transaction, &wallet)?;
             transaction.signature = Some(signature);
         }
 
@@ -156,24 +158,21 @@ impl MockTransactionBuilder {
     }
 
     fn sign_transaction(
-        &self,
         transaction: &MockTransaction,
         wallet: &Wallet,
     ) -> Result<MockTransactionSignature, LightweightWalletError> {
         // Get wallet's signing key
-        let seed_phrase =
-            wallet
-                .export_seed_phrase()
-                .map_err(|_| LightweightWalletError::ValidationError {
-                    field: "wallet".to_string(),
-                    message: "Cannot sign transaction without seed phrase".to_string(),
-                })?;
+        let seed_phrase = wallet.export_seed_phrase().map_err(|_| {
+            LightweightWalletError::ValidationError(ValidationError::TransactionValidationFailed(
+                "Cannot sign transaction without seed phrase".to_string(),
+            ))
+        })?;
 
         let signing_key = derive_tari_signing_key(&seed_phrase, None)?;
         let public_key = RistrettoPublicKey::from_secret_key(&signing_key);
 
         // Create transaction message for signing
-        let transaction_message = self.create_transaction_message(transaction);
+        let transaction_message = Self::create_transaction_message(transaction);
 
         // Sign the transaction
         let (signature_hex, nonce_hex) =
@@ -186,7 +185,7 @@ impl MockTransactionBuilder {
         })
     }
 
-    fn create_transaction_message(&self, transaction: &MockTransaction) -> String {
+    fn create_transaction_message(transaction: &MockTransaction) -> String {
         // Create a deterministic message from transaction data
         let mut message_parts = Vec::new();
 
@@ -234,6 +233,7 @@ impl MockTransactionPool {
         self
     }
 
+    #[allow(dead_code)]
     fn with_failure_rate(mut self, failure_rate: f32) -> Self {
         self.failure_rate = failure_rate;
         self
@@ -273,10 +273,11 @@ impl MockTransactionPool {
     ) -> Result<(), LightweightWalletError> {
         // Check signature is present
         if transaction.signature.is_none() {
-            return Err(LightweightWalletError::ValidationError {
-                field: "signature".to_string(),
-                message: "Transaction must be signed".to_string(),
-            });
+            return Err(LightweightWalletError::ValidationError(
+                ValidationError::TransactionValidationFailed(
+                    "Transaction must be signed".to_string(),
+                ),
+            ));
         }
 
         // Check balance
@@ -285,18 +286,16 @@ impl MockTransactionPool {
         let total_with_fee = total_output + transaction.fee.as_u64();
 
         if total_input < total_with_fee {
-            return Err(LightweightWalletError::ValidationError {
-                field: "balance".to_string(),
-                message: "Insufficient funds".to_string(),
-            });
+            return Err(LightweightWalletError::ValidationError(
+                ValidationError::TransactionValidationFailed("Insufficient funds".to_string()),
+            ));
         }
 
         // Check minimum fee
         if transaction.fee.as_u64() < 100 {
-            return Err(LightweightWalletError::ValidationError {
-                field: "fee".to_string(),
-                message: "Fee too low".to_string(),
-            });
+            return Err(LightweightWalletError::ValidationError(
+                ValidationError::TransactionValidationFailed("Fee too low".to_string()),
+            ));
         }
 
         Ok(())
@@ -391,7 +390,7 @@ async fn test_transaction_signing_workflow() {
     let signed_transaction = MockTransactionBuilder::new()
         .with_wallet(wallet.clone())
         .add_input(vec![0x10; 32], vec![0x11; 32], 5000000) // 5 Tari
-        .add_output(recipient_address, 4500000) // 4.5 Tari
+        .add_output(recipient_address.clone(), 4500000) // 4.5 Tari
         .with_fee(500000) // 0.5 Tari fee
         .build_and_sign()
         .expect("Failed to build and sign transaction");
@@ -408,7 +407,7 @@ async fn test_transaction_signing_workflow() {
 
     // Verify signature is valid
     let transaction_message =
-        MockTransactionBuilder::new().create_transaction_message(&signed_transaction);
+        MockTransactionBuilder::create_transaction_message(&signed_transaction);
 
     let is_valid = verify_message_from_hex(
         &signature.public_key,
@@ -668,7 +667,7 @@ async fn test_transaction_batching_workflow() {
 
     // Create batch of transactions
     let mut transactions = Vec::new();
-    let mut broadcast_tasks = Vec::new();
+    let _broadcast_tasks: Vec<tokio::task::JoinHandle<()>> = Vec::new();
 
     for (i, (recipient_address, recipient_name)) in recipients.into_iter().enumerate() {
         let transaction = MockTransactionBuilder::new()
@@ -738,7 +737,7 @@ async fn test_complex_transaction_scenarios() {
 
     // Scenario 1: Transaction with multiple outputs (fan-out)
     let mut recipients = Vec::new();
-    for i in 0..3 {
+    for _i in 0..3 {
         let mut recipient_wallet = Wallet::generate_new_with_seed_phrase(None)
             .expect("Failed to generate recipient wallet");
         recipient_wallet.set_network("stagenet".to_string());

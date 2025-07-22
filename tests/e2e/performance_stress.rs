@@ -12,20 +12,21 @@ use tokio::time::timeout;
 
 use lightweight_wallet_libs::data_structures::{
     address::{TariAddress, TariAddressFeatures},
-    types::{MicroMinotari, PrivateKey},
-    wallet_output::LightweightWalletOutput,
+    transaction_output::LightweightTransactionOutput,
+    types::PrivateKey,
 };
-use lightweight_wallet_libs::errors::*;
 use lightweight_wallet_libs::extraction::ExtractionConfig;
-use lightweight_wallet_libs::key_management::*;
 use lightweight_wallet_libs::scanning::*;
 use lightweight_wallet_libs::wallet::*;
 
 /// Performance metrics collection
 #[derive(Debug, Clone)]
 struct PerformanceMetrics {
+    #[allow(dead_code)]
     operation: String,
+    #[allow(dead_code)]
     duration: Duration,
+    #[allow(dead_code)]
     items_processed: usize,
     memory_peak_mb: Option<f64>,
     throughput_per_second: f64,
@@ -102,7 +103,7 @@ impl DatasetGenerator {
 
         for i in 0..count {
             // Use deterministic seed generation for reproducible tests
-            let wallet_seed = format!("test_wallet_{}_{}", self.seed, i);
+            let _wallet_seed = format!("test_wallet_{}_{}", self.seed, i);
             let wallet =
                 Wallet::generate_new_with_seed_phrase(None).expect("Failed to generate wallet");
             wallets.push(wallet);
@@ -168,47 +169,40 @@ impl DatasetGenerator {
 
     fn create_mock_output(&self, value: u64) -> LightweightTransactionOutput {
         use lightweight_wallet_libs::data_structures::{
-            covenant::Covenant,
             encrypted_data::EncryptedData,
-            metadata_signature::MetadataSignature,
-            script::TariScript,
-            types::CompressedPublicKey,
+            transaction_output::LightweightTransactionOutput,
+            types::{CompressedCommitment, CompressedPublicKey, MicroMinotari},
             wallet_output::{
-                LightweightExecutionStack, LightweightOutputFeatures, LightweightOutputType,
+                LightweightCovenant, LightweightOutputFeatures, LightweightOutputType,
+                LightweightRangeProofType, LightweightScript, LightweightSignature,
             },
         };
 
         let features = LightweightOutputFeatures {
-            version: 0,
             output_type: LightweightOutputType::Payment,
             maturity: 0,
-            coinbase_extra: vec![],
-            range_proof_type: 0,
+            range_proof_type: LightweightRangeProofType::BulletProofPlus,
         };
 
+        let commitment = CompressedCommitment::new([0x42; 32]);
         let sender_offset_public_key =
             CompressedPublicKey::from_private_key(&PrivateKey::new([0x42; 32]));
-        let metadata_signature = MetadataSignature::new(
-            CompressedPublicKey::from_private_key(&PrivateKey::new([0x43; 32])),
-            vec![0x44; 64],
-        );
+        let metadata_signature = LightweightSignature::default();
 
         let micro_value = MicroMinotari::from(value);
         let encrypted_data = EncryptedData::default(); // Mock encrypted data
 
         LightweightTransactionOutput::new(
-            0,           // version
-            micro_value, // minimum_value_promise
+            1, // version
             features,
-            TariScript::default(),
-            LightweightExecutionStack::default(),
+            commitment,
+            None, // proof
+            LightweightScript::default(),
             sender_offset_public_key,
             metadata_signature,
-            0, // rangeproof_hash
-            Covenant::default(),
+            LightweightCovenant::default(),
             encrypted_data,
             micro_value, // minimum_value_promise
-            None,        // proof
         )
     }
 }
@@ -587,7 +581,9 @@ async fn test_memory_usage_stress() {
     let total_objects = STRESS_ITERATIONS * OBJECTS_PER_ITERATION * 2; // wallets + addresses
     let average_memory_per_iteration: f64 =
         peak_memory_per_iteration.iter().sum::<f64>() / peak_memory_per_iteration.len() as f64;
-    let max_memory_per_iteration = peak_memory_per_iteration.iter().fold(0.0, |a, &b| a.max(b));
+    let max_memory_per_iteration = peak_memory_per_iteration
+        .iter()
+        .fold(0.0f64, |a, &b| a.max(b));
 
     // Memory assertions (these are rough estimates)
     assert!(

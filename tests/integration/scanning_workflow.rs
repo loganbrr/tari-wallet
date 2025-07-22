@@ -4,19 +4,21 @@
 //! to balance calculation, including mock blockchain data and real scanning logic.
 
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use async_trait::async_trait;
+
 use lightweight_wallet_libs::data_structures::{
-    address::{TariAddress, TariAddressFeatures},
     encrypted_data::EncryptedData,
     transaction_output::LightweightTransactionOutput,
-    types::{CompressedPublicKey, MicroMinotari, PrivateKey},
-    wallet_output::{LightweightOutputFeatures, LightweightOutputType, LightweightWalletOutput},
-    Network,
+    types::{CompressedCommitment, CompressedPublicKey, MicroMinotari, PrivateKey},
+    wallet_output::{LightweightOutputFeatures, LightweightOutputType, LightweightRangeProofType},
 };
-use lightweight_wallet_libs::errors::*;
+use lightweight_wallet_libs::errors::{LightweightWalletError, ValidationError};
 use lightweight_wallet_libs::extraction::ExtractionConfig;
-use lightweight_wallet_libs::key_management::*;
+use lightweight_wallet_libs::LightweightWalletResult;
+
 use lightweight_wallet_libs::scanning::*;
 use lightweight_wallet_libs::wallet::*;
 
@@ -130,69 +132,63 @@ fn create_test_output(
     spend_key: &PrivateKey,
 ) -> Result<LightweightTransactionOutput, LightweightWalletError> {
     use lightweight_wallet_libs::data_structures::{
-        covenant::Covenant, metadata_signature::MetadataSignature, payment_id::PaymentId,
-        script::TariScript, wallet_output::LightweightExecutionStack,
+        payment_id::PaymentId,
+        wallet_output::{LightweightCovenant, LightweightScript, LightweightSignature},
     };
 
     // Create a basic commitment (mock)
-    let commitment = vec![0x42; 32];
+    let commitment = CompressedCommitment::new([0x42; 32]);
 
     // Create sender offset public key from spend key
     let sender_offset_public_key = CompressedPublicKey::from_private_key(spend_key);
 
     // Create encrypted data for the value
     let encryption_key = view_key.clone();
-    let nonce = vec![0x01; 32];
     let micro_value = MicroMinotari::from(value);
     let mask = PrivateKey::new([0x03; 32]);
     let payment_id = PaymentId::Empty;
 
-    let encrypted_data = EncryptedData::encrypt_data(
-        &encryption_key,
-        &commitment,
-        &micro_value,
-        &mask,
-        &payment_id,
-    )
-    .map_err(|e| LightweightWalletError::ValidationError {
-        field: "encrypted_data".to_string(),
-        message: format!("Failed to encrypt data: {}", e),
-    })?;
+    let encrypted_data =
+        EncryptedData::encrypt_data(&encryption_key, &commitment, micro_value, &mask, payment_id)
+            .map_err(|e| {
+            LightweightWalletError::ValidationError(ValidationError::ValueValidationFailed(
+                format!("Failed to encrypt data: {e}"),
+            ))
+        })?;
 
     // Create features
     let features = LightweightOutputFeatures {
-        version: 0,
         output_type: LightweightOutputType::Payment,
         maturity: 0,
-        coinbase_extra: vec![],
-        range_proof_type: 0,
+        range_proof_type: LightweightRangeProofType::BulletProofPlus,
     };
 
     // Create script
-    let script = TariScript::default();
+    let script = LightweightScript {
+        bytes: vec![0x01, 0x02, 0x03],
+    };
 
     // Create metadata signature (mock)
-    let metadata_signature = MetadataSignature::new(
-        CompressedPublicKey::from_private_key(&PrivateKey::new([0x05; 32])),
-        vec![0x06; 64],
-    );
+    let metadata_signature = LightweightSignature {
+        bytes: vec![0x06; 64],
+    };
 
     // Create covenant
-    let covenant = Covenant::default();
+    let covenant = LightweightCovenant {
+        bytes: vec![0x07, 0x08, 0x09],
+    };
 
     Ok(LightweightTransactionOutput::new(
-        0,           // version
-        micro_value, // minimum_value_promise
+        0, // version
         features,
+        commitment,
+        None, // proof
         script,
-        LightweightExecutionStack::default(),
         sender_offset_public_key,
         metadata_signature,
-        0, // rangeproof_hash
         covenant,
         encrypted_data,
         micro_value, // minimum_value_promise
-        None,        // proof
     ))
 }
 
@@ -292,9 +288,10 @@ async fn test_scanning_with_progress() {
     }
 
     // Progress tracking
-    let mut progress_updates = Vec::new();
-    let progress_callback = |progress: ScanProgress| {
-        progress_updates.push(progress);
+    let progress_updates = Arc::new(Mutex::new(Vec::new()));
+    let progress_updates_clone = Arc::clone(&progress_updates);
+    let progress_callback = move |progress: ScanProgress| {
+        progress_updates_clone.lock().unwrap().push(progress);
     };
 
     let extraction_config = ExtractionConfig::with_private_key(view_key.clone());
@@ -317,12 +314,13 @@ async fn test_scanning_with_progress() {
     )
     .await
     .expect("Scan failed");
-    let scan_duration = start_time.elapsed();
+    let _scan_duration = start_time.elapsed();
 
     // Verify scan results
     assert_eq!(results.len(), 50); // 50 blocks
 
     // Verify progress updates
+    let progress_updates = progress_updates.lock().unwrap();
     assert!(progress_updates.len() >= 5); // At least 5 batches
 
     // Verify progress is increasing

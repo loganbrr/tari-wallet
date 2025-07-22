@@ -421,7 +421,7 @@ mod tests {
     fn test_compact_format_parsing() {
         let signature = "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
         let nonce = "fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321";
-        let compact = format!("{}:{}", signature, nonce);
+        let compact = format!("{signature}:{nonce}");
 
         let (parsed_sig, parsed_nonce) = compact.split_once(':').unwrap();
         assert_eq!(parsed_sig, signature);

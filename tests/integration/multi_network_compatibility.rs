@@ -4,13 +4,12 @@
 //! parameter validation across different Tari networks (mainnet, stagenet, etc.).
 
 use std::collections::HashMap;
-use std::time::Duration;
 
 use lightweight_wallet_libs::data_structures::{
     address::{TariAddress, TariAddressFeatures},
     Network,
 };
-use lightweight_wallet_libs::errors::*;
+
 use lightweight_wallet_libs::key_management::*;
 use lightweight_wallet_libs::wallet::*;
 
@@ -19,8 +18,11 @@ use lightweight_wallet_libs::wallet::*;
 struct NetworkConfig {
     name: String,
     network: Network,
+    #[allow(dead_code)]
     address_prefix: &'static str,
+    #[allow(dead_code)]
     default_port: u16,
+    #[allow(dead_code)]
     genesis_block_hash: Vec<u8>,
 }
 
@@ -209,7 +211,7 @@ async fn test_address_format_consistency() {
             assert!(hex_address.len() > 20); // Reasonable minimum length
 
             // Verify address features
-            match address_type.as_str() {
+            match address_type.as_ref() {
                 "dual_interactive" => {
                     assert!(address
                         .features()
@@ -299,7 +301,7 @@ async fn test_configuration_parameter_validation() {
         "",        // Empty should default to esmeralda
     ];
 
-    for network_name in valid_networks {
+    for network_name in &valid_networks {
         let mut wallet =
             Wallet::new_from_seed_phrase(&seed_phrase, None).expect("Failed to create wallet");
 
@@ -314,7 +316,7 @@ async fn test_configuration_parameter_validation() {
             ));
 
         // Verify network mapping
-        let expected_network = match network_name {
+        let expected_network = match *network_name {
             "mainnet" => Network::MainNet,
             "stagenet" => Network::StageNet,
             "esmeralda" => Network::Esmeralda,
@@ -338,7 +340,7 @@ async fn test_configuration_parameter_validation() {
         None,
     ];
 
-    for label in test_labels {
+    for label in &test_labels {
         wallet.set_label(label.clone());
         assert_eq!(wallet.label(), label.as_ref());
 
@@ -353,9 +355,9 @@ async fn test_configuration_parameter_validation() {
     // Test key index validation
     let key_indices = vec![0, 1, 100, 999999, u64::MAX];
 
-    for key_index in key_indices {
-        wallet.set_current_key_index(key_index);
-        assert_eq!(wallet.current_key_index(), key_index);
+    for key_index in &key_indices {
+        wallet.set_current_key_index(*key_index);
+        assert_eq!(wallet.current_key_index(), *key_index);
 
         // Wallet should function with any key index
         let address = wallet
@@ -381,7 +383,7 @@ async fn test_configuration_parameter_validation() {
         ),
     ];
 
-    for (key, value) in custom_properties {
+    for (key, value) in &custom_properties {
         wallet.set_property(key.to_string(), value.to_string());
         assert_eq!(wallet.get_property(key), Some(&value.to_string()));
 
@@ -451,11 +453,11 @@ async fn test_network_specific_address_validation() {
                 )
                 .expect("Failed to generate address with payment ID");
 
-            addresses.push((
-                "dual_payment",
-                TariAddressFeatures::create_interactive_only(),
-                addr_with_payment,
-            ));
+            // Address with payment ID should have the PAYMENT_ID flag added
+            let expected_features = TariAddressFeatures(
+                TariAddressFeatures::INTERACTIVE_ONLY | TariAddressFeatures::PAYMENT_ID,
+            );
+            addresses.push(("dual_payment", expected_features, addr_with_payment));
         }
 
         network_address_sets.insert(config.name.clone(), (config, addresses));
@@ -483,7 +485,7 @@ async fn test_network_specific_address_validation() {
             );
 
             // Verify address type consistency
-            match addr_type.as_str() {
+            match addr_type.as_ref() {
                 "dual" | "dual_payment" => {
                     assert!(
                         matches!(address, TariAddress::Dual(_)),
@@ -506,7 +508,7 @@ async fn test_network_specific_address_validation() {
             }
 
             // Verify payment ID handling
-            if addr_type == "dual_payment" {
+            if addr_type == &"dual_payment" {
                 assert!(
                     address.features().contains(TariAddressFeatures::PAYMENT_ID),
                     "Payment ID address should have PAYMENT_ID feature"
@@ -732,8 +734,8 @@ async fn test_configuration_edge_cases() {
     // Test extreme key indices
     let extreme_indices = vec![0, 1, u32::MAX as u64, u64::MAX];
 
-    for key_index in extreme_indices {
-        wallet.set_current_key_index(key_index);
+    for key_index in &extreme_indices {
+        wallet.set_current_key_index(*key_index);
 
         // Should be able to generate addresses with extreme indices
         let address = wallet

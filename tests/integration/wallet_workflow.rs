@@ -10,7 +10,6 @@ use lightweight_wallet_libs::wallet::*;
 use zeroize::Zeroize;
 
 #[cfg(feature = "storage")]
-use lightweight_wallet_libs::storage::*;
 
 /// Test complete wallet creation and key derivation workflow
 #[tokio::test]
@@ -179,8 +178,7 @@ async fn test_wallet_creation_entropy_sources() {
         for j in i + 1..keys.len() {
             assert_ne!(
                 keys[i], keys[j],
-                "Wallets {} and {} have the same master key",
-                i, j
+                "Wallets {i} and {j} have the same master key"
             );
         }
     }
@@ -311,11 +309,10 @@ async fn test_wallet_key_derivation_consistency() {
 /// Test wallet persistence and recovery workflow
 #[tokio::test]
 async fn test_wallet_storage_workflow() {
-    use std::path::PathBuf;
     use tempfile::tempdir;
 
     let temp_dir = tempdir().expect("Failed to create temp directory");
-    let db_path = temp_dir.path().join("test_wallet.db");
+    let _db_path = temp_dir.path().join("test_wallet.db");
 
     // Create wallet with specific configuration
     let seed_phrase = generate_seed_phrase().expect("Failed to generate seed phrase");
