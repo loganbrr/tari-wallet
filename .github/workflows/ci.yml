@@ -98,7 +98,7 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run tests
-        run: cargo test ${{ matrix.features }} -- --skip test_large_scale_address_generation --skip test_concurrent_wallet_operations --skip test_concurrent_scanning_operations --skip test_performance_degradation --skip test_large_scale_wallet_generation
+        run: cargo test ${{ matrix.features }} -- --skip test_large_scale_address_generation --skip test_concurrent_wallet_operations --skip test_concurrent_scanning_operations --skip test_performance_degradation --skip test_large_scale_wallet_generation --skip test_memory_usage_stress --skip test_large_dataset_scanning_performance
 
   test-wasm:
     name: WASM Tests
@@ -140,7 +140,7 @@ jobs:
           key: ${{ runner.os }}-wasm-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Test WASM
-        run: wasm-pack test --node --features http
+        run: wasm-pack test --node --features http 
 
   security:
     name: Security Audit

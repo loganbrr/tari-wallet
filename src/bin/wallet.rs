@@ -217,6 +217,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[cfg(target_arch = "wasm32")]
+fn main() {
+    eprintln!("This binary is not for wasm32 targets.");
+    std::process::exit(1);
+}
+
 // Non-storage version for when storage feature is not enabled
 #[cfg(not(feature = "storage"))]
 fn main() {

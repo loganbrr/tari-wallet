@@ -2887,3 +2887,9 @@ fn main() {
     eprintln!("Run with: cargo run --bin scanner --features grpc");
     std::process::exit(1);
 }
+
+#[cfg(target_arch = "wasm32")]
+fn main() {
+    eprintln!("This binary is not for wasm32 targets.");
+    std::process::exit(1);
+}

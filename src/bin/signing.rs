@@ -428,3 +428,9 @@ mod tests {
         assert_eq!(parsed_nonce, nonce);
     }
 }
+
+#[cfg(target_arch = "wasm32")]
+fn main() {
+    eprintln!("This binary is not for wasm32 targets.");
+    std::process::exit(1);
+}
