@@ -265,7 +265,7 @@ async fn test_binaries_basic_execution() {
 
         let output = cmd
             .output()
-            .expect(&format!("Failed to execute {binary} with basic args"));
+            .unwrap_or_else(|_| panic!("Failed to execute {binary} with basic args"));
 
         // We mainly care that the binary doesn't panic or crash
         // Exit code can be 0 (success) or 1 (expected failure), but not -1 (crash)

@@ -253,7 +253,7 @@ mod connection_tests {
         // Create a very long path
         let mut long_path = temp_dir.path().to_path_buf();
         for i in 0..10 {
-            long_path = long_path.join(&format!("very_long_directory_name_{i}"));
+            long_path = long_path.join(format!("very_long_directory_name_{i}"));
         }
 
         // Create the directory structure

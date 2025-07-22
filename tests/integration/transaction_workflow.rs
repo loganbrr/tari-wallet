@@ -592,7 +592,7 @@ async fn test_fee_calculation_workflow() {
             .add_output(recipient_address.clone(), 1000000 - fee_amount - 1000) // Adjust for fee
             .with_fee(fee_amount)
             .build_and_sign()
-            .expect(&format!("Failed to build {priority} priority transaction"));
+            .unwrap_or_else(|_| panic!("Failed to build {priority} priority transaction"));
 
         assert_eq!(transaction.fee.as_u64(), fee_amount);
 
@@ -674,7 +674,7 @@ async fn test_transaction_batching_workflow() {
             .add_output(recipient_address, 800000)
             .with_fee(200000)
             .build_and_sign()
-            .expect(&format!("Failed to build transaction for {recipient_name}"));
+            .unwrap_or_else(|_| panic!("Failed to build transaction for {recipient_name}"));
 
         transactions.push((transaction, recipient_name));
     }
@@ -687,9 +687,7 @@ async fn test_transaction_batching_workflow() {
         let tx_id = tx_pool
             .broadcast_transaction(transaction)
             .await
-            .expect(&format!(
-                "Failed to broadcast transaction to {recipient_name}"
-            ));
+            .unwrap_or_else(|_| panic!("Failed to broadcast transaction to {recipient_name}"));
         tx_ids.push((tx_id, recipient_name));
     }
 

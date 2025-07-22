@@ -207,7 +207,7 @@ async fn test_address_format_consistency() {
             assert!(hex_address.len() > 20); // Reasonable minimum length
 
             // Verify address features
-            match address_type {
+            match *address_type {
                 "dual_interactive" => {
                     assert!(address
                         .features()
