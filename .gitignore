@@ -5,5 +5,9 @@ target
 /REFERENCE_*
 *.db
 *.db-journal
-tarpaulin-report.html
+
+# Coverage reports
 coverage/
+tarpaulin-report.html
+cobertura.xml
+lcov.info
