@@ -304,7 +304,7 @@ async fn test_configuration_parameter_validation() {
         // All valid networks should allow address generation
         let address = wallet
             .get_dual_address(TariAddressFeatures::create_interactive_only(), None)
-            .expect(&format!("Failed to generate address for network: {network_name}"));
+            .unwrap_or_else(|_| panic!("Failed to generate address for network: {network_name}"));
 
         // Verify network mapping
         let expected_network = match *network_name {

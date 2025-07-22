@@ -249,8 +249,7 @@ async fn test_large_scale_wallet_generation() {
 
     println!("✓ Large-scale wallet generation test passed");
     println!(
-        "  Generated {} wallets in {:?}",
-        WALLET_COUNT, generation_duration
+        "  Generated {WALLET_COUNT} wallets in {generation_duration:?}"
     );
     println!(
         "  Throughput: {:.2} wallets/sec",
@@ -315,12 +314,10 @@ async fn test_large_scale_address_generation() {
 
     println!("✓ Large-scale address generation test passed");
     println!(
-        "  Generated {} addresses in {:?}",
-        ADDRESS_COUNT, generation_duration
+        "  Generated {ADDRESS_COUNT} addresses in {generation_duration:?}"
     );
     println!(
-        "  Distribution: {} dual, {} single",
-        dual_count, single_count
+        "  Distribution: {dual_count} dual, {single_count} single"
     );
     println!(
         "  Throughput: {:.2} addresses/sec",
@@ -352,8 +349,7 @@ async fn test_large_dataset_scanning_performance() {
     memory_monitor.update();
 
     println!(
-        "Dataset generation: {} blocks with {} outputs in {:?}",
-        BLOCK_COUNT, TOTAL_OUTPUTS, dataset_duration
+        "Dataset generation: {BLOCK_COUNT} blocks with {TOTAL_OUTPUTS} outputs in {dataset_duration:?}"
     );
 
     // Test scanning performance
