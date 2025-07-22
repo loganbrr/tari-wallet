@@ -50,7 +50,7 @@ pub type WalletSignature =
 /// # Example
 /// ```
 /// use rand::rngs::OsRng;
-/// use tari_crypto::{keys::SecretKey, ristretto::RistrettoSecretKey};
+/// use lightweight_wallet_libs::crypto::{RistrettoSecretKey, SecretKey};
 /// use lightweight_wallet_libs::crypto::signing::sign_message;
 ///
 /// let secret_key = RistrettoSecretKey::random(&mut OsRng);
@@ -83,7 +83,7 @@ pub fn sign_message(
 /// # Example
 /// ```
 /// use rand::rngs::OsRng;
-/// use tari_crypto::{keys::SecretKey, ristretto::RistrettoSecretKey};
+/// use lightweight_wallet_libs::crypto::{RistrettoSecretKey, SecretKey};
 /// use lightweight_wallet_libs::crypto::signing::sign_message_with_hex_output;
 ///
 /// let secret_key = RistrettoSecretKey::random(&mut OsRng);
@@ -116,7 +116,7 @@ pub fn sign_message_with_hex_output(
 /// # Example
 /// ```
 /// use rand::rngs::OsRng;
-/// use tari_crypto::{keys::{PublicKey, SecretKey}, ristretto::{RistrettoPublicKey, RistrettoSecretKey}};
+/// use lightweight_wallet_libs::crypto::{RistrettoPublicKey, RistrettoSecretKey, PublicKey, SecretKey};
 /// use lightweight_wallet_libs::crypto::signing::{sign_message, verify_message};
 ///
 /// let secret_key = RistrettoSecretKey::random(&mut OsRng);
@@ -152,7 +152,7 @@ pub fn verify_message(
 /// # Example
 /// ```
 /// use rand::rngs::OsRng;
-/// use tari_crypto::{keys::{PublicKey, SecretKey}, ristretto::{RistrettoPublicKey, RistrettoSecretKey}};
+/// use lightweight_wallet_libs::crypto::{RistrettoPublicKey, RistrettoSecretKey, PublicKey, SecretKey};
 /// use lightweight_wallet_libs::crypto::signing::{sign_message_with_hex_output, verify_message_from_hex};
 ///
 /// let secret_key = RistrettoSecretKey::random(&mut OsRng);
