@@ -259,10 +259,7 @@ async fn test_basic_scanning_workflow() {
 
     println!("✓ Basic scanning workflow test passed");
     println!("  Scanned {} blocks in {:?}", results.len(), scan_duration);
-    println!(
-        "  Found {} wallet outputs with total value {}",
-        total_outputs, total_value
-    );
+    println!("  Found {total_outputs} wallet outputs with total value {total_value}");
 }
 
 /// Test scanning with progress callback
@@ -451,7 +448,7 @@ async fn test_balance_calculation_workflow() {
     let mut scanner = TestBlockchainScanner::new();
 
     // Add blocks with varying output values
-    let output_values = vec![
+    let output_values = [
         1000000,  // 1 Tari
         5000000,  // 5 Tari
         2500000,  // 2.5 Tari
@@ -528,13 +525,9 @@ async fn test_balance_calculation_workflow() {
 
     println!("✓ Balance calculation workflow test passed");
     println!(
-        "  Total balance: {} µT ({} outputs)",
-        total_balance, output_count
+        "  Total balance: {total_balance} µT ({output_count} outputs)"
     );
-    println!(
-        "  Mature: {} µT, Immature: {} µT",
-        mature_balance, immature_balance
-    );
+    println!("  Mature: {mature_balance} µT, Immature: {immature_balance} µT");
 }
 
 /// Test error handling and edge cases in scanning
@@ -658,8 +651,7 @@ async fn test_concurrent_scanning() {
     for h1 in &heights1 {
         assert!(
             !heights2.contains(h1),
-            "Height {} found in both result sets",
-            h1
+            "Height {h1} found in both result sets"
         );
     }
 
@@ -674,7 +666,7 @@ async fn test_concurrent_scanning() {
         results2.len(),
         total_outputs2
     );
-    println!("  Total duration: {:?}", total_duration);
+    println!("  Total duration: {total_duration:?}");
 }
 
 /// Helper function to derive test keys from wallet

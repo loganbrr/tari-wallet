@@ -435,10 +435,10 @@ async fn test_transaction_signing_workflow() {
     assert_ne!(signature.nonce_hex, signature2.nonce_hex); // Random nonces
 
     println!("✓ Transaction signing workflow test passed");
-    println!("  Signature valid: {}", is_valid);
+    println!("  Signature valid: {is_valid}");
     println!(
         "  Public key consistent: {}",
-        signature.public_key == signature2.public_key
+        signature.public_key == signature2.public_key,
     );
 }
 

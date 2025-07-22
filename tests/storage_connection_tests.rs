@@ -127,7 +127,7 @@ mod connection_tests {
                 storage.initialize().await.unwrap();
 
                 // Create a unique wallet
-                let wallet_name = format!("wallet_{}", i);
+                let wallet_name = format!("wallet_{i}");
                 let view_key = PrivateKey::new([(i as u8 + 1); 32]);
                 let spend_key = PrivateKey::new([(i as u8 + 2); 32]);
                 let wallet =
