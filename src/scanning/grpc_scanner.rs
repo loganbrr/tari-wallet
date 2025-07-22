@@ -10,9 +10,7 @@
 //!
 //! ```rust,no_run
 //! #[cfg(feature = "grpc")]
-//! use lightweight_wallet_libs::scanning::{BlockchainScanner, ScanConfig};
-//! #[cfg(feature = "grpc")]
-//! use lightweight_wallet_libs::scanning::grpc_scanner::GrpcBlockchainScanner;
+//! use lightweight_wallet_libs::scanning::{BlockchainScanner, ScanConfig, GrpcBlockchainScanner};
 //! #[cfg(feature = "grpc")]
 //! use lightweight_wallet_libs::wallet::Wallet;
 //!
