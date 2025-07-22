@@ -654,7 +654,10 @@ mod tests {
         assert_eq!(error.to_string(), "Invalid output value: negative");
 
         let error = DataStructureError::data_too_large(100, 200);
-        assert_eq!(error.to_string(), "Data too large: expected max 100, got 200");
+        assert_eq!(
+            error.to_string(),
+            "Data too large: expected max 100, got 200"
+        );
 
         let error = DataStructureError::data_too_small(50, 10);
         assert_eq!(error.to_string(), "Data too small: expected min 50, got 10");
@@ -684,22 +687,40 @@ mod tests {
     #[test]
     fn test_validation_error_convenience_constructors() {
         let error = ValidationError::range_proof_validation_failed("invalid proof");
-        assert_eq!(error.to_string(), "Range proof validation failed: invalid proof");
+        assert_eq!(
+            error.to_string(),
+            "Range proof validation failed: invalid proof"
+        );
 
         let error = ValidationError::signature_validation_failed("bad signature");
-        assert_eq!(error.to_string(), "Signature validation failed: bad signature");
+        assert_eq!(
+            error.to_string(),
+            "Signature validation failed: bad signature"
+        );
 
         let error = ValidationError::metadata_signature_validation_failed("meta failed");
-        assert_eq!(error.to_string(), "Metadata signature validation failed: meta failed");
+        assert_eq!(
+            error.to_string(),
+            "Metadata signature validation failed: meta failed"
+        );
 
         let error = ValidationError::script_signature_validation_failed("script failed");
-        assert_eq!(error.to_string(), "Script signature validation failed: script failed");
+        assert_eq!(
+            error.to_string(),
+            "Script signature validation failed: script failed"
+        );
 
         let error = ValidationError::commitment_validation_failed("commitment failed");
-        assert_eq!(error.to_string(), "Commitment validation failed: commitment failed");
+        assert_eq!(
+            error.to_string(),
+            "Commitment validation failed: commitment failed"
+        );
 
         let error = ValidationError::minimum_value_promise_validation_failed("mvp failed");
-        assert_eq!(error.to_string(), "Minimum value promise validation failed: mvp failed");
+        assert_eq!(
+            error.to_string(),
+            "Minimum value promise validation failed: mvp failed"
+        );
     }
 
     #[test]
@@ -711,13 +732,19 @@ mod tests {
         assert_eq!(error.to_string(), "Key derivation failed: path invalid");
 
         let error = KeyManagementError::stealth_address_recovery_failed("recovery error");
-        assert_eq!(error.to_string(), "Stealth address recovery failed: recovery error");
+        assert_eq!(
+            error.to_string(),
+            "Stealth address recovery failed: recovery error"
+        );
     }
 
     #[test]
     fn test_seed_phrase_error_constructors() {
         let error = KeyManagementError::invalid_seed_phrase_format("bad format", "use 12 words");
-        assert_eq!(error.to_string(), "Invalid seed phrase format: bad format. Suggestion: use 12 words");
+        assert_eq!(
+            error.to_string(),
+            "Invalid seed phrase format: bad format. Suggestion: use 12 words"
+        );
 
         let error = KeyManagementError::invalid_word_count(12, 10);
         assert_eq!(error.to_string(), "Invalid word count: expected 12 words, got 10 words. Please check your seed phrase has exactly 12 words.");
@@ -729,10 +756,16 @@ mod tests {
         assert_eq!(error.to_string(), "Invalid seed phrase checksum. The seed phrase appears to be corrupted or mistyped. Please verify all words are correct.");
 
         let error = KeyManagementError::empty_seed_phrase();
-        assert_eq!(error.to_string(), "Empty seed phrase provided. Please provide a valid seed phrase.");
+        assert_eq!(
+            error.to_string(),
+            "Empty seed phrase provided. Please provide a valid seed phrase."
+        );
 
         let error = KeyManagementError::seed_validation_failed("checksum", "verify words");
-        assert_eq!(error.to_string(), "Seed phrase validation failed: checksum. Suggestion: verify words");
+        assert_eq!(
+            error.to_string(),
+            "Seed phrase validation failed: checksum. Suggestion: verify words"
+        );
 
         let error = KeyManagementError::seed_encoding_error("utf8 error");
         assert_eq!(error.to_string(), "Seed phrase encoding error: utf8 error. The seed phrase could not be converted to the expected format.");
@@ -747,7 +780,10 @@ mod tests {
         assert_eq!(error.to_string(), "Master key derivation failed: bad seed. Check that the seed phrase and passphrase are correct.");
 
         let error = KeyManagementError::branch_key_derivation_failed("spend", 123, "overflow");
-        assert_eq!(error.to_string(), "Branch key derivation failed for branch 'spend' at index 123: overflow");
+        assert_eq!(
+            error.to_string(),
+            "Branch key derivation failed for branch 'spend' at index 123: overflow"
+        );
 
         let error = KeyManagementError::view_key_derivation_failed("crypto error");
         assert_eq!(error.to_string(), "View key derivation failed: crypto error. This may indicate an issue with the master key or derivation parameters.");
@@ -756,25 +792,43 @@ mod tests {
         assert_eq!(error.to_string(), "Spend key derivation failed: invalid params. This may indicate an issue with the master key or derivation parameters.");
 
         let error = KeyManagementError::invalid_derivation_index("view", 9999999);
-        assert_eq!(error.to_string(), "Invalid derivation index 9999999 for branch 'view'. Index must be within valid range.");
+        assert_eq!(
+            error.to_string(),
+            "Invalid derivation index 9999999 for branch 'view'. Index must be within valid range."
+        );
 
         let error = KeyManagementError::derivation_path_too_deep(10, 5);
-        assert_eq!(error.to_string(), "Derivation path too deep: 10 levels. Maximum supported depth is 5.");
+        assert_eq!(
+            error.to_string(),
+            "Derivation path too deep: 10 levels. Maximum supported depth is 5."
+        );
 
         let error = KeyManagementError::hierarchical_derivation_failed(3, "invalid key");
-        assert_eq!(error.to_string(), "Hierarchical derivation failed at level 3: invalid key");
+        assert_eq!(
+            error.to_string(),
+            "Hierarchical derivation failed at level 3: invalid key"
+        );
     }
 
     #[test]
     fn test_cipher_seed_error_constructors() {
         let error = KeyManagementError::unsupported_cipher_seed_version(2, vec![0, 1]);
-        assert_eq!(error.to_string(), "CipherSeed version 2 is not supported. Supported versions: [0, 1]");
+        assert_eq!(
+            error.to_string(),
+            "CipherSeed version 2 is not supported. Supported versions: [0, 1]"
+        );
 
         let error = KeyManagementError::cipher_seed_encryption_failed("aes error");
-        assert_eq!(error.to_string(), "CipherSeed encryption failed: aes error. Please check the passphrase and try again.");
+        assert_eq!(
+            error.to_string(),
+            "CipherSeed encryption failed: aes error. Please check the passphrase and try again."
+        );
 
         let error = KeyManagementError::cipher_seed_decryption_failed("wrong key");
-        assert_eq!(error.to_string(), "CipherSeed decryption failed: wrong key. Please verify the passphrase is correct.");
+        assert_eq!(
+            error.to_string(),
+            "CipherSeed decryption failed: wrong key. Please verify the passphrase is correct."
+        );
 
         let error = KeyManagementError::invalid_cipher_seed_format("bad header");
         assert_eq!(error.to_string(), "Invalid CipherSeed format: bad header. The data does not match the expected CipherSeed structure.");
@@ -783,10 +837,16 @@ mod tests {
         assert_eq!(error.to_string(), "CipherSeed MAC verification failed. The seed data may be corrupted or the wrong passphrase was used.");
 
         let error = KeyManagementError::invalid_cipher_seed_birthday(65535);
-        assert_eq!(error.to_string(), "Invalid CipherSeed birthday 65535. Birthday must be within valid range.");
+        assert_eq!(
+            error.to_string(),
+            "Invalid CipherSeed birthday 65535. Birthday must be within valid range."
+        );
 
         let error = KeyManagementError::cipher_seed_entropy_error("not random");
-        assert_eq!(error.to_string(), "CipherSeed entropy error: not random. The entropy data is invalid or corrupted.");
+        assert_eq!(
+            error.to_string(),
+            "CipherSeed entropy error: not random. The entropy data is invalid or corrupted."
+        );
     }
 
     #[test]
@@ -795,7 +855,10 @@ mod tests {
         assert_eq!(error.to_string(), "Missing required passphrase. This seed phrase was created with a passphrase and requires one for decryption.");
 
         let error = KeyManagementError::invalid_passphrase();
-        assert_eq!(error.to_string(), "Invalid passphrase provided. Please check that the passphrase is correct.");
+        assert_eq!(
+            error.to_string(),
+            "Invalid passphrase provided. Please check that the passphrase is correct."
+        );
 
         let error = KeyManagementError::passphrase_validation_failed("too short");
         assert_eq!(error.to_string(), "Passphrase validation failed: too short");
@@ -804,31 +867,54 @@ mod tests {
     #[test]
     fn test_key_validation_error_constructors() {
         let error = KeyManagementError::key_validation_failed("private", "invalid curve point");
-        assert_eq!(error.to_string(), "Key validation failed: private key failed validation. Reason: invalid curve point");
+        assert_eq!(
+            error.to_string(),
+            "Key validation failed: private key failed validation. Reason: invalid curve point"
+        );
 
         let error = KeyManagementError::key_format_error("public", "hex", "base64");
-        assert_eq!(error.to_string(), "Key format error: public key has invalid format. Expected: hex, got: base64");
+        assert_eq!(
+            error.to_string(),
+            "Key format error: public key has invalid format. Expected: hex, got: base64"
+        );
 
         let error = KeyManagementError::key_length_error("shared", 32, 16);
-        assert_eq!(error.to_string(), "Key length error: shared key has invalid length. Expected: 32 bytes, got: 16 bytes");
+        assert_eq!(
+            error.to_string(),
+            "Key length error: shared key has invalid length. Expected: 32 bytes, got: 16 bytes"
+        );
     }
 
     #[test]
     fn test_domain_separation_error_constructors() {
         let error = KeyManagementError::domain_separation_error("hash", "wallet", "invalid label");
-        assert_eq!(error.to_string(), "Domain separation error: hash failed with domain 'wallet'. invalid label");
+        assert_eq!(
+            error.to_string(),
+            "Domain separation error: hash failed with domain 'wallet'. invalid label"
+        );
 
-        let error = KeyManagementError::invalid_domain_label("sign", "wrong", vec!["key".to_string(), "msg".to_string()]);
+        let error = KeyManagementError::invalid_domain_label(
+            "sign",
+            "wrong",
+            vec!["key".to_string(), "msg".to_string()],
+        );
         assert_eq!(error.to_string(), "Invalid domain label 'wrong' for operation 'sign'. Expected one of: [\"key\", \"msg\"]");
     }
 
     #[test]
     fn test_recovery_error_constructors() {
-        let error = KeyManagementError::wallet_recovery_failed("scanning", "no utxos", "check blocks");
-        assert_eq!(error.to_string(), "Wallet recovery failed: scanning. no utxos. Suggestion: check blocks");
+        let error =
+            KeyManagementError::wallet_recovery_failed("scanning", "no utxos", "check blocks");
+        assert_eq!(
+            error.to_string(),
+            "Wallet recovery failed: scanning. no utxos. Suggestion: check blocks"
+        );
 
         let error = KeyManagementError::partial_recovery_completed(5, 2, "some errors");
-        assert_eq!(error.to_string(), "Partial recovery completed: 5 items recovered, 2 items failed. some errors");
+        assert_eq!(
+            error.to_string(),
+            "Partial recovery completed: 5 items recovered, 2 items failed. some errors"
+        );
     }
 
     #[test]
@@ -862,7 +948,9 @@ mod tests {
         // Test hex error conversion
         let hex_error = hex::FromHexError::InvalidHexCharacter { c: 'z', index: 0 };
         let serialization_error = SerializationError::from(hex_error);
-        assert!(serialization_error.to_string().contains("Hex decoding error"));
+        assert!(serialization_error
+            .to_string()
+            .contains("Hex decoding error"));
 
         // Test io error conversion
         let io_error = std::io::Error::new(std::io::ErrorKind::WriteZero, "test");
@@ -875,7 +963,7 @@ mod tests {
         #[cfg(target_arch = "wasm32")]
         {
             use wasm_bindgen::JsValue;
-            
+
             let js_error = JsValue::from_str("JavaScript error");
             let wallet_error = LightweightWalletError::from(js_error);
             assert!(wallet_error.to_string().contains("WASM error"));

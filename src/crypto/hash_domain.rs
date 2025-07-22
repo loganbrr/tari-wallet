@@ -40,7 +40,10 @@ mod tests {
 
     #[test]
     fn test_key_manager_domain_name() {
-        assert_eq!(KeyManagerDomain::domain(), "com.tari.base_layer.key_manager");
+        assert_eq!(
+            KeyManagerDomain::domain(),
+            "com.tari.base_layer.key_manager"
+        );
     }
 
     #[test]
@@ -63,12 +66,18 @@ mod tests {
         let _key_domain = KeyManagerDomain::domain();
         let _wallet_version = WalletMessageSigningDomain::version();
         let _wallet_domain = WalletMessageSigningDomain::domain();
-        
+
         // Verify domain names are different
-        assert_ne!(KeyManagerDomain::domain(), WalletMessageSigningDomain::domain());
-        
+        assert_ne!(
+            KeyManagerDomain::domain(),
+            WalletMessageSigningDomain::domain()
+        );
+
         // Verify versions are consistent
-        assert_eq!(KeyManagerDomain::version(), WalletMessageSigningDomain::version());
+        assert_eq!(
+            KeyManagerDomain::version(),
+            WalletMessageSigningDomain::version()
+        );
     }
 
     #[test]
@@ -76,7 +85,7 @@ mod tests {
         // Test that domain strings are 'static and valid
         let key_domain = KeyManagerDomain::domain();
         let wallet_domain = WalletMessageSigningDomain::domain();
-        
+
         assert!(!key_domain.is_empty());
         assert!(!wallet_domain.is_empty());
         assert!(key_domain.contains("com.tari"));
