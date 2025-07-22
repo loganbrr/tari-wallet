@@ -9,12 +9,12 @@
 //! to a specific wallet. To use wallet functionality:
 //!
 //! ```rust,no_run
-//! #[cfg(feature = "grpc")]
+//! # #[cfg(feature = "grpc")]
 //! use lightweight_wallet_libs::scanning::{BlockchainScanner, ScanConfig, GrpcBlockchainScanner};
-//! #[cfg(feature = "grpc")]
+//! # #[cfg(feature = "grpc")]
 //! use lightweight_wallet_libs::wallet::Wallet;
 //!
-//! #[cfg(feature = "grpc")]
+//! # #[cfg(feature = "grpc")]
 //! async fn scan_with_wallet() -> Result<(), Box<dyn std::error::Error>> {
 //!     let mut scanner = GrpcBlockchainScanner::new("http://127.0.0.1:18142".to_string()).await?;
 //!     let wallet = Wallet::generate_new_with_seed_phrase(None)?;
