@@ -15,6 +15,8 @@ use zeroize::Zeroize;
 #[tokio::test]
 async fn test_complete_wallet_creation_workflow() {
     // Phase 1: Wallet Creation from Seed Phrase
+
+    use lightweight_wallet_libs::data_structures::TariAddress;
     let seed_phrase = generate_seed_phrase().expect("Failed to generate seed phrase");
 
     // Validate seed phrase format and structure
