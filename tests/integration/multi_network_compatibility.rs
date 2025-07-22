@@ -657,7 +657,9 @@ async fn test_configuration_edge_cases() {
         // Should be able to generate addresses after each change
         let address = wallet
             .get_dual_address(TariAddressFeatures::create_interactive_only(), None)
-            .unwrap_or_else(|_| panic!("Failed to generate address after rapid change to {network}"));
+            .unwrap_or_else(|_| {
+                panic!("Failed to generate address after rapid change to {network}")
+            });
 
         assert!(!address.to_hex().is_empty());
     }

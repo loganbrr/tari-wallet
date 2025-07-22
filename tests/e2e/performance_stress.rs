@@ -248,9 +248,7 @@ async fn test_large_scale_wallet_generation() {
     );
 
     println!("✓ Large-scale wallet generation test passed");
-    println!(
-        "  Generated {WALLET_COUNT} wallets in {generation_duration:?}"
-    );
+    println!("  Generated {WALLET_COUNT} wallets in {generation_duration:?}");
     println!(
         "  Throughput: {:.2} wallets/sec",
         metrics.throughput_per_second
@@ -313,12 +311,8 @@ async fn test_large_scale_address_generation() {
     );
 
     println!("✓ Large-scale address generation test passed");
-    println!(
-        "  Generated {ADDRESS_COUNT} addresses in {generation_duration:?}"
-    );
-    println!(
-        "  Distribution: {dual_count} dual, {single_count} single"
-    );
+    println!("  Generated {ADDRESS_COUNT} addresses in {generation_duration:?}");
+    println!("  Distribution: {dual_count} dual, {single_count} single");
     println!(
         "  Throughput: {:.2} addresses/sec",
         metrics.throughput_per_second
@@ -381,9 +375,7 @@ async fn test_large_dataset_scanning_performance() {
     );
 
     println!("✓ Large dataset scanning test passed");
-    println!(
-        "  Scanned {TOTAL_OUTPUTS} outputs in {BLOCK_COUNT} blocks in {scan_duration:?}"
-    );
+    println!("  Scanned {TOTAL_OUTPUTS} outputs in {BLOCK_COUNT} blocks in {scan_duration:?}");
     println!("  Found {total_wallet_outputs} wallet outputs");
     println!(
         "  Throughput: {:.2} outputs/sec",
@@ -596,12 +588,8 @@ async fn test_memory_usage_stress() {
         OBJECTS_PER_ITERATION * 2,
         total_objects
     );
-    println!(
-        "  Average memory per iteration: {average_memory_per_iteration:.2} MB",
-    );
-    println!(
-        "  Peak memory per iteration: {max_memory_per_iteration:.2} MB",
-    );
+    println!("  Average memory per iteration: {average_memory_per_iteration:.2} MB",);
+    println!("  Peak memory per iteration: {max_memory_per_iteration:.2} MB",);
     println!(
         "  Total memory delta: {:.2} MB",
         memory_monitor.peak_delta_mb()

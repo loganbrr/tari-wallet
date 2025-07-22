@@ -524,9 +524,7 @@ async fn test_balance_calculation_workflow() {
     }
 
     println!("✓ Balance calculation workflow test passed");
-    println!(
-        "  Total balance: {total_balance} µT ({output_count} outputs)"
-    );
+    println!("  Total balance: {total_balance} µT ({output_count} outputs)");
     println!("  Mature: {mature_balance} µT, Immature: {immature_balance} µT");
 }
 

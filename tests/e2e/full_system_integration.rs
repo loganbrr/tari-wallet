@@ -250,7 +250,10 @@ async fn test_full_wallet_lifecycle() {
     assert_eq!(dual_address.to_hex(), back_to_mainnet_dual.to_hex());
 
     let phase4_duration = phase4_start.elapsed();
-    println!("  ✓ Tested {} network migrations in {phase4_duration:?}", network_addresses.len());
+    println!(
+        "  ✓ Tested {} network migrations in {phase4_duration:?}",
+        network_addresses.len()
+    );
     println!("  ✓ Verified address uniqueness across networks");
     println!("  ✓ Confirmed deterministic address generation");
 
