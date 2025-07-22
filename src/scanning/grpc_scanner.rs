@@ -9,6 +9,7 @@
 //! to a specific wallet. To use wallet functionality:
 //!
 //! ```rust,no_run
+//! #[cfg(feature = "grpc")]
 //! use lightweight_wallet_libs::scanning::{GrpcBlockchainScanner, ScanConfig, BlockchainScanner};
 //! use lightweight_wallet_libs::wallet::Wallet;
 //!
