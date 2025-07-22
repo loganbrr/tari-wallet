@@ -136,9 +136,7 @@ async fn test_full_wallet_lifecycle() {
     assert!(total_value_found > 0);
 
     let phase2_duration = phase2_start.elapsed();
-    println!(
-        "  ✓ Scanned {total_blocks_scanned} blocks in {phase2_duration:?}"
-    );
+    println!("  ✓ Scanned {total_blocks_scanned} blocks in {phase2_duration:?}");
     println!("  ✓ Found {total_outputs_found} wallet outputs");
     println!("  ✓ Total value discovered: {total_value_found} µT");
 
@@ -212,7 +210,9 @@ async fn test_full_wallet_lifecycle() {
 
         let migrated_single = wallet
             .get_single_address(TariAddressFeatures::create_one_sided_only())
-            .expect(&format!("Failed to generate single address for {network_name}"));
+            .expect(&format!(
+                "Failed to generate single address for {network_name}"
+            ));
 
         // Verify network correctness
         assert_eq!(migrated_dual.network(), expected_network);
@@ -252,9 +252,7 @@ async fn test_full_wallet_lifecycle() {
     assert_eq!(dual_address.to_hex(), back_to_mainnet_dual.to_hex());
 
     let phase4_duration = phase4_start.elapsed();
-    println!(
-        "  ✓ Tested {network_addresses_len} network migrations in {phase4_duration:?}"
-    );
+    println!("  ✓ Tested {network_addresses_len} network migrations in {phase4_duration:?}");
     println!("  ✓ Verified address uniqueness across networks");
     println!("  ✓ Confirmed deterministic address generation");
 
@@ -325,9 +323,7 @@ async fn test_full_wallet_lifecycle() {
     // Final Summary
     let total_duration = start_time.elapsed();
     println!("\n=== Integration Test Summary ===");
-    println!(
-        "✓ Full wallet lifecycle completed successfully in {total_duration:?}"
-    );
+    println!("✓ Full wallet lifecycle completed successfully in {total_duration:?}");
     println!("✓ All phases passed:");
     println!("  - Phase 1 (Setup): {phase1_duration:?}");
     println!("  - Phase 2 (Scanning): {phase2_duration:?}");

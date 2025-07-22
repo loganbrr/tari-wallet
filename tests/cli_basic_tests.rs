@@ -205,9 +205,7 @@ async fn test_wallet_generate_basic() {
     } else {
         // If wallet generate fails, it should be due to missing storage feature or setup
         let stderr = String::from_utf8_lossy(&output.stderr);
-        println!(
-            "Wallet generate failed (expected if storage not enabled): {stderr}"
-        );
+        println!("Wallet generate failed (expected if storage not enabled): {stderr}");
     }
 }
 

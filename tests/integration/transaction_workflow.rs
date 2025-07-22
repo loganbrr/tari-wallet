@@ -496,8 +496,8 @@ async fn test_transaction_broadcasting_workflow() {
     assert_eq!(pooled_transaction.fee, signed_transaction.fee);
 
     println!("✓ Transaction broadcasting workflow test passed");
-    println!("  Transaction ID: {}", tx_id);
-    println!("  Broadcast duration: {:?}", broadcast_duration);
+    println!("  Transaction ID: {tx_id}");
+    println!("  Broadcast duration: {broadcast_duration:?}");
 }
 
 /// Test transaction validation and error handling
@@ -592,10 +592,7 @@ async fn test_fee_calculation_workflow() {
             .add_output(recipient_address.clone(), 1000000 - fee_amount - 1000) // Adjust for fee
             .with_fee(fee_amount)
             .build_and_sign()
-            .expect(&format!(
-                "Failed to build {} priority transaction",
-                priority
-            ));
+            .expect(&format!("Failed to build {priority} priority transaction"));
 
         assert_eq!(transaction.fee.as_u64(), fee_amount);
 
@@ -603,10 +600,7 @@ async fn test_fee_calculation_workflow() {
         let estimated_tx_size = 500; // bytes
         let fee_rate = fee_amount as f64 / estimated_tx_size as f64;
 
-        println!(
-            "  {} priority: {} µT fee ({:.2} µT/byte)",
-            priority, fee_amount, fee_rate
-        );
+        println!("  {priority} priority: {fee_amount} µT fee ({fee_rate:.2} µT/byte)");
     }
 
     // Test dynamic fee calculation based on transaction size
@@ -660,7 +654,7 @@ async fn test_transaction_batching_workflow() {
             .get_single_address(TariAddressFeatures::create_one_sided_only())
             .expect("Failed to generate recipient address");
 
-        recipients.push((address, format!("recipient_{}", i)));
+        recipients.push((address, format!("recipient_{i}")));
     }
 
     let mut tx_pool = MockTransactionPool::new().with_latency(20);
@@ -680,10 +674,7 @@ async fn test_transaction_batching_workflow() {
             .add_output(recipient_address, 800000)
             .with_fee(200000)
             .build_and_sign()
-            .expect(&format!(
-                "Failed to build transaction for {}",
-                recipient_name
-            ));
+            .expect(&format!("Failed to build transaction for {recipient_name}"));
 
         transactions.push((transaction, recipient_name));
     }
@@ -697,8 +688,7 @@ async fn test_transaction_batching_workflow() {
             .broadcast_transaction(transaction)
             .await
             .expect(&format!(
-                "Failed to broadcast transaction to {}",
-                recipient_name
+                "Failed to broadcast transaction to {recipient_name}"
             ));
         tx_ids.push((tx_id, recipient_name));
     }
@@ -714,8 +704,7 @@ async fn test_transaction_batching_workflow() {
     for (tx_id, _) in &tx_ids {
         assert!(
             unique_ids.insert(tx_id.clone()),
-            "Duplicate transaction ID: {}",
-            tx_id
+            "Duplicate transaction ID: {tx_id}"
         );
     }
 
@@ -726,7 +715,7 @@ async fn test_transaction_batching_workflow() {
         total_duration
     );
     for (tx_id, recipient) in tx_ids {
-        println!("    {} -> {}", recipient, tx_id);
+        println!("    {recipient} -> {tx_id}");
     }
 }
 
@@ -807,7 +796,7 @@ async fn test_complex_transaction_scenarios() {
     assert_eq!(tx_pool.transaction_count(), 3);
 
     println!("✓ Complex transaction scenarios test passed");
-    println!("  Fan-out transaction: {}", fan_out_id);
-    println!("  Fan-in transaction: {}", fan_in_id);
-    println!("  Time-locked transaction: {}", time_locked_id);
+    println!("  Fan-out transaction: {fan_out_id}");
+    println!("  Fan-in transaction: {fan_in_id}");
+    println!("  Time-locked transaction: {time_locked_id}");
 }
