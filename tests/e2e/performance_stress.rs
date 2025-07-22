@@ -386,10 +386,9 @@ async fn test_large_dataset_scanning_performance() {
 
     println!("✓ Large dataset scanning test passed");
     println!(
-        "  Scanned {} outputs in {} blocks in {:?}",
-        TOTAL_OUTPUTS, BLOCK_COUNT, scan_duration
+        "  Scanned {TOTAL_OUTPUTS} outputs in {BLOCK_COUNT} blocks in {scan_duration:?}"
     );
-    println!("  Found {} wallet outputs", total_wallet_outputs);
+    println!("  Found {total_wallet_outputs} wallet outputs");
     println!(
         "  Throughput: {:.2} outputs/sec",
         metrics.throughput_per_second
@@ -518,10 +517,9 @@ async fn test_concurrent_wallet_operations() {
 
     println!("✓ Concurrent wallet operations test passed");
     println!(
-        "  {} wallets × {} operations = {} total ops in {:?}",
-        CONCURRENT_WALLETS, OPERATIONS_PER_WALLET, total_operations, total_duration
+        "  {CONCURRENT_WALLETS} wallets × {OPERATIONS_PER_WALLET} operations = {total_operations} total ops in {total_duration:?}"
     );
-    println!("  Operation distribution: {:?}", operation_counts);
+    println!("  Operation distribution: {operation_counts:?}");
     println!("  Throughput: {:.2} ops/sec", metrics.throughput_per_second);
     println!("  Memory delta: {:.2} MB", memory_monitor.peak_delta_mb());
 }
@@ -588,13 +586,11 @@ async fn test_memory_usage_stress() {
     // Memory assertions (these are rough estimates)
     assert!(
         max_memory_per_iteration < 100.0,
-        "Memory usage too high: {:.2} MB",
-        max_memory_per_iteration
+        "Memory usage too high: {max_memory_per_iteration:.2} MB"
     );
     assert!(
         average_memory_per_iteration < 50.0,
-        "Average memory usage too high: {:.2} MB",
-        average_memory_per_iteration
+        "Average memory usage too high: {average_memory_per_iteration:.2} MB"
     );
 
     println!("✓ Memory usage stress test passed");
