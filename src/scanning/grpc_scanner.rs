@@ -10,10 +10,13 @@
 //!
 //! ```rust,no_run
 //! #[cfg(feature = "grpc")]
-//! use lightweight_wallet_libs::scanning::grpc_scanner::{GrpcBlockchainScanner, ScanConfig, BlockchainScanner};
+//! use lightweight_wallet_libs::scanning::{BlockchainScanner, ScanConfig};
+//! #[cfg(feature = "grpc")]
+//! use lightweight_wallet_libs::scanning::grpc_scanner::GrpcBlockchainScanner;
 //! #[cfg(feature = "grpc")]
 //! use lightweight_wallet_libs::wallet::Wallet;
 //!
+//! #[cfg(feature = "grpc")]
 //! async fn scan_with_wallet() -> Result<(), Box<dyn std::error::Error>> {
 //!     let mut scanner = GrpcBlockchainScanner::new("http://127.0.0.1:18142".to_string()).await?;
 //!     let wallet = Wallet::generate_new_with_seed_phrase(None)?;
