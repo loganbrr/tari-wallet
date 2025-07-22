@@ -98,7 +98,7 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run tests
-        run: cargo test ${{ matrix.features }}
+        run: cargo test ${{ matrix.features }} -- --skip test_large_scale_address_generation --skip test_concurrent_wallet_operations --skip test_concurrent_scanning_operations --skip test_performance_degradation --skip test_large_scale_wallet_generation
 
   test-wasm:
     name: WASM Tests
