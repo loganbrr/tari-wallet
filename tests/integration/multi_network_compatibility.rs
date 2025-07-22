@@ -120,7 +120,7 @@ async fn test_cross_network_wallet_compatibility() {
     for (network_name, wallet) in &network_wallets {
         let exported_seed = wallet
             .export_seed_phrase()
-            .expect(&format!("Failed to export seed phrase for {network_name}"));
+            .unwrap_or_else(|_| panic!("Failed to export seed phrase for {network_name}"));
         assert_eq!(exported_seed, seed_phrase);
     }
 
@@ -353,7 +353,7 @@ async fn test_configuration_parameter_validation() {
         // Wallet should function with any key index
         let address = wallet
             .get_dual_address(TariAddressFeatures::create_interactive_only(), None)
-            .expect(&format!("Failed to generate address with key index: {key_index}"));
+            .unwrap_or_else(|_| panic!("Failed to generate address with key index: {key_index}"));
 
         assert!(!address.to_hex().is_empty());
     }
@@ -378,7 +378,7 @@ async fn test_configuration_parameter_validation() {
         // Wallet should function with any custom properties
         let address = wallet
             .get_single_address(TariAddressFeatures::create_interactive_only())
-            .expect(&format!("Failed to generate address with property: {key}={value}"));
+            .unwrap_or_else(|_| panic!("Failed to generate address with property: {key}={value}"));
 
         assert!(!address.to_hex().is_empty());
     }
@@ -466,7 +466,7 @@ async fn test_network_specific_address_validation() {
             );
 
             // Verify address type consistency
-            match addr_type.as_ref() {
+            match *addr_type {
                 "dual" | "dual_payment" => {
                     assert!(
                         matches!(address, TariAddress::Dual(_)),
@@ -591,7 +591,7 @@ async fn test_wallet_network_migration() {
 
         let address = wallet
             .get_single_address(TariAddressFeatures::create_one_sided_only())
-            .expect(&format!("Failed to generate address for {network_name}"));
+            .unwrap_or_else(|_| panic!("Failed to generate address for {network_name}"));
 
         migration_addresses.push((network_name.to_string(), address));
     }
@@ -657,7 +657,7 @@ async fn test_configuration_edge_cases() {
         // Should be able to generate addresses after each change
         let address = wallet
             .get_dual_address(TariAddressFeatures::create_interactive_only(), None)
-            .expect(&format!("Failed to generate address after rapid change to {network}"));
+            .unwrap_or_else(|_| panic!("Failed to generate address after rapid change to {network}"));
 
         assert!(!address.to_hex().is_empty());
     }
@@ -716,7 +716,7 @@ async fn test_configuration_edge_cases() {
                 TariAddressFeatures::create_interactive_and_one_sided(),
                 None,
             )
-            .expect(&format!("Failed to generate address with key index: {key_index}"));
+            .unwrap_or_else(|_| panic!("Failed to generate address with key index: {key_index}"));
 
         assert!(!address.to_hex().is_empty());
     }

@@ -206,13 +206,11 @@ async fn test_full_wallet_lifecycle() {
                 TariAddressFeatures::create_interactive_and_one_sided(),
                 None,
             )
-            .expect(&format!("Failed to generate address for {network_name}"));
+            .unwrap_or_else(|_| panic!("Failed to generate address for {network_name}"));
 
         let migrated_single = wallet
             .get_single_address(TariAddressFeatures::create_one_sided_only())
-            .expect(&format!(
-                "Failed to generate single address for {network_name}"
-            ));
+            .unwrap_or_else(|_| panic!("Failed to generate single address for {network_name}"));
 
         // Verify network correctness
         assert_eq!(migrated_dual.network(), expected_network);

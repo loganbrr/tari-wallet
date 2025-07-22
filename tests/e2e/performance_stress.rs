@@ -605,12 +605,10 @@ async fn test_memory_usage_stress() {
         total_objects
     );
     println!(
-        "  Average memory per iteration: {:.2} MB",
-        average_memory_per_iteration
+        "  Average memory per iteration: {average_memory_per_iteration:.2} MB",
     );
     println!(
-        "  Peak memory per iteration: {:.2} MB",
-        max_memory_per_iteration
+        "  Peak memory per iteration: {max_memory_per_iteration:.2} MB",
     );
     println!(
         "  Total memory delta: {:.2} MB",
@@ -659,7 +657,7 @@ async fn test_performance_degradation() {
         memory_monitor.update();
 
         let window_metric = PerformanceMetrics::new(
-            format!("window_{}", window),
+            format!("window_{window}"),
             window_duration,
             OPERATIONS_PER_WINDOW,
         );
@@ -687,13 +685,11 @@ async fn test_performance_degradation() {
     // Performance assertions
     assert!(
         degradation_percentage < 20.0,
-        "Performance degraded too much: {:.2}%",
-        degradation_percentage
+        "Performance degraded too much: {degradation_percentage:.2}%"
     );
     assert!(
         average_throughput > 500.0,
-        "Average throughput too low: {:.2} ops/sec",
-        average_throughput
+        "Average throughput too low: {average_throughput:.2} ops/sec",
     );
 
     println!("✓ Performance degradation test passed");
@@ -707,7 +703,7 @@ async fn test_performance_degradation() {
     println!("  Last window: {last_window_throughput:.2} ops/sec");
     println!("  Degradation: {degradation_percentage:.2}%");
     println!("  Average throughput: {average_throughput:.2} ops/sec");
-    println!("  Memory delta: {memory_monitor.peak_delta_mb():.2} MB");
+    println!("  Memory delta: {:.2} MB", memory_monitor.peak_delta_mb());
 }
 
 /// Test concurrent scanning operations

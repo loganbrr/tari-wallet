@@ -22,7 +22,7 @@ async fn test_all_binaries_help() {
             .arg("--")
             .arg("--help")
             .output()
-            .expect(&format!("Failed to execute {binary} --help"));
+            .unwrap_or_else(|_| panic!("Failed to execute {binary} --help"));
 
         assert_eq!(
             output.status.code().unwrap_or(-1),
@@ -56,7 +56,7 @@ async fn test_binaries_version() {
             .arg("--")
             .arg("--version")
             .output()
-            .expect(&format!("Failed to execute {binary} --version"));
+            .unwrap_or_else(|_| panic!("Failed to execute {binary} --version"));
 
         assert_eq!(
             output.status.code().unwrap_or(-1),
@@ -91,7 +91,7 @@ async fn test_binaries_invalid_args() {
             .arg("--")
             .arg("--invalid-option-that-should-not-exist")
             .output()
-            .expect(&format!("Failed to execute {binary} with invalid option"));
+            .unwrap_or_else(|_| panic!("Failed to execute {binary} with invalid option"));
 
         // Should exit with non-zero code for invalid arguments
         assert_ne!(
