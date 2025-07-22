@@ -111,6 +111,7 @@ println!("Single address: {}", single_address.to_base58());
 
 ```rust
 use lightweight_wallet_libs::wallet::Wallet;
+use lightweight_wallet_libs::data_structures::address::TariAddressFeatures;
 
 // Restore wallet from existing seed phrase
 let seed_phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
