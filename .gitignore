@@ -6,3 +6,4 @@ target
 *.db
 *.db-journal
 tarpaulin-report.html
+coverage/
