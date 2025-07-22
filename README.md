@@ -1,5 +1,7 @@
 # Tari Lightweight Wallet Libraries
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
+[![codecov](https://codecov.io/gh/Krakaw/tari-wallet/branch/main/graph/badge.svg)](https://codecov.io/gh/Krakaw/tari-wallet)
+[![CI](https://github.com/Krakaw/tari-wallet/workflows/CI/badge.svg)](https://github.com/Krakaw/tari-wallet/actions/workflows/ci.yml)
 
 A standalone, minimal dependency implementation of core Tari wallet functionality designed for lightweight applications, mobile wallets, web applications, and embedded systems.
 
@@ -504,6 +506,33 @@ cargo test --bin signing --features storage
 # WASM tests
 wasm-pack test --node --features wasm
 ```
+
+### Test Coverage
+
+```bash
+# Install tarpaulin for code coverage
+cargo install cargo-tarpaulin
+
+# Generate coverage report (uses tarpaulin.toml config)
+cargo tarpaulin
+
+# Generate coverage with custom options
+cargo tarpaulin --all-features --out html --output-dir coverage
+
+# View HTML coverage report
+open coverage/tarpaulin-report.html  # macOS
+xdg-open coverage/tarpaulin-report.html  # Linux
+
+# Generate coverage for CI (XML format for Codecov)
+cargo tarpaulin --all-features --out xml --output-dir coverage
+```
+
+The coverage configuration is defined in `tarpaulin.toml` and excludes:
+- Binary files (`src/bin/*`)
+- Examples and test files
+- Long-running stress tests that would slow down CI
+
+Current coverage target: **70%** minimum (adjustable in `tarpaulin.toml`)
 
 ## 📋 **Compatibility**
 
