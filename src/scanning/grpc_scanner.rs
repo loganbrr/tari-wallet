@@ -11,6 +11,7 @@
 //! ```rust,no_run
 //! #[cfg(feature = "grpc")]
 //! use lightweight_wallet_libs::scanning::{GrpcBlockchainScanner, ScanConfig, BlockchainScanner};
+//! #[cfg(feature = "grpc")]
 //! use lightweight_wallet_libs::wallet::Wallet;
 //!
 //! async fn scan_with_wallet() -> Result<(), Box<dyn std::error::Error>> {
