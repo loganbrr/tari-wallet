@@ -22,7 +22,7 @@ async fn test_all_binaries_help() {
             .arg("--")
             .arg("--help")
             .output()
-            .expect(&format!("Failed to execute {} --help", binary));
+            .expect(&format!("Failed to execute {binary} --help"));
 
         assert_eq!(
             output.status.code().unwrap_or(-1),
@@ -36,8 +36,7 @@ async fn test_all_binaries_help() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert!(
             stdout.contains("help") || stdout.contains("Usage") || stdout.contains("USAGE"),
-            "Help output should contain usage information for {}",
-            binary
+            "Help output should contain usage information for {binary}"
         );
     }
 }
@@ -57,7 +56,7 @@ async fn test_binaries_version() {
             .arg("--")
             .arg("--version")
             .output()
-            .expect(&format!("Failed to execute {} --version", binary));
+            .expect(&format!("Failed to execute {binary} --version"));
 
         assert_eq!(
             output.status.code().unwrap_or(-1),
@@ -72,8 +71,7 @@ async fn test_binaries_version() {
         // Should contain a version number (e.g., "0.2.0")
         assert!(
             stdout.contains("0.") || stdout.contains("1.") || stdout.contains("2."),
-            "Version output should contain version number for {}",
-            binary
+            "Version output should contain version number for {binary}"
         );
     }
 }
@@ -93,14 +91,13 @@ async fn test_binaries_invalid_args() {
             .arg("--")
             .arg("--invalid-option-that-should-not-exist")
             .output()
-            .expect(&format!("Failed to execute {} with invalid option", binary));
+            .expect(&format!("Failed to execute {binary} with invalid option"));
 
         // Should exit with non-zero code for invalid arguments
         assert_ne!(
             output.status.code().unwrap_or(0),
             0,
-            "Binary {} should fail with invalid arguments",
-            binary
+            "Binary {binary} should fail with invalid arguments"
         );
     }
 }
@@ -209,8 +206,7 @@ async fn test_wallet_generate_basic() {
         // If wallet generate fails, it should be due to missing storage feature or setup
         let stderr = String::from_utf8_lossy(&output.stderr);
         println!(
-            "Wallet generate failed (expected if storage not enabled): {}",
-            stderr
+            "Wallet generate failed (expected if storage not enabled): {stderr}"
         );
     }
 }
@@ -271,7 +267,7 @@ async fn test_binaries_basic_execution() {
 
         let output = cmd
             .output()
-            .expect(&format!("Failed to execute {} with basic args", binary));
+            .expect(&format!("Failed to execute {binary} with basic args"));
 
         // We mainly care that the binary doesn't panic or crash
         // Exit code can be 0 (success) or 1 (expected failure), but not -1 (crash)

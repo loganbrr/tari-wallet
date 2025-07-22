@@ -253,7 +253,7 @@ mod connection_tests {
         // Create a very long path
         let mut long_path = temp_dir.path().to_path_buf();
         for i in 0..10 {
-            long_path = long_path.join(&format!("very_long_directory_name_{}", i));
+            long_path = long_path.join(&format!("very_long_directory_name_{i}"));
         }
 
         // Create the directory structure
@@ -338,7 +338,7 @@ mod connection_pool_tests {
             join_set.spawn(async move {
                 // Rapid-fire operations
                 for j in 0..10 {
-                    let wallet_name = format!("wallet_{}_{}", i, j);
+                    let wallet_name = format!("wallet_{i}_{j}");
                     let view_key = PrivateKey::new([(i + j) as u8 + 1; 32]);
                     let spend_key = PrivateKey::new([(i + j) as u8 + 2; 32]);
                     let wallet =

@@ -76,8 +76,8 @@ async fn test_full_wallet_lifecycle() {
         .contains(TariAddressFeatures::PAYMENT_ID));
 
     let phase1_duration = start_time.elapsed();
-    println!("  ✓ Wallet created and configured in {:?}", phase1_duration);
-    println!("  ✓ Generated {} addresses", 3);
+    println!("  ✓ Wallet created and configured in {phase1_duration:?}");
+    println!("  ✓ Generated 3 addresses");
 
     // Phase 2: Mock Blockchain Scanning
     println!("Phase 2: Blockchain Scanning Simulation");
@@ -137,11 +137,10 @@ async fn test_full_wallet_lifecycle() {
 
     let phase2_duration = phase2_start.elapsed();
     println!(
-        "  ✓ Scanned {} blocks in {:?}",
-        total_blocks_scanned, phase2_duration
+        "  ✓ Scanned {total_blocks_scanned} blocks in {phase2_duration:?}"
     );
-    println!("  ✓ Found {} wallet outputs", total_outputs_found);
-    println!("  ✓ Total value discovered: {} µT", total_value_found);
+    println!("  ✓ Found {total_outputs_found} wallet outputs");
+    println!("  ✓ Total value discovered: {total_value_found} µT");
 
     // Phase 3: Balance Calculation and Management
     println!("Phase 3: Balance Calculation and Management");
@@ -182,10 +181,10 @@ async fn test_full_wallet_lifecycle() {
     assert!(max_spendable < available_for_spending);
 
     let phase3_duration = phase3_start.elapsed();
-    println!("  ✓ Balance calculated in {:?}", phase3_duration);
-    println!("  ✓ Mature balance: {} µT", mature_balance);
-    println!("  ✓ Immature balance: {} µT", immature_balance);
-    println!("  ✓ Spendable (after fees): {} µT", max_spendable);
+    println!("  ✓ Balance calculated in {phase3_duration:?}");
+    println!("  ✓ Mature balance: {mature_balance} µT");
+    println!("  ✓ Immature balance: {immature_balance} µT");
+    println!("  ✓ Spendable (after fees): {max_spendable} µT");
 
     // Phase 4: Multi-Network Compatibility Testing
     println!("Phase 4: Multi-Network Compatibility");
@@ -209,14 +208,11 @@ async fn test_full_wallet_lifecycle() {
                 TariAddressFeatures::create_interactive_and_one_sided(),
                 None,
             )
-            .expect(&format!("Failed to generate address for {}", network_name));
+            .expect(&format!("Failed to generate address for {network_name}"));
 
         let migrated_single = wallet
             .get_single_address(TariAddressFeatures::create_one_sided_only())
-            .expect(&format!(
-                "Failed to generate single address for {}",
-                network_name
-            ));
+            .expect(&format!("Failed to generate single address for {network_name}"));
 
         // Verify network correctness
         assert_eq!(migrated_dual.network(), expected_network);
@@ -257,9 +253,7 @@ async fn test_full_wallet_lifecycle() {
 
     let phase4_duration = phase4_start.elapsed();
     println!(
-        "  ✓ Tested {} network migrations in {:?}",
-        network_addresses.len(),
-        phase4_duration
+        "  ✓ Tested {network_addresses_len} network migrations in {phase4_duration:?}"
     );
     println!("  ✓ Verified address uniqueness across networks");
     println!("  ✓ Confirmed deterministic address generation");
@@ -324,7 +318,7 @@ async fn test_full_wallet_lifecycle() {
     assert_eq!(dual_address.to_hex(), recovered_dual.to_hex());
 
     let phase5_duration = phase5_start.elapsed();
-    println!("  ✓ Wallet backup and recovery in {:?}", phase5_duration);
+    println!("  ✓ Wallet backup and recovery in {phase5_duration:?}");
     println!("  ✓ Verified metadata preservation");
     println!("  ✓ Confirmed address consistency after recovery");
 
@@ -332,15 +326,14 @@ async fn test_full_wallet_lifecycle() {
     let total_duration = start_time.elapsed();
     println!("\n=== Integration Test Summary ===");
     println!(
-        "✓ Full wallet lifecycle completed successfully in {:?}",
-        total_duration
+        "✓ Full wallet lifecycle completed successfully in {total_duration:?}"
     );
     println!("✓ All phases passed:");
-    println!("  - Phase 1 (Setup): {:?}", phase1_duration);
-    println!("  - Phase 2 (Scanning): {:?}", phase2_duration);
-    println!("  - Phase 3 (Balance): {:?}", phase3_duration);
-    println!("  - Phase 4 (Multi-Network): {:?}", phase4_duration);
-    println!("  - Phase 5 (Recovery): {:?}", phase5_duration);
+    println!("  - Phase 1 (Setup): {phase1_duration:?}");
+    println!("  - Phase 2 (Scanning): {phase2_duration:?}");
+    println!("  - Phase 3 (Balance): {phase3_duration:?}");
+    println!("  - Phase 4 (Multi-Network): {phase4_duration:?}");
+    println!("  - Phase 5 (Recovery): {phase5_duration:?}");
 }
 
 /// Integration test: Concurrent multi-wallet operations
@@ -362,7 +355,7 @@ async fn test_concurrent_multi_wallet_operations() {
             let mut wallet =
                 Wallet::generate_new_with_seed_phrase(None).expect("Failed to generate wallet");
 
-            wallet.set_label(Some(format!("Concurrent Wallet {}", wallet_id)));
+            wallet.set_label(Some(format!("Concurrent Wallet {wallet_id}")));
             wallet.set_network("stagenet".to_string());
             wallet.set_property("wallet_id".to_string(), wallet_id.to_string());
 
@@ -448,16 +441,12 @@ async fn test_concurrent_multi_wallet_operations() {
     let total_operations = NUM_WALLETS * OPERATIONS_PER_WALLET;
     let throughput = total_operations as f64 / total_duration.as_secs_f64();
 
+    println!("✓ Concurrent multi-wallet test completed in {total_duration:?}");
     println!(
-        "✓ Concurrent multi-wallet test completed in {:?}",
-        total_duration
+        "✓ {NUM_WALLETS} wallets × {OPERATIONS_PER_WALLET} operations = {total_operations} total operations"
     );
-    println!(
-        "✓ {} wallets × {} operations = {} total operations",
-        NUM_WALLETS, OPERATIONS_PER_WALLET, total_operations
-    );
-    println!("✓ Average operation time: {:?}", average_operation_time);
-    println!("✓ Throughput: {:.2} operations/sec", throughput);
+    println!("✓ Average operation time: {average_operation_time:?}");
+    println!("✓ Throughput: {throughput:.2} operations/sec");
     println!("✓ All wallets and addresses are unique");
 }
 
@@ -506,8 +495,7 @@ fn create_test_output(
             .map_err(|e| {
                 LightweightWalletError::EncryptionError(
                     lightweight_wallet_libs::errors::EncryptionError::EncryptionFailed(format!(
-                        "Failed to encrypt data: {}",
-                        e
+                        "Failed to encrypt data: {e}"
                     )),
                 )
             })?;

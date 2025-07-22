@@ -115,7 +115,7 @@ impl DatasetGenerator {
     fn generate_addresses(&self, wallet: &Wallet, count: usize) -> Vec<TariAddress> {
         let mut addresses = Vec::with_capacity(count);
 
-        let features_variants = vec![
+        let features_variants = [
             TariAddressFeatures::create_interactive_only(),
             TariAddressFeatures::create_one_sided_only(),
             TariAddressFeatures::create_interactive_and_one_sided(),
@@ -703,11 +703,11 @@ async fn test_performance_degradation() {
         OPERATIONS_PER_WINDOW,
         TIME_WINDOWS * OPERATIONS_PER_WINDOW
     );
-    println!("  First window: {:.2} ops/sec", first_window_throughput);
-    println!("  Last window: {:.2} ops/sec", last_window_throughput);
-    println!("  Degradation: {:.2}%", degradation_percentage);
-    println!("  Average throughput: {:.2} ops/sec", average_throughput);
-    println!("  Memory delta: {:.2} MB", memory_monitor.peak_delta_mb());
+    println!("  First window: {first_window_throughput:.2} ops/sec");
+    println!("  Last window: {last_window_throughput:.2} ops/sec");
+    println!("  Degradation: {degradation_percentage:.2}%");
+    println!("  Average throughput: {average_throughput:.2} ops/sec");
+    println!("  Memory delta: {memory_monitor.peak_delta_mb():.2} MB");
 }
 
 /// Test concurrent scanning operations
@@ -810,10 +810,10 @@ async fn test_concurrent_scanning_operations() {
     );
 
     println!("✓ Concurrent scanning operations test passed");
-    println!("  {} concurrent scanners", CONCURRENT_SCANNERS);
-    println!("  Total outputs scanned: {}", total_outputs_scanned);
-    println!("  Total wallet outputs found: {}", total_wallet_outputs);
-    println!("  Average scan duration: {:?}", average_scan_duration);
+    println!("  {CONCURRENT_SCANNERS} concurrent scanners");
+    println!("  Total outputs scanned: {total_outputs_scanned}");
+    println!("  Total wallet outputs found: {total_wallet_outputs}");
+    println!("  Average scan duration: {average_scan_duration:?}");
     println!(
         "  Total throughput: {:.2} outputs/sec",
         metrics.throughput_per_second
