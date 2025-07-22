@@ -5,3 +5,4 @@ target
 /REFERENCE_*
 *.db
 *.db-journal
+tarpaulin-report.html

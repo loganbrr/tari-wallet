@@ -3,6 +3,8 @@
 //! A command-line utility for signing and verifying messages using Tari-compatible
 //! Schnorr signatures with domain separation.
 
+#![cfg(not(target_arch = "wasm32"))]
+
 use clap::{Parser, Subcommand};
 use rand::rngs::OsRng;
 use std::fs;
@@ -144,21 +146,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let public_hex = public_key.to_hex();
 
             if stdout {
-                println!("Secret Key: {}", secret_hex);
-                println!("Public Key: {}", public_hex);
+                println!("Secret Key: {secret_hex}");
+                println!("Public Key: {public_hex}");
             } else {
                 if let Some(sk_file) = secret_key_file {
                     fs::write(&sk_file, &secret_hex)?;
-                    println!("Secret key written to: {}", sk_file);
+                    println!("Secret key written to: {sk_file}");
                 } else {
-                    println!("Secret Key: {}", secret_hex);
+                    println!("Secret Key: {secret_hex}");
                 }
 
                 if let Some(pk_file) = public_key_file {
                     fs::write(&pk_file, &public_hex)?;
-                    println!("Public key written to: {}", pk_file);
+                    println!("Public key written to: {pk_file}");
                 } else {
-                    println!("Public Key: {}", public_hex);
+                    println!("Public Key: {public_hex}");
                 }
             }
         }
@@ -198,7 +200,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 sign_message_with_hex_output(&secret_key, &message_text)?;
 
             let output = match format.as_str() {
-                "compact" => format!("{}:{}", signature_hex, nonce_hex),
+                "compact" => format!("{signature_hex}:{nonce_hex}"),
                 "json" => serde_json::to_string_pretty(&serde_json::json!({
                     "signature": signature_hex,
                     "nonce": nonce_hex,
@@ -209,9 +211,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             if let Some(file) = output_file {
                 fs::write(&file, &output)?;
-                println!("Signature written to: {}", file);
+                println!("Signature written to: {file}");
             } else {
-                println!("{}", output);
+                println!("{output}");
             }
         }
 
@@ -233,7 +235,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
 
             let public_key = RistrettoPublicKey::from_hex(&public_key_hex)
-                .map_err(|e| format!("Invalid public key hex: {}", e))?;
+                .map_err(|e| format!("Invalid public key hex: {e}"))?;
 
             // Get message
             let message_text = match (message, message_file) {
@@ -277,11 +279,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 verify_message_from_hex(&public_key, &message_text, &sig_hex, &nonce_hex)?;
 
             if verbose {
-                println!("Message: \"{}\"", message_text);
-                println!("Public Key: {}", public_key_hex);
-                println!("Signature: {}", sig_hex);
-                println!("Nonce: {}", nonce_hex);
-                println!("Valid: {}", is_valid);
+                println!("Message: \"{message_text}\"");
+                println!("Public Key: {public_key_hex}");
+                println!("Signature: {sig_hex}");
+                println!("Nonce: {nonce_hex}");
+                println!("Valid: {is_valid}");
             } else {
                 println!("{}", if is_valid { "VALID" } else { "INVALID" });
             }
@@ -306,14 +308,14 @@ async fn get_secret_key_for_signing(
     if let Some(key) = secret_key {
         // Direct hex string
         return Ok(RistrettoSecretKey::from_hex(&key)
-            .map_err(|e| format!("Invalid secret key hex: {}", e))?);
+            .map_err(|e| format!("Invalid secret key hex: {e}"))?);
     }
 
     if let Some(file) = secret_key_file {
         // Read from file
         let key_hex = fs::read_to_string(&file)?.trim().to_string();
         return Ok(RistrettoSecretKey::from_hex(&key_hex)
-            .map_err(|e| format!("Invalid secret key hex in file: {}", e))?);
+            .map_err(|e| format!("Invalid secret key hex in file: {e}"))?);
     }
 
     #[cfg(feature = "storage")]
@@ -333,29 +335,29 @@ async fn get_secret_key_from_database(
     // Connect to database
     let storage = SqliteStorage::new(database_path)
         .await
-        .map_err(|e| format!("Failed to open database: {}", e))?;
+        .map_err(|e| format!("Failed to open database: {e}"))?;
 
     // Initialize schema
     storage
         .initialize()
         .await
-        .map_err(|e| format!("Failed to initialize database: {}", e))?;
+        .map_err(|e| format!("Failed to initialize database: {e}"))?;
 
     // Get wallet by name
     let wallet = storage
         .get_wallet_by_name(wallet_name)
         .await
-        .map_err(|e| format!("Failed to query wallet: {}", e))?
-        .ok_or_else(|| format!("Wallet '{}' not found in database", wallet_name))?;
+        .map_err(|e| format!("Failed to query wallet: {e}"))?
+        .ok_or_else(|| format!("Wallet '{wallet_name}' not found in database"))?;
 
     // Extract seed phrase
     let seed_phrase = wallet
         .seed_phrase
-        .ok_or_else(|| format!("Wallet '{}' has no seed phrase stored", wallet_name))?;
+        .ok_or_else(|| format!("Wallet '{wallet_name}' has no seed phrase stored"))?;
 
     // Convert seed phrase to CipherSeed directly
     let cipher_seed = seed_phrase_to_cipher_seed(&seed_phrase, None)
-        .map_err(|e| format!("Failed to convert seed phrase to CipherSeed: {}", e))?;
+        .map_err(|e| format!("Failed to convert seed phrase to CipherSeed: {e}"))?;
 
     // Derive the communication node identity secret key (used for message signing)
     // This is the exact same key that Tari wallet uses for message signing
@@ -365,11 +367,10 @@ async fn get_secret_key_from_database(
         .try_into()
         .map_err(|_| "Invalid entropy length: expected 16 bytes")?;
     let (_, comms_key) = derive_view_and_spend_keys_from_entropy(entropy_array)
-        .map_err(|e| format!("Failed to derive communication key: {}", e))?;
+        .map_err(|e| format!("Failed to derive communication key: {e}"))?;
 
     println!(
-        "Using communication key from wallet '{}' in database (Tari message signing key)",
-        wallet_name
+        "Using communication key from wallet '{wallet_name}' in database (Tari message signing key)"
     );
     Ok(comms_key)
 }
@@ -420,10 +421,16 @@ mod tests {
     fn test_compact_format_parsing() {
         let signature = "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
         let nonce = "fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321";
-        let compact = format!("{}:{}", signature, nonce);
+        let compact = format!("{signature}:{nonce}");
 
         let (parsed_sig, parsed_nonce) = compact.split_once(':').unwrap();
         assert_eq!(parsed_sig, signature);
         assert_eq!(parsed_nonce, nonce);
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn main() {
+    eprintln!("This binary is not for wasm32 targets.");
+    std::process::exit(1);
 }

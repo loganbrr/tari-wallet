@@ -138,12 +138,11 @@ impl PaymentIdExtractor {
         match EncryptedData::decrypt_data(decryption_key, commitment, encrypted_data) {
             Ok((_value, _mask, payment_id)) => match Self::validate_payment_id(&payment_id) {
                 Ok(()) => PaymentIdExtractionResult::success(payment_id),
-                Err(e) => PaymentIdExtractionResult::failure(format!(
-                    "Payment ID validation failed: {}",
-                    e
-                )),
+                Err(e) => {
+                    PaymentIdExtractionResult::failure(format!("Payment ID validation failed: {e}"))
+                }
             },
-            Err(e) => PaymentIdExtractionResult::failure(format!("Failed to decrypt data: {}", e)),
+            Err(e) => PaymentIdExtractionResult::failure(format!("Failed to decrypt data: {e}")),
         }
     }
 
@@ -273,7 +272,7 @@ impl PaymentIdExtractor {
                 tx_type: _,
             } => {
                 if let Ok(s) = std::str::from_utf8(user_data) {
-                    format!("Open: {}", s)
+                    format!("Open: {s}")
                 } else {
                     format!("Open: {}", hex::encode(user_data))
                 }
@@ -289,7 +288,7 @@ impl PaymentIdExtractor {
                 } else {
                     hex::encode(user_data)
                 };
-                format!("AddressAndData: address={}, data={}", address_str, data_str)
+                format!("AddressAndData: address={address_str}, data={data_str}")
             }
             PaymentId::TransactionInfo {
                 recipient_address,
@@ -306,7 +305,7 @@ impl PaymentIdExtractor {
             }
             PaymentId::Raw(data) => {
                 if let Ok(s) = std::str::from_utf8(data) {
-                    format!("Raw: {}", s)
+                    format!("Raw: {s}")
                 } else {
                     format!("Raw: {}", hex::encode(data))
                 }
@@ -339,7 +338,7 @@ impl PaymentIdExtractor {
 
         if let Some(value_str) = s.strip_prefix("U256: ") {
             let value =
-                U256::from_str(value_str).map_err(|e| format!("Invalid U256 value: {}", e))?;
+                U256::from_str(value_str).map_err(|e| format!("Invalid U256 value: {e}"))?;
             return Ok(PaymentId::U256(value));
         }
 
@@ -361,7 +360,7 @@ impl PaymentIdExtractor {
             return Ok(PaymentId::Raw(bytes));
         }
 
-        Err(format!("Unable to parse payment ID from string: {}", s))
+        Err(format!("Unable to parse payment ID from string: {s}"))
     }
 }
 

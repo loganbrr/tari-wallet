@@ -229,7 +229,7 @@ mod tests {
     fn test_stealth_address_service_creation() {
         let service = StealthAddressService::new();
         // Service should be created successfully
-        assert_eq!(format!("{:?}", service), "StealthAddressService");
+        assert_eq!(format!("{service:?}"), "StealthAddressService");
     }
 
     #[test]
@@ -486,7 +486,7 @@ mod tests {
     #[test]
     fn test_service_default() {
         let service1 = StealthAddressService::new();
-        let service2 = StealthAddressService::default();
+        let service2 = StealthAddressService;
 
         // Both should work the same way
         let test_key = PrivateKey::new([42u8; 32]);

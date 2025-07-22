@@ -144,8 +144,7 @@ impl TryFrom<u8> for Network {
             0x24 => Ok(Network::Igor),
             0x26 => Ok(Network::Esmeralda),
             _ => Err(DataStructureError::InvalidNetwork(format!(
-                "Unknown network byte: 0x{:02x}",
-                value
+                "Unknown network byte: 0x{value:02x}"
             ))
             .into()),
         }
@@ -163,7 +162,7 @@ impl std::str::FromStr for Network {
             "localnet" => Ok(Network::LocalNet),
             "igor" => Ok(Network::Igor),
             "esmeralda" | "esme" => Ok(Network::Esmeralda),
-            _ => Err(DataStructureError::InvalidNetwork(format!("Unknown network: {}", s)).into()),
+            _ => Err(DataStructureError::InvalidNetwork(format!("Unknown network: {s}")).into()),
         }
     }
 }
@@ -538,8 +537,7 @@ impl DualAddress {
                 bytes.push(byte_val);
             } else {
                 return Err(DataStructureError::InvalidAddress(format!(
-                    "Invalid emoji character: {}",
-                    emoji_char
+                    "Invalid emoji character: {emoji_char}"
                 ))
                 .into());
             }
@@ -762,8 +760,7 @@ impl SingleAddress {
                 bytes.push(byte_val);
             } else {
                 return Err(DataStructureError::InvalidAddress(format!(
-                    "Invalid emoji character: {}",
-                    emoji_char
+                    "Invalid emoji character: {emoji_char}"
                 ))
                 .into());
             }

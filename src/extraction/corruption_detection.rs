@@ -561,18 +561,14 @@ impl CorruptionDetector {
         }
 
         match corruption_result.corruption_type() {
-            Some(CorruptionType::EmptyData) => {
-                Err(DataStructureError::InvalidDataFormat(
-                    "Cannot recover from empty data".to_string(),
-                )
-                .into())
-            }
-            Some(CorruptionType::InsufficientData) => {
-                Err(DataStructureError::InvalidDataFormat(
-                    "Cannot recover from insufficient data".to_string(),
-                )
-                .into())
-            }
+            Some(CorruptionType::EmptyData) => Err(DataStructureError::InvalidDataFormat(
+                "Cannot recover from empty data".to_string(),
+            )
+            .into()),
+            Some(CorruptionType::InsufficientData) => Err(DataStructureError::InvalidDataFormat(
+                "Cannot recover from insufficient data".to_string(),
+            )
+            .into()),
             Some(CorruptionType::ZeroData) => {
                 // Try to find non-zero data in surrounding context
                 // This is a placeholder - in practice, you'd need more context
@@ -668,7 +664,7 @@ mod tests {
 
     #[test]
     fn test_detect_encrypted_data_corruption_empty() {
-        let encrypted_data = EncryptedData::from_bytes(&vec![0u8; 80]).unwrap();
+        let encrypted_data = EncryptedData::from_bytes(&[0u8; 80]).unwrap();
         let detector = CorruptionDetector::new();
         let result = detector.detect_encrypted_data_corruption(&encrypted_data);
 
@@ -683,7 +679,7 @@ mod tests {
 
     #[test]
     fn test_detect_encrypted_data_corruption_all_zeros() {
-        let encrypted_data = EncryptedData::from_bytes(&vec![0u8; 80]).unwrap();
+        let encrypted_data = EncryptedData::from_bytes(&[0u8; 80]).unwrap();
         let detector = CorruptionDetector::new();
         let result = detector.detect_encrypted_data_corruption(&encrypted_data);
 

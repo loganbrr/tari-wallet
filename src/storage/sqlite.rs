@@ -38,7 +38,7 @@ impl SqliteStorage {
     /// Create a new SQLite storage instance
     pub async fn new<P: AsRef<Path>>(database_path: P) -> LightweightWalletResult<Self> {
         let connection = Connection::open(database_path).await.map_err(|e| {
-            LightweightWalletError::StorageError(format!("Failed to open SQLite database: {}", e))
+            LightweightWalletError::StorageError(format!("Failed to open SQLite database: {e}"))
         })?;
 
         Ok(Self { connection })
@@ -48,8 +48,7 @@ impl SqliteStorage {
     pub async fn new_in_memory() -> LightweightWalletResult<Self> {
         let connection = Connection::open(":memory:").await.map_err(|e| {
             LightweightWalletError::StorageError(format!(
-                "Failed to create in-memory database: {}",
-                e
+                "Failed to create in-memory database: {e}"
             ))
         })?;
 
@@ -209,7 +208,7 @@ impl SqliteStorage {
             .call(move |conn| Ok(conn.execute_batch(sql)?))
             .await
             .map_err(|e| {
-                LightweightWalletError::StorageError(format!("Failed to create schema: {}", e))
+                LightweightWalletError::StorageError(format!("Failed to create schema: {e}"))
             })?;
 
         Ok(())
@@ -436,7 +435,7 @@ impl WalletStorage for SqliteStorage {
         // Validate wallet before saving
         wallet
             .validate()
-            .map_err(|e| LightweightWalletError::StorageError(format!("Invalid wallet: {}", e)))?;
+            .map_err(|e| LightweightWalletError::StorageError(format!("Invalid wallet: {e}")))?;
 
         let wallet_clone = wallet.clone();
         self.connection.call(move |conn| {
@@ -482,7 +481,7 @@ impl WalletStorage for SqliteStorage {
 
                 Ok(conn.last_insert_rowid() as u32)
             }
-        }).await.map_err(|e| LightweightWalletError::StorageError(format!("Failed to save wallet: {}", e)))
+        }).await.map_err(|e| LightweightWalletError::StorageError(format!("Failed to save wallet: {e}")))
     }
 
     async fn get_wallet_by_id(
@@ -502,7 +501,7 @@ impl WalletStorage for SqliteStorage {
             })
             .await
             .map_err(|e| {
-                LightweightWalletError::StorageError(format!("Failed to get wallet by ID: {}", e))
+                LightweightWalletError::StorageError(format!("Failed to get wallet by ID: {e}"))
             })
     }
 
@@ -524,7 +523,7 @@ impl WalletStorage for SqliteStorage {
             })
             .await
             .map_err(|e| {
-                LightweightWalletError::StorageError(format!("Failed to get wallet by name: {}", e))
+                LightweightWalletError::StorageError(format!("Failed to get wallet by name: {e}"))
             })
     }
 
@@ -543,7 +542,7 @@ impl WalletStorage for SqliteStorage {
             })
             .await
             .map_err(|e| {
-                LightweightWalletError::StorageError(format!("Failed to list wallets: {}", e))
+                LightweightWalletError::StorageError(format!("Failed to list wallets: {e}"))
             })
     }
 
@@ -569,7 +568,7 @@ impl WalletStorage for SqliteStorage {
             })
             .await
             .map_err(|e| {
-                LightweightWalletError::StorageError(format!("Failed to delete wallet: {}", e))
+                LightweightWalletError::StorageError(format!("Failed to delete wallet: {e}"))
             })
     }
 
@@ -583,7 +582,7 @@ impl WalletStorage for SqliteStorage {
             })
             .await
             .map_err(|e| {
-                LightweightWalletError::StorageError(format!("Failed to check wallet name: {}", e))
+                LightweightWalletError::StorageError(format!("Failed to check wallet name: {e}"))
             })
     }
 
@@ -610,8 +609,7 @@ impl WalletStorage for SqliteStorage {
             .await
             .map_err(|e| {
                 LightweightWalletError::StorageError(format!(
-                    "Failed to update wallet scanned block: {}",
-                    e
+                    "Failed to update wallet scanned block: {e}"
                 ))
             })
     }
@@ -654,7 +652,7 @@ impl WalletStorage for SqliteStorage {
                 ],
             )?;
             Ok(())
-        }).await.map_err(|e| LightweightWalletError::StorageError(format!("Failed to save transaction: {}", e)))?;
+        }).await.map_err(|e| LightweightWalletError::StorageError(format!("Failed to save transaction: {e}")))?;
 
         Ok(())
     }
@@ -701,7 +699,7 @@ impl WalletStorage for SqliteStorage {
 
             tx.commit()?;
             Ok(())
-        }).await.map_err(|e| LightweightWalletError::StorageError(format!("Failed to save transactions batch: {}", e)))?;
+        }).await.map_err(|e| LightweightWalletError::StorageError(format!("Failed to save transactions batch: {e}")))?;
 
         Ok(())
     }
@@ -749,7 +747,7 @@ impl WalletStorage for SqliteStorage {
                 ],
             )?;
             Ok(())
-        }).await.map_err(|e| LightweightWalletError::StorageError(format!("Failed to update transaction: {}", e)))
+        }).await.map_err(|e| LightweightWalletError::StorageError(format!("Failed to update transaction: {e}")))
     }
 
     async fn mark_transaction_spent(
@@ -774,8 +772,7 @@ impl WalletStorage for SqliteStorage {
             .await
             .map_err(|e| {
                 LightweightWalletError::StorageError(format!(
-                    "Failed to mark transaction spent: {}",
-                    e
+                    "Failed to mark transaction spent: {e}"
                 ))
             })
     }
@@ -828,8 +825,7 @@ impl WalletStorage for SqliteStorage {
             .await
             .map_err(|e| {
                 LightweightWalletError::StorageError(format!(
-                    "Failed to batch mark transactions spent: {}",
-                    e
+                    "Failed to batch mark transactions spent: {e}"
                 ))
             })
     }
@@ -856,8 +852,7 @@ impl WalletStorage for SqliteStorage {
             .await
             .map_err(|e| {
                 LightweightWalletError::StorageError(format!(
-                    "Failed to get transaction by commitment: {}",
-                    e
+                    "Failed to get transaction by commitment: {e}"
                 ))
             })
     }
@@ -882,11 +877,11 @@ impl WalletStorage for SqliteStorage {
                     base_query.push_str(" ORDER BY block_height ASC, id ASC");
 
                     if let Some(limit) = filter.limit {
-                        base_query.push_str(&format!(" LIMIT {}", limit));
+                        base_query.push_str(&format!(" LIMIT {limit}"));
                     }
 
                     if let Some(offset) = filter.offset {
-                        base_query.push_str(&format!(" OFFSET {}", offset));
+                        base_query.push_str(&format!(" OFFSET {offset}"));
                     }
                 } else {
                     base_query.push_str(" ORDER BY block_height ASC, id ASC");
@@ -908,7 +903,7 @@ impl WalletStorage for SqliteStorage {
             })
             .await
             .map_err(|e| {
-                LightweightWalletError::StorageError(format!("Failed to get transactions: {}", e))
+                LightweightWalletError::StorageError(format!("Failed to get transactions: {e}"))
             })
     }
 
@@ -1023,7 +1018,7 @@ impl WalletStorage for SqliteStorage {
                     spent_count: row.get::<_, i64>("spent_count")? as usize,
                     total_received: total_received as u64,
                     total_spent: total_spent as u64,
-                    current_balance: (total_received - total_spent) as i64,
+                    current_balance: (total_received - total_spent),
                     highest_block: row.get::<_, Option<i64>>("highest_block")?.map(|h| h as u64),
                     lowest_block: row.get::<_, Option<i64>>("lowest_block")?.map(|h| h as u64),
                     latest_scanned_block: row.get::<_, Option<i64>>("latest_scanned_block")?.map(|h| h as u64),
@@ -1031,7 +1026,7 @@ impl WalletStorage for SqliteStorage {
             })?;
 
             Ok(row)
-        }).await.map_err(|e| LightweightWalletError::StorageError(format!("Failed to get statistics: {}", e)))
+        }).await.map_err(|e| LightweightWalletError::StorageError(format!("Failed to get statistics: {e}")))
     }
 
     async fn get_transactions_by_block_range(
@@ -1073,8 +1068,7 @@ impl WalletStorage for SqliteStorage {
             .await
             .map_err(|e| {
                 LightweightWalletError::StorageError(format!(
-                    "Failed to check commitment existence: {}",
-                    e
+                    "Failed to check commitment existence: {e}"
                 ))
             })
     }
@@ -1088,7 +1082,7 @@ impl WalletStorage for SqliteStorage {
             })
             .await
             .map_err(|e| {
-                LightweightWalletError::StorageError(format!("Failed to get highest block: {}", e))
+                LightweightWalletError::StorageError(format!("Failed to get highest block: {e}"))
             })
     }
 
@@ -1101,7 +1095,7 @@ impl WalletStorage for SqliteStorage {
             })
             .await
             .map_err(|e| {
-                LightweightWalletError::StorageError(format!("Failed to get lowest block: {}", e))
+                LightweightWalletError::StorageError(format!("Failed to get lowest block: {e}"))
             })
     }
 
@@ -1113,7 +1107,7 @@ impl WalletStorage for SqliteStorage {
             })
             .await
             .map_err(|e| {
-                LightweightWalletError::StorageError(format!("Failed to clear transactions: {}", e))
+                LightweightWalletError::StorageError(format!("Failed to clear transactions: {e}"))
             })?;
         self.connection
             .call(|conn| {
@@ -1122,7 +1116,7 @@ impl WalletStorage for SqliteStorage {
             })
             .await
             .map_err(|e| {
-                LightweightWalletError::StorageError(format!("Failed to clear outputs: {}", e))
+                LightweightWalletError::StorageError(format!("Failed to clear outputs: {e}"))
             })?;
         Ok(())
     }
@@ -1137,8 +1131,7 @@ impl WalletStorage for SqliteStorage {
             .await
             .map_err(|e| {
                 LightweightWalletError::StorageError(format!(
-                    "Failed to get transaction count: {}",
-                    e
+                    "Failed to get transaction count: {e}"
                 ))
             })
     }
@@ -1241,7 +1234,7 @@ impl WalletStorage for SqliteStorage {
 
                 Ok(conn.last_insert_rowid() as u32)
             }
-        }).await.map_err(|e| LightweightWalletError::StorageError(format!("Failed to save output: {}", e)))
+        }).await.map_err(|e| LightweightWalletError::StorageError(format!("Failed to save output: {e}")))
     }
 
     async fn save_outputs(&self, outputs: &[StoredOutput]) -> LightweightWalletResult<Vec<u32>> {
@@ -1347,7 +1340,7 @@ impl WalletStorage for SqliteStorage {
 
             tx.commit()?;
             Ok(output_ids)
-        }).await.map_err(|e| LightweightWalletError::StorageError(format!("Failed to save outputs: {}", e)))
+        }).await.map_err(|e| LightweightWalletError::StorageError(format!("Failed to save outputs: {e}")))
     }
 
     async fn update_output(&self, output: &StoredOutput) -> LightweightWalletResult<()> {
@@ -1411,7 +1404,7 @@ impl WalletStorage for SqliteStorage {
             })
             .await
             .map_err(|e| {
-                LightweightWalletError::StorageError(format!("Failed to update output: {}", e))
+                LightweightWalletError::StorageError(format!("Failed to update output: {e}"))
             })
     }
 
@@ -1437,7 +1430,7 @@ impl WalletStorage for SqliteStorage {
             })
             .await
             .map_err(|e| {
-                LightweightWalletError::StorageError(format!("Failed to mark output spent: {}", e))
+                LightweightWalletError::StorageError(format!("Failed to mark output spent: {e}"))
             })
     }
 
@@ -1458,7 +1451,7 @@ impl WalletStorage for SqliteStorage {
             })
             .await
             .map_err(|e| {
-                LightweightWalletError::StorageError(format!("Failed to get output by ID: {}", e))
+                LightweightWalletError::StorageError(format!("Failed to get output by ID: {e}"))
             })
     }
 
@@ -1482,8 +1475,7 @@ impl WalletStorage for SqliteStorage {
             .await
             .map_err(|e| {
                 LightweightWalletError::StorageError(format!(
-                    "Failed to get output by commitment: {}",
-                    e
+                    "Failed to get output by commitment: {e}"
                 ))
             })
     }
@@ -1508,11 +1500,11 @@ impl WalletStorage for SqliteStorage {
                     base_query.push_str(" ORDER BY created_at ASC");
 
                     if let Some(limit) = filter.limit {
-                        base_query.push_str(&format!(" LIMIT {}", limit));
+                        base_query.push_str(&format!(" LIMIT {limit}"));
                     }
 
                     if let Some(offset) = filter.offset {
-                        base_query.push_str(&format!(" OFFSET {}", offset));
+                        base_query.push_str(&format!(" OFFSET {offset}"));
                     }
                 } else {
                     base_query.push_str(" ORDER BY created_at ASC");
@@ -1534,7 +1526,7 @@ impl WalletStorage for SqliteStorage {
             })
             .await
             .map_err(|e| {
-                LightweightWalletError::StorageError(format!("Failed to get outputs: {}", e))
+                LightweightWalletError::StorageError(format!("Failed to get outputs: {e}"))
             })
     }
 
@@ -1584,8 +1576,7 @@ impl WalletStorage for SqliteStorage {
             .await
             .map_err(|e| {
                 LightweightWalletError::StorageError(format!(
-                    "Failed to get spendable balance: {}",
-                    e
+                    "Failed to get spendable balance: {e}"
                 ))
             })
     }
@@ -1601,7 +1592,7 @@ impl WalletStorage for SqliteStorage {
             })
             .await
             .map_err(|e| {
-                LightweightWalletError::StorageError(format!("Failed to delete output: {}", e))
+                LightweightWalletError::StorageError(format!("Failed to delete output: {e}"))
             })
     }
 
@@ -1616,7 +1607,7 @@ impl WalletStorage for SqliteStorage {
             })
             .await
             .map_err(|e| {
-                LightweightWalletError::StorageError(format!("Failed to clear outputs: {}", e))
+                LightweightWalletError::StorageError(format!("Failed to clear outputs: {e}"))
             })
     }
 
@@ -1632,7 +1623,7 @@ impl WalletStorage for SqliteStorage {
             })
             .await
             .map_err(|e| {
-                LightweightWalletError::StorageError(format!("Failed to get output count: {}", e))
+                LightweightWalletError::StorageError(format!("Failed to get output count: {e}"))
             })
     }
 

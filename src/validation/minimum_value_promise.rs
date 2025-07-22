@@ -97,8 +97,7 @@ impl LightweightMinimumValuePromiseValidator {
             if value > max_allowed {
                 return Err(ValidationError::minimum_value_promise_validation_failed(
                     &format!(
-                        "Minimum value promise {} exceeds maximum allowed value {}",
-                        value, max_allowed
+                        "Minimum value promise {value} exceeds maximum allowed value {max_allowed}"
                     ),
                 ));
             }
@@ -514,8 +513,10 @@ mod tests {
         let validator = LightweightMinimumValuePromiseValidator::default();
 
         // Test with zero values disabled
-        let mut options = MinimumValuePromiseValidationOptions::default();
-        options.allow_zero_values = false;
+        let options = MinimumValuePromiseValidationOptions {
+            allow_zero_values: false,
+            ..Default::default()
+        };
 
         assert!(validator
             .validate_minimum_value_promise(
@@ -527,8 +528,10 @@ mod tests {
             .is_err());
 
         // Test with max allowed value
-        let mut options = MinimumValuePromiseValidationOptions::default();
-        options.max_allowed_value = Some(1000);
+        let options = MinimumValuePromiseValidationOptions {
+            max_allowed_value: Some(1000),
+            ..Default::default()
+        };
 
         assert!(validator
             .validate_minimum_value_promise(

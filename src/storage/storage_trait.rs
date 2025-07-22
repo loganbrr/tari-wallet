@@ -305,7 +305,7 @@ impl StoredWallet {
     /// Get the view key as PrivateKey (decode from hex)
     pub fn get_view_key(&self) -> Result<PrivateKey, String> {
         let bytes =
-            hex::decode(&self.view_key_hex).map_err(|e| format!("Invalid view key hex: {}", e))?;
+            hex::decode(&self.view_key_hex).map_err(|e| format!("Invalid view key hex: {e}"))?;
         if bytes.len() != 32 {
             return Err(format!("View key must be 32 bytes, got {}", bytes.len()));
         }
@@ -317,8 +317,7 @@ impl StoredWallet {
     /// Get the spend key as PrivateKey (decode from hex)
     pub fn get_spend_key(&self) -> Result<PrivateKey, String> {
         if let Some(hex_key) = &self.spend_key_hex {
-            let bytes =
-                hex::decode(hex_key).map_err(|e| format!("Invalid spend key hex: {}", e))?;
+            let bytes = hex::decode(hex_key).map_err(|e| format!("Invalid spend key hex: {e}"))?;
             if bytes.len() != 32 {
                 return Err(format!("Spend key must be 32 bytes, got {}", bytes.len()));
             }

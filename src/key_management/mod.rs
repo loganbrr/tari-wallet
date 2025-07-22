@@ -262,7 +262,7 @@ impl KeyStore {
         index: usize,
     ) -> Result<&ImportedPrivateKey, KeyManagementError> {
         self.imported_keys.get(index).ok_or_else(|| {
-            KeyManagementError::KeyNotFound(format!("Imported key at index {}", index))
+            KeyManagementError::KeyNotFound(format!("Imported key at index {index}"))
         })
     }
 
@@ -275,7 +275,7 @@ impl KeyStore {
             .iter()
             .find(|key| key.label.as_ref().is_some_and(|l| l == label))
             .ok_or_else(|| {
-                KeyManagementError::KeyNotFound(format!("Imported key with label '{}'", label))
+                KeyManagementError::KeyNotFound(format!("Imported key with label '{label}'"))
             })
     }
 
@@ -286,8 +286,7 @@ impl KeyStore {
     ) -> Result<ImportedPrivateKey, KeyManagementError> {
         if index >= self.imported_keys.len() {
             return Err(KeyManagementError::KeyNotFound(format!(
-                "Imported key at index {}",
-                index
+                "Imported key at index {index}"
             )));
         }
         Ok(self.imported_keys.remove(index))

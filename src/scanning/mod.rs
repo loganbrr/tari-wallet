@@ -361,7 +361,7 @@ impl DefaultScanningLogic {
                 |e| LightweightWalletError::InvalidArgument {
                     argument: "entropy".to_string(),
                     value: "key_derivation".to_string(),
-                    message: format!("Key derivation failed: {}", e),
+                    message: format!("Key derivation failed: {e}"),
                 },
             )?;
 
@@ -441,7 +441,7 @@ impl DefaultScanningLogic {
             .map_err(|e| LightweightWalletError::InvalidArgument {
                 argument: "private_key".to_string(),
                 value: "key_derivation".to_string(),
-                message: format!("Invalid private key: {}", e),
+                message: format!("Invalid private key: {e}"),
             })?;
 
         // Decompress public key to RistrettoPublicKey
@@ -450,7 +450,7 @@ impl DefaultScanningLogic {
                 LightweightWalletError::InvalidArgument {
                     argument: "public_key".to_string(),
                     value: "key_derivation".to_string(),
-                    message: format!("Invalid public key: {}", e),
+                    message: format!("Invalid public key: {e}"),
                 }
             })?;
 
@@ -802,6 +802,12 @@ pub struct MockBlockchainScanner {
     tip_info: TipInfo,
 }
 
+impl Default for MockBlockchainScanner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MockBlockchainScanner {
     /// Create a new mock scanner
     pub fn new() -> Self {
@@ -947,8 +953,10 @@ impl Default for BlockchainScannerBuilder {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(target_arch = "wasm32"))]
     use super::*;
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_scan_config_default() {
         let config = ScanConfig::default();
@@ -959,6 +967,7 @@ mod tests {
         assert!(config.extraction_config.enable_key_derivation);
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_scan_progress() {
         let progress = ScanProgress {
@@ -976,6 +985,7 @@ mod tests {
         assert_eq!(progress.elapsed, Duration::from_secs(10));
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_block_scan_result() {
         let result = BlockScanResult {
@@ -993,6 +1003,7 @@ mod tests {
         assert!(result.wallet_outputs.is_empty());
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_tip_info() {
         let tip_info = TipInfo {
@@ -1010,6 +1021,7 @@ mod tests {
         assert_eq!(tip_info.timestamp, 1234567890);
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_mock_scanner() {
         let mut scanner = MockBlockchainScanner::new();
@@ -1017,6 +1029,7 @@ mod tests {
         assert_eq!(tip_info.best_block_height, 1000);
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_scanner_builder() {
         let builder = BlockchainScannerBuilder::new().with_type(ScannerType::Mock);

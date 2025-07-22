@@ -199,18 +199,17 @@ impl LightweightTransactionOutput {
         if let Some(proof) = &self.proof {
             let proof_hex = hex::encode(&proof.bytes);
             if full {
-                format!("Some({})", proof_hex)
+                format!("Some({proof_hex})")
             } else if proof_hex.len() > 32 {
-                format!(
-                    "Some({}..{})",
-                    &proof_hex[0..16],
-                    &proof_hex[proof_hex.len() - 16..proof_hex.len()]
-                )
+                let start = &proof_hex[0..16];
+                let end = &proof_hex[proof_hex.len() - 16..proof_hex.len()];
+                format!("Some({start}..{end})")
             } else {
-                format!("Some({})", proof_hex)
+                format!("Some({proof_hex})")
             }
         } else {
-            format!("None({})", self.minimum_value_promise.as_u64())
+            let promise = self.minimum_value_promise.as_u64();
+            format!("None({promise})")
         }
     }
 
@@ -552,7 +551,7 @@ mod test {
     #[test]
     fn test_display() {
         let output = LightweightTransactionOutput::default();
-        let display_str = format!("{}", output);
+        let display_str = format!("{output}");
         assert!(!display_str.is_empty());
         assert!(display_str.contains("Script:"));
         assert!(display_str.contains("Offset Pubkey:"));

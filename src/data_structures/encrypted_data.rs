@@ -137,10 +137,10 @@ impl EncryptedData {
         let data = encrypted_data.as_bytes();
 
         if data.len() < SIZE_TAG + SIZE_NONCE {
+            let data_len = data.len();
+            let min_len = SIZE_TAG + SIZE_NONCE;
             return Err(EncryptedDataError::InvalidLength(format!(
-                "Data too short: {} < {}",
-                data.len(),
-                SIZE_TAG + SIZE_NONCE
+                "Data too short: {data_len} < {min_len}"
             )));
         }
 
@@ -164,7 +164,7 @@ impl EncryptedData {
         cipher
             .decrypt_in_place_detached(nonce, ENCRYPTED_DATA_AAD, bytes.as_mut_slice(), tag)
             .map_err(|e| {
-                EncryptedDataError::DecryptionFailed(format!("AEAD decryption failed: {:?}", e))
+                EncryptedDataError::DecryptionFailed(format!("AEAD decryption failed: {e:?}"))
             })?;
 
         // Decode the value and mask - exactly like REFERENCE_tari
@@ -180,7 +180,7 @@ impl EncryptedData {
         Ok((
             u64::from_le_bytes(value_bytes).into(),
             PrivateKey::from_canonical_bytes(&bytes[SIZE_VALUE..SIZE_VALUE + SIZE_MASK])
-                .map_err(|e| EncryptedDataError::InvalidData(format!("Invalid mask: {}", e)))?,
+                .map_err(|e| EncryptedDataError::InvalidData(format!("Invalid mask: {e}")))?,
             PaymentId::from_bytes(&bytes[SIZE_VALUE + SIZE_MASK..]),
         ))
     }
@@ -228,7 +228,7 @@ impl EncryptedData {
                         [encrypted_data_hex.len() - DISPLAY_CUTOFF..encrypted_data_hex.len()]
                 )
             } else {
-                format!("Some({})", encrypted_data_hex)
+                format!("Some({encrypted_data_hex})")
             }
         }
     }
@@ -283,13 +283,13 @@ impl EncryptedData {
         // Step 1: Perform Diffie-Hellman to get shared secret
         let shared_secret =
             diffie_hellman_shared_secret(view_private_key, sender_offset_public_key).map_err(
-                |e| EncryptedDataError::DecryptionFailed(format!("Diffie-Hellman failed: {}", e)),
+                |e| EncryptedDataError::DecryptionFailed(format!("Diffie-Hellman failed: {e}")),
             )?;
 
         // Step 2: Derive encryption key from shared secret using domain separation
         let encryption_key =
             shared_secret_to_output_encryption_key(&shared_secret).map_err(|e| {
-                EncryptedDataError::DecryptionFailed(format!("Key derivation failed: {}", e))
+                EncryptedDataError::DecryptionFailed(format!("Key derivation failed: {e}"))
             })?;
 
         // Step 3: Use normal decrypt_data with the derived encryption key
@@ -573,12 +573,12 @@ mod test {
         let encrypted_data_hex = "bb51e881ab369116bdd9432390778a520102030405060708090a0b0c0d0e0f10";
 
         // Just test basic parsing, not full data
-        println!("Commitment: {}", commitment_hex);
-        println!("Encrypted data: {}", encrypted_data_hex);
+        println!("Commitment: {commitment_hex}");
+        println!("Encrypted data: {encrypted_data_hex}");
 
         // This test validates that we can parse blockchain data
-        assert!(commitment_hex.len() > 0);
-        assert!(encrypted_data_hex.len() > 0);
+        assert!(!commitment_hex.is_empty());
+        assert!(!encrypted_data_hex.is_empty());
     }
 
     /// Test decryption of real blockchain data - THE CORE GOAL
@@ -610,7 +610,8 @@ mod test {
         ];
 
         for (i, seed) in seeds.iter().enumerate() {
-            println!("\n--- Testing wallet {} ---", i + 1);
+            let wallet_num = i + 1;
+            println!("\n--- Testing wallet {wallet_num} ---");
 
             // Derive entropy and view key
             let encrypted_bytes = mnemonic_to_bytes(seed).expect("Should convert mnemonic");
@@ -633,8 +634,10 @@ mod test {
                     .expect("Should convert to array"),
             );
 
-            println!("Entropy: {}", hex::encode(entropy));
-            println!("View key: {}", hex::encode(view_key.as_bytes()));
+            let entropy_hex = hex::encode(entropy);
+            let view_key_hex = hex::encode(view_key.as_bytes());
+            println!("Entropy: {entropy_hex}");
+            println!("View key: {view_key_hex}");
 
             // Test regular decryption with commitment
             let commitment_bytes = hex::decode(commitment_hex).expect("Should decode commitment");
@@ -646,15 +649,17 @@ mod test {
 
             for (j, encrypted_hex) in encrypted_data_samples.iter().enumerate() {
                 if let Ok(encrypted_data) = EncryptedData::from_hex(encrypted_hex) {
-                    println!("  Testing encrypted sample {}", j + 1);
+                    let sample_num = j + 1;
+                    println!("  Testing encrypted sample {sample_num}");
 
                     // Try regular decryption
                     if let Ok((value, _mask, payment_id)) =
                         EncryptedData::decrypt_data(&view_key, &commitment, &encrypted_data)
                     {
                         println!("    ✅ DECRYPTION SUCCESS!");
-                        println!("    Value: {} μT", value.as_u64());
-                        println!("    Payment ID: {:?}", payment_id);
+                        let value_u64 = value.as_u64();
+                        println!("    Value: {value_u64} μT");
+                        println!("    Payment ID: {payment_id:?}");
                         if hex::encode(value.as_u64().to_le_bytes()).contains("1e84800000000000") {
                             println!("    🎯 FOUND 2.000000 T VALUE!");
                         }
@@ -676,8 +681,9 @@ mod test {
                             )
                         {
                             println!("    ✅ ONE-SIDED DECRYPTION SUCCESS!");
-                            println!("    Value: {} μT", value.as_u64());
-                            println!("    Payment ID: {:?}", payment_id);
+                            let value_u64 = value.as_u64();
+                            println!("    Value: {value_u64} μT");
+                            println!("    Payment ID: {payment_id:?}");
                             if hex::encode(value.as_u64().to_le_bytes())
                                 .contains("1e84800000000000")
                             {
@@ -692,7 +698,6 @@ mod test {
         }
 
         // The test will succeed if our logic compiles and runs
-        assert!(true);
         println!("\n=== END REAL BLOCKCHAIN TEST ===");
     }
 
@@ -711,7 +716,7 @@ mod test {
 
         // Connect to local Tari node
         let grpc_address = "http://127.0.0.1:18142";
-        println!("Connecting to Tari node at {}", grpc_address);
+        println!("Connecting to Tari node at {grpc_address}");
 
         let mut scanner = match GrpcScannerBuilder::new()
             .with_base_url(grpc_address.to_string())
@@ -721,7 +726,7 @@ mod test {
         {
             Ok(scanner) => scanner,
             Err(e) => {
-                println!("❌ Could not connect to Tari node: {}", e);
+                println!("❌ Could not connect to Tari node: {e}");
                 println!("Please ensure tari_base_node is running on 127.0.0.1:18142");
                 return; // Skip test if node not available
             }
@@ -731,7 +736,7 @@ mod test {
 
         // Get block 34926
         let block_height = 34926;
-        println!("Fetching block {}", block_height);
+        println!("Fetching block {block_height}");
 
         let block_info = match scanner
             .get_block_by_height(block_height)
@@ -740,21 +745,19 @@ mod test {
         {
             Some(block) => block,
             None => {
-                println!("❌ Block {} not found", block_height);
+                println!("❌ Block {block_height} not found");
                 return;
             }
         };
 
         let outputs = &block_info.outputs;
 
-        println!("Block {} has {} outputs", block_height, outputs.len());
+        let outputs_len = outputs.len();
+        println!("Block {block_height} has {outputs_len} outputs");
 
         if outputs.len() <= 97 {
-            println!(
-                "❌ Block {} only has {} outputs, need at least 98",
-                block_height,
-                outputs.len()
-            );
+            let outputs_len = outputs.len();
+            println!("❌ Block {block_height} only has {outputs_len} outputs, need at least 98");
             return;
         }
 
@@ -781,14 +784,13 @@ mod test {
         // Extract commitment
         let commitment = &target_output.commitment;
 
-        println!("🔑 Commitment: {}", hex::encode(commitment.as_bytes()));
+        let commitment_hex = hex::encode(commitment.as_bytes());
+        println!("🔑 Commitment: {commitment_hex}");
 
         // Extract sender offset public key if available
         let sender_offset_pk_bytes = target_output.sender_offset_public_key.as_bytes();
-        println!(
-            "🔑 Sender offset public key: {}",
-            hex::encode(sender_offset_pk_bytes)
-        );
+        let sender_offset_hex = hex::encode(sender_offset_pk_bytes);
+        println!("🔑 Sender offset public key: {sender_offset_hex}");
 
         // Both test wallets
         let seeds = [
@@ -801,7 +803,7 @@ mod test {
         let mut found_decryption = false;
 
         for (wallet_name, seed) in &seeds {
-            println!("\n--- Testing {} wallet ---", wallet_name);
+            println!("\n--- Testing {wallet_name} wallet ---");
 
             // Derive view key
             let encrypted_bytes = mnemonic_to_bytes(seed).expect("Should convert mnemonic");
@@ -824,20 +826,20 @@ mod test {
                     .expect("Should convert to array"),
             );
 
-            println!("🔑 View key: {}", hex::encode(view_key.as_bytes()));
+            let view_key_hex = hex::encode(view_key.as_bytes());
+            println!("🔑 View key: {view_key_hex}");
 
             // Try regular decryption with commitment
             print!("🔍 Testing regular decryption... ");
-            match EncryptedData::decrypt_data(&view_key, &commitment, &encrypted_data) {
+            match EncryptedData::decrypt_data(&view_key, commitment, encrypted_data) {
                 Ok((value, mask, payment_id)) => {
                     println!("✅ SUCCESS!");
-                    println!(
-                        "   💰 Value: {} μT ({} T)",
-                        value.as_u64(),
-                        value.as_u64() as f64 / 1_000_000.0
-                    );
-                    println!("   🎭 Mask: {}", hex::encode(mask.as_bytes()));
-                    println!("   🆔 Payment ID: {:?}", payment_id);
+                    let value_u64 = value.as_u64();
+                    let value_t = value_u64 as f64 / 1_000_000.0;
+                    let mask_hex = hex::encode(mask.as_bytes());
+                    println!("   💰 Value: {value_u64} μT ({value_t} T)");
+                    println!("   🎭 Mask: {mask_hex}");
+                    println!("   🆔 Payment ID: {payment_id:?}");
 
                     // Check if this is the expected 2.000000 T value
                     if value.as_u64() == 2_000_000 {
@@ -845,7 +847,7 @@ mod test {
                     }
                     found_decryption = true;
                 }
-                Err(e) => println!("❌ Failed: {}", e),
+                Err(e) => println!("❌ Failed: {e}"),
             }
 
             // Try one-sided payment decryption if sender offset key available
@@ -855,19 +857,18 @@ mod test {
 
                 match EncryptedData::decrypt_one_sided_data(
                     &view_key,
-                    &commitment,
-                    &sender_offset_pk,
-                    &encrypted_data,
+                    commitment,
+                    sender_offset_pk,
+                    encrypted_data,
                 ) {
                     Ok((value, mask, payment_id)) => {
                         println!("✅ SUCCESS!");
-                        println!(
-                            "   💰 Value: {} μT ({} T)",
-                            value.as_u64(),
-                            value.as_u64() as f64 / 1_000_000.0
-                        );
-                        println!("   🎭 Mask: {}", hex::encode(mask.as_bytes()));
-                        println!("   🆔 Payment ID: {:?}", payment_id);
+                        let value_u64 = value.as_u64();
+                        let value_t = value_u64 as f64 / 1_000_000.0;
+                        let mask_hex = hex::encode(mask.as_bytes());
+                        println!("   💰 Value: {value_u64} μT ({value_t} T)");
+                        println!("   🎭 Mask: {mask_hex}");
+                        println!("   🆔 Payment ID: {payment_id:?}");
 
                         // Check if this is the expected 2.000000 T value
                         if value.as_u64() == 2_000_000 {
@@ -875,7 +876,7 @@ mod test {
                         }
                         found_decryption = true;
                     }
-                    Err(e) => println!("❌ Failed: {}", e),
+                    Err(e) => println!("❌ Failed: {e}"),
                 }
             } else {
                 println!("⚠️  No sender offset public key available for one-sided decryption");
@@ -892,7 +893,6 @@ mod test {
         }
 
         // Test passes regardless - we want to see the results
-        assert!(true);
     }
 
     /// Test vectors generated from the reference Tari EncryptedData implementation
@@ -1130,9 +1130,12 @@ mod test {
         );
 
         println!("✅ Data layout validation passed");
-        println!("   Tag: {} bytes", tag_part.len());
-        println!("   Nonce: {} bytes", nonce_part.len());
-        println!("   Ciphertext: {} bytes", ciphertext_part.len());
+        let tag_len = tag_part.len();
+        let nonce_len = nonce_part.len();
+        let ciphertext_len = ciphertext_part.len();
+        println!("   Tag: {tag_len} bytes");
+        println!("   Nonce: {nonce_len} bytes");
+        println!("   Ciphertext: {ciphertext_len} bytes");
     }
 
     #[test]
@@ -1145,8 +1148,9 @@ mod test {
         assert_eq!(hex::encode(ENCRYPTED_DATA_AAD), expected_aad_bytes);
 
         println!("✅ AAD constant validation passed");
-        println!("   AAD string: {}", expected_aad);
-        println!("   AAD bytes: {}", hex::encode(ENCRYPTED_DATA_AAD));
+        println!("   AAD string: {expected_aad}");
+        let aad_hex = hex::encode(ENCRYPTED_DATA_AAD);
+        println!("   AAD bytes: {aad_hex}");
     }
 
     #[test]
@@ -1239,7 +1243,7 @@ mod test {
         ];
 
         for (value, mask_hex, key_hex, commitment_hex, payment_id, description) in test_cases {
-            println!("Testing: {}", description);
+            println!("Testing: {description}");
 
             let value = MicroMinotari::new(value);
             let mask = PrivateKey::from_hex(mask_hex).unwrap();
@@ -1261,12 +1265,11 @@ mod test {
                 EncryptedData::decrypt_data(&encryption_key, &commitment, &encrypted).unwrap();
 
             // Verify all values match
-            assert_eq!(decrypted_value, value, "Value mismatch in {}", description);
-            assert_eq!(decrypted_mask, mask, "Mask mismatch in {}", description);
+            assert_eq!(decrypted_value, value, "Value mismatch in {description}");
+            assert_eq!(decrypted_mask, mask, "Mask mismatch in {description}");
             assert_eq!(
                 decrypted_payment_id, payment_id,
-                "Payment ID mismatch in {}",
-                description
+                "Payment ID mismatch in {description}"
             );
 
             // Test serialization roundtrip
@@ -1274,8 +1277,7 @@ mod test {
             let from_hex = EncryptedData::from_hex(&hex_string).unwrap();
             assert_eq!(
                 encrypted, from_hex,
-                "Hex serialization roundtrip failed for {}",
-                description
+                "Hex serialization roundtrip failed for {description}"
             );
 
             // Verify encrypted data length is correct
@@ -1284,11 +1286,10 @@ mod test {
             assert_eq!(
                 encrypted.as_bytes().len(),
                 expected_length,
-                "Length mismatch for {}",
-                description
+                "Length mismatch for {description}"
             );
 
-            println!("  ✅ Passed: {}", description);
+            println!("  ✅ Passed: {description}");
         }
 
         println!("✅ Comprehensive encrypted data validation passed");
@@ -1306,7 +1307,7 @@ mod test {
         let view_key_hex = "7255cb55bd6d56330ed519e2641c42dd7423976ce1acf1f024f04289166c2301";
         let view_key = PrivateKey::from_hex(view_key_hex).expect("Should parse view key");
 
-        println!("🔑 Using view key: {}", view_key_hex);
+        println!("🔑 Using view key: {view_key_hex}");
 
         // All 11 UTXO data from the provided table
         let utxo_data = vec![
@@ -1414,7 +1415,7 @@ mod test {
             expected_payment_id,
         ) in utxo_data
         {
-            println!("\n--- Processing UTXO {} ---", id);
+            println!("\n--- Processing UTXO {id} ---");
 
             // Parse the commitment
             let commitment_bytes = hex::decode(commitment_hex).expect("Should decode commitment");
@@ -1442,12 +1443,11 @@ mod test {
                 expected_value,
                 expected_value as f64 / 1_000_000.0
             );
-            println!("  🔑 Commitment: {}...", &commitment_hex[..16]);
-            println!(
-                "  🔒 Encrypted data length: {} bytes",
-                encrypted_data.as_bytes().len()
-            );
-            println!("  📝 Expected payment ID: {}", expected_payment_id);
+            let commitment_prefix = &commitment_hex[..16];
+            println!("  🔑 Commitment: {commitment_prefix}...");
+            let encrypted_len = encrypted_data.as_bytes().len();
+            println!("  🔒 Encrypted data length: {encrypted_len} bytes");
+            println!("  📝 Expected payment ID: {expected_payment_id}");
 
             let mut utxo_result = (id, false, false, 0u64, String::new());
 
@@ -1462,11 +1462,8 @@ mod test {
                         value.as_u64(),
                         value.as_u64() as f64 / 1_000_000.0
                     );
-                    println!(
-                        "    🎭 Mask: {}...",
-                        hex::encode(mask.as_bytes())[..16].to_string()
-                    );
-                    println!("    🆔 Payment ID: {:?}", payment_id);
+                    println!("    🎭 Mask: {}...", &hex::encode(mask.as_bytes())[..16]);
+                    println!("    🆔 Payment ID: {payment_id:?}");
 
                     // Verify the value matches expectation
                     if value.as_u64() == expected_value {
@@ -1474,7 +1471,7 @@ mod test {
                         successful_decryptions += 1;
                         utxo_result.1 = true; // regular decryption success
                         utxo_result.3 = value.as_u64();
-                        utxo_result.4 = format!("{:?}", payment_id);
+                        utxo_result.4 = format!("{payment_id:?}");
                     } else {
                         println!(
                             "    ⚠️  Value mismatch: expected {}, got {}",
@@ -1484,7 +1481,7 @@ mod test {
                     }
                 }
                 Err(e) => {
-                    println!("❌ Failed: {}", e);
+                    println!("❌ Failed: {e}");
                 }
             }
 
@@ -1504,11 +1501,8 @@ mod test {
                         value.as_u64(),
                         value.as_u64() as f64 / 1_000_000.0
                     );
-                    println!(
-                        "    🎭 Mask: {}...",
-                        hex::encode(mask.as_bytes())[..16].to_string()
-                    );
-                    println!("    🆔 Payment ID: {:?}", payment_id);
+                    println!("    🎭 Mask: {}...", &hex::encode(mask.as_bytes())[..16]);
+                    println!("    🆔 Payment ID: {payment_id:?}");
 
                     // Verify the value matches expectation
                     if value.as_u64() == expected_value {
@@ -1518,7 +1512,7 @@ mod test {
                         if utxo_result.3 == 0 {
                             // Only set if regular didn't work
                             utxo_result.3 = value.as_u64();
-                            utxo_result.4 = format!("{:?}", payment_id);
+                            utxo_result.4 = format!("{payment_id:?}");
                         }
                     } else {
                         println!(
@@ -1529,7 +1523,7 @@ mod test {
                     }
                 }
                 Err(e) => {
-                    println!("❌ Failed: {}", e);
+                    println!("❌ Failed: {e}");
                 }
             }
 
@@ -1537,10 +1531,7 @@ mod test {
         }
 
         println!("\n🏁 === FINAL EXTRACTION RESULTS ===");
-        println!(
-            "✅ Successful decryptions: {}/{}",
-            successful_decryptions, total_attempts
-        );
+        println!("✅ Successful decryptions: {successful_decryptions}/{total_attempts}");
         println!(
             "📊 Success rate: {:.1}%",
             (successful_decryptions as f64 / total_attempts as f64) * 100.0
@@ -1562,14 +1553,13 @@ mod test {
                 "FAILED"
             };
             let value_display = if *extracted_value > 0 {
-                format!("{} μT", extracted_value)
+                format!("{extracted_value} μT")
             } else {
                 "None".to_string()
             };
 
             println!(
-                "| {:4} | {:7} | {:9} | {:15} | {:6} |",
-                id, regular_mark, one_sided_mark, value_display, status
+                "| {id:4} | {regular_mark:7} | {one_sided_mark:9} | {value_display:15} | {status:6} |"
             );
         }
 
@@ -1589,12 +1579,9 @@ mod test {
             .filter(|(_, _, one_sided, _, _)| *one_sided)
             .count();
 
-        println!("🔐 Regular decryption successes: {}/11", regular_successes);
-        println!(
-            "🔄 One-sided decryption successes: {}/11",
-            one_sided_successes
-        );
-        println!("🎯 Total unique UTXOs extracted: {}/11", successful_utxos);
+        println!("🔐 Regular decryption successes: {regular_successes}/11");
+        println!("🔄 One-sided decryption successes: {one_sided_successes}/11");
+        println!("🎯 Total unique UTXOs extracted: {successful_utxos}/11");
 
         if successful_utxos > 0 {
             println!("\n🎉 SUCCESS: We can extract UTXOs from real blockchain data!");
@@ -1607,13 +1594,6 @@ mod test {
             println!("\n❌ FAILURE: Could not extract any UTXOs");
             println!("🔧 The implementation may need adjustments for this specific data format");
         }
-
-        // Test passes if we can decrypt at least some outputs
-        // In a real wallet, partial success is common due to different encryption methods
-        assert!(
-            true,
-            "UTXO extraction test completed - check output for results"
-        );
 
         println!("\n=== END COMPLETE UTXO EXTRACTION TEST ===");
     }
@@ -1653,51 +1633,54 @@ mod test {
                 .expect("Should convert to public key"),
         );
 
-        println!("🔑 Testing view key: {}", view_key_hex);
-        println!("🎯 Target UTXO: commitment {}...", &commitment_hex[..16]);
+        println!("🔑 Testing view key: {view_key_hex}");
+        let commitment_prefix = &commitment_hex[..16];
+        println!("🎯 Target UTXO: commitment {commitment_prefix}...");
 
         // Test our current KDF implementation
         println!("\n--- Testing Current KDF Implementation ---");
         let aead_key = kdf_aead(&view_key, &commitment);
-        println!("AEAD key: {}", hex::encode(aead_key.reveal()));
+        let aead_key_hex = hex::encode(aead_key.reveal());
+        println!("AEAD key: {aead_key_hex}");
 
         // Test one-sided approach using Diffie-Hellman
         println!("One-sided approach:");
         match diffie_hellman_shared_secret(&view_key, &sender_offset_pk) {
             Ok(shared_secret) => {
-                println!("  Shared secret: {}", hex::encode(shared_secret));
+                let shared_secret_hex = hex::encode(shared_secret);
+                println!("  Shared secret: {shared_secret_hex}");
                 match shared_secret_to_output_encryption_key(&shared_secret) {
                     Ok(encryption_key) => {
-                        println!(
-                            "  Derived encryption key: {}",
-                            hex::encode(encryption_key.as_bytes())
-                        );
+                        let encryption_key_hex = hex::encode(encryption_key.as_bytes());
+                        println!("  Derived encryption key: {encryption_key_hex}");
                         let aead_key = kdf_aead(&encryption_key, &commitment);
-                        println!("  Final AEAD key: {}", hex::encode(aead_key.reveal()));
+                        let final_aead_hex = hex::encode(aead_key.reveal());
+                        println!("  Final AEAD key: {final_aead_hex}");
                     }
-                    Err(e) => println!("  Key derivation failed: {}", e),
+                    Err(e) => println!("  Key derivation failed: {e}"),
                 }
             }
-            Err(e) => println!("  Diffie-Hellman failed: {}", e),
+            Err(e) => println!("  Diffie-Hellman failed: {e}"),
         }
 
         // Try manual decryption to see what's happening
         println!("\n--- Manual Decryption Analysis ---");
         let encrypted_bytes = encrypted_data.as_bytes();
-        println!("Encrypted data length: {} bytes", encrypted_bytes.len());
+        let encrypted_len = encrypted_bytes.len();
+        println!("Encrypted data length: {encrypted_len} bytes");
         println!("Expected structure: TAG(16) + NONCE(24) + CIPHERTEXT(remainder)");
 
         if encrypted_bytes.len() >= 40 {
-            println!("Tag: {}", hex::encode(&encrypted_bytes[..16]));
-            println!("Nonce: {}", hex::encode(&encrypted_bytes[16..40]));
-            println!(
-                "Ciphertext: {}...",
-                hex::encode(&encrypted_bytes[40..std::cmp::min(56, encrypted_bytes.len())])
-            );
+            let tag_hex = hex::encode(&encrypted_bytes[..16]);
+            let nonce_hex = hex::encode(&encrypted_bytes[16..40]);
+            let ciphertext_preview =
+                hex::encode(&encrypted_bytes[40..std::cmp::min(56, encrypted_bytes.len())]);
+            println!("Tag: {tag_hex}");
+            println!("Nonce: {nonce_hex}");
+            println!("Ciphertext: {ciphertext_preview}...");
         }
 
         // The test always passes - it's for analysis
-        assert!(true, "Key variation test completed");
 
         println!("\n=== END KEY VARIATION TEST ===");
     }
@@ -1717,11 +1700,10 @@ mod test {
         let mask = PrivateKey::new([4u8; 32]);
         let payment_id = PaymentId::Empty;
 
-        println!("🔑 View key: {}", hex::encode(view_key.as_bytes()));
-        println!(
-            "🔑 Sender offset public: {}",
-            hex::encode(sender_offset_public.as_bytes())
-        );
+        let view_key_hex = hex::encode(view_key.as_bytes());
+        println!("🔑 View key: {view_key_hex}");
+        let sender_offset_hex = hex::encode(sender_offset_public.as_bytes());
+        println!("🔑 Sender offset public: {sender_offset_hex}");
 
         // Test mechanism 1: Change output (encrypted with view key directly)
         println!("\n--- Testing Mechanism 1: Change Output ---");
@@ -1738,10 +1720,13 @@ mod test {
                 &change_encrypted,
             )
         {
-            println!("✅ Decrypted as: {}", method);
-            println!("   Value: {} μT", dec_value.as_u64());
-            println!("   Mask matches: {}", dec_mask == mask);
-            println!("   Payment ID matches: {}", dec_payment_id == payment_id);
+            println!("✅ Decrypted as: {method}");
+            let dec_value_u64 = dec_value.as_u64();
+            let mask_matches = dec_mask == mask;
+            let payment_id_matches = dec_payment_id == payment_id;
+            println!("   Value: {dec_value_u64} μT");
+            println!("   Mask matches: {mask_matches}");
+            println!("   Payment ID matches: {payment_id_matches}");
             assert_eq!(method, "change_output");
             assert_eq!(dec_value, value);
             assert_eq!(dec_mask, mask);
@@ -1780,7 +1765,7 @@ mod test {
                 &received_encrypted,
             )
         {
-            println!("✅ Decrypted as: {}", method);
+            println!("✅ Decrypted as: {method}");
             println!("   Value: {} μT", dec_value.as_u64());
             println!("   Mask matches: {}", dec_mask == mask);
             println!("   Payment ID matches: {}", dec_payment_id == payment_id);

@@ -58,23 +58,19 @@ impl LightweightEncryptedDataValidator {
 
         // Check size constraints
         if data_bytes.len() < self.min_size {
-            return Err(ValidationError::IntegrityCheckFailed(
-                format!(
-                    "Encrypted data too small: {} bytes (minimum: {} bytes)",
-                    data_bytes.len(),
-                    self.min_size
-                ),
-            ));
+            return Err(ValidationError::IntegrityCheckFailed(format!(
+                "Encrypted data too small: {} bytes (minimum: {} bytes)",
+                data_bytes.len(),
+                self.min_size
+            )));
         }
 
         if data_bytes.len() > self.max_size {
-            return Err(ValidationError::IntegrityCheckFailed(
-                format!(
-                    "Encrypted data too large: {} bytes (maximum: {} bytes)",
-                    data_bytes.len(),
-                    self.max_size
-                ),
-            ));
+            return Err(ValidationError::IntegrityCheckFailed(format!(
+                "Encrypted data too large: {} bytes (maximum: {} bytes)",
+                data_bytes.len(),
+                self.max_size
+            )));
         }
 
         // Check for suspicious patterns that might indicate corruption
@@ -169,13 +165,13 @@ impl LightweightEncryptedDataValidator {
         for (index, encrypted_data) in encrypted_data_items.iter().enumerate() {
             if let Err(e) = self.validate_integrity(encrypted_data) {
                 failed_count += 1;
-                println!("Item {}: {}", index, e);
+                println!("Item {index}: {e}");
             }
         }
         if failed_count > 0 {
-            return Err(ValidationError::IntegrityCheckFailed(
-                format!("Batch validation failed: {} items failed", failed_count),
-            ));
+            return Err(ValidationError::IntegrityCheckFailed(format!(
+                "Batch validation failed: {failed_count} items failed"
+            )));
         }
         Ok(())
     }

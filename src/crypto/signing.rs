@@ -50,7 +50,7 @@ pub type WalletSignature =
 /// # Example
 /// ```
 /// use rand::rngs::OsRng;
-/// use tari_crypto::{keys::SecretKey, ristretto::RistrettoSecretKey};
+/// use lightweight_wallet_libs::crypto::{RistrettoSecretKey, SecretKey};
 /// use lightweight_wallet_libs::crypto::signing::sign_message;
 ///
 /// let secret_key = RistrettoSecretKey::random(&mut OsRng);
@@ -65,7 +65,7 @@ pub fn sign_message(
 
     WalletSignature::sign(secret_key, message_bytes, &mut OsRng).map_err(|e| {
         LightweightWalletError::ValidationError(ValidationError::SignatureValidationFailed(
-            format!("Failed to sign message: {}", e),
+            format!("Failed to sign message: {e}"),
         ))
     })
 }
@@ -83,7 +83,7 @@ pub fn sign_message(
 /// # Example
 /// ```
 /// use rand::rngs::OsRng;
-/// use tari_crypto::{keys::SecretKey, ristretto::RistrettoSecretKey};
+/// use lightweight_wallet_libs::crypto::{RistrettoSecretKey, SecretKey};
 /// use lightweight_wallet_libs::crypto::signing::sign_message_with_hex_output;
 ///
 /// let secret_key = RistrettoSecretKey::random(&mut OsRng);
@@ -116,7 +116,7 @@ pub fn sign_message_with_hex_output(
 /// # Example
 /// ```
 /// use rand::rngs::OsRng;
-/// use tari_crypto::{keys::{PublicKey, SecretKey}, ristretto::{RistrettoPublicKey, RistrettoSecretKey}};
+/// use lightweight_wallet_libs::crypto::{RistrettoPublicKey, RistrettoSecretKey, PublicKey, SecretKey};
 /// use lightweight_wallet_libs::crypto::signing::{sign_message, verify_message};
 ///
 /// let secret_key = RistrettoSecretKey::random(&mut OsRng);
@@ -152,7 +152,7 @@ pub fn verify_message(
 /// # Example
 /// ```
 /// use rand::rngs::OsRng;
-/// use tari_crypto::{keys::{PublicKey, SecretKey}, ristretto::{RistrettoPublicKey, RistrettoSecretKey}};
+/// use lightweight_wallet_libs::crypto::{RistrettoPublicKey, RistrettoSecretKey, PublicKey, SecretKey};
 /// use lightweight_wallet_libs::crypto::signing::{sign_message_with_hex_output, verify_message_from_hex};
 ///
 /// let secret_key = RistrettoSecretKey::random(&mut OsRng);
@@ -172,13 +172,13 @@ pub fn verify_message_from_hex(
     // Parse signature components from hex
     let signature_scalar = RistrettoSecretKey::from_hex(hex_signature).map_err(|e| {
         LightweightWalletError::ValidationError(ValidationError::SignatureValidationFailed(
-            format!("Invalid signature hex: {}", e),
+            format!("Invalid signature hex: {e}"),
         ))
     })?;
 
     let public_nonce = RistrettoPublicKey::from_hex(hex_nonce).map_err(|e| {
         LightweightWalletError::ValidationError(ValidationError::SignatureValidationFailed(
-            format!("Invalid nonce hex: {}", e),
+            format!("Invalid nonce hex: {e}"),
         ))
     })?;
 
@@ -214,14 +214,14 @@ pub fn derive_tari_signing_key(
     // Convert seed phrase to CipherSeed
     let encrypted_bytes = mnemonic_to_bytes(seed_phrase).map_err(|e| {
         LightweightWalletError::ValidationError(ValidationError::SignatureValidationFailed(
-            format!("Invalid seed phrase: {}", e),
+            format!("Invalid seed phrase: {e}"),
         ))
     })?;
 
     let cipher_seed =
         CipherSeed::from_enciphered_bytes(&encrypted_bytes, passphrase).map_err(|e| {
             LightweightWalletError::ValidationError(ValidationError::SignatureValidationFailed(
-                format!("Failed to decrypt CipherSeed: {}", e),
+                format!("Failed to decrypt CipherSeed: {e}"),
             ))
         })?;
 
@@ -235,7 +235,7 @@ pub fn derive_tari_signing_key(
     // Derive the communication key (second key from the pair)
     let (_, comms_key) = derive_view_and_spend_keys_from_entropy(entropy_array).map_err(|e| {
         LightweightWalletError::ValidationError(ValidationError::SignatureValidationFailed(
-            format!("Failed to derive communication key: {}", e),
+            format!("Failed to derive communication key: {e}"),
         ))
     })?;
 

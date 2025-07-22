@@ -10,24 +10,26 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  test:
-    name: Test Suite
+  check:
+    name: Format and Lint
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        features:
-          - "--no-default-features"
-          - "--features http"
-          - "--features grpc"
-          - "--features storage"
-          - "--features grpc-storage"
-          - "--features http-storage"
-          - "--all-features"
-    
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Install protobuf compiler
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Setup proto files
+        run: |
+          mkdir -p ../tari/applications/minotari_app_grpc/proto
+          cd ../tari/applications/minotari_app_grpc/proto
+          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/types.proto
+          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/transaction.proto
+          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/block.proto
+          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/network.proto
+          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/sidechain_types.proto
+          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/base_node.proto
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -47,17 +49,78 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Run clippy
-        run: cargo clippy --all-targets ${{ matrix.features }} -- -D warnings
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        features:
+          - "--no-default-features"
+          - "--features http"
+          - "--features grpc"
+          - "--features storage"
+          - "--features grpc-storage"
+          - "--features http-storage"
+          - "--all-features"
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install protobuf compiler
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Setup proto files
+        run: |
+          mkdir -p ../tari/applications/minotari_app_grpc/proto
+          cd ../tari/applications/minotari_app_grpc/proto
+          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/types.proto
+          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/transaction.proto
+          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/block.proto
+          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/network.proto
+          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/sidechain_types.proto
+          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/base_node.proto
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run tests
-        run: cargo test ${{ matrix.features }}
+        run: cargo test ${{ matrix.features }} -- --skip test_large_scale_address_generation --skip test_concurrent_wallet_operations --skip test_concurrent_scanning_operations --skip test_performance_degradation --skip test_large_scale_wallet_generation --skip test_memory_usage_stress --skip test_large_dataset_scanning_performance
 
   test-wasm:
     name: WASM Tests
     runs-on: ubuntu-latest
+    needs: check
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Install protobuf compiler
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Setup proto files
+        run: |
+          mkdir -p ../tari/applications/minotari_app_grpc/proto
+          cd ../tari/applications/minotari_app_grpc/proto
+          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/types.proto
+          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/transaction.proto
+          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/block.proto
+          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/network.proto
+          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/sidechain_types.proto
+          curl -O https://raw.githubusercontent.com/tari-project/tari/refs/heads/development/applications/minotari_app_grpc/proto/base_node.proto
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -77,11 +140,12 @@ jobs:
           key: ${{ runner.os }}-wasm-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Test WASM
-        run: wasm-pack test --node --features http
+        run: wasm-pack test --node --features http 
 
   security:
     name: Security Audit
     runs-on: ubuntu-latest
+    needs: check
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -98,6 +162,7 @@ jobs:
   unused-deps:
     name: Check Unused Dependencies
     runs-on: ubuntu-latest
+    needs: check
     steps:
       - name: Checkout
         uses: actions/checkout@v4

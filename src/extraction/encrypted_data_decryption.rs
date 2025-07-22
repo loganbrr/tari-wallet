@@ -181,7 +181,7 @@ impl EncryptedDataDecryptor {
                 ))
             }
             Err(e) => {
-                let error_msg = format!("Decryption error: {}", e);
+                let error_msg = format!("Decryption error: {e}");
                 Ok(DecryptionResult::failure(error_msg, 1))
             }
         }

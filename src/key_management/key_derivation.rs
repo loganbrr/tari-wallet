@@ -30,14 +30,11 @@ pub fn derive_view_and_spend_keys_from_entropy(
     const SPEND_KEY_BRANCH: &str = "comms"; // Communication node identity key (spending + message signing)
 
     let view_key = derive_private_key_from_entropy(entropy, VIEW_KEY_BRANCH, 0).map_err(|e| {
-        KeyManagementError::view_key_derivation_failed(&format!("Failed to derive view key: {}", e))
+        KeyManagementError::view_key_derivation_failed(&format!("Failed to derive view key: {e}"))
     })?;
 
     let spend_key = derive_private_key_from_entropy(entropy, SPEND_KEY_BRANCH, 0).map_err(|e| {
-        KeyManagementError::spend_key_derivation_failed(&format!(
-            "Failed to derive spend key: {}",
-            e
-        ))
+        KeyManagementError::spend_key_derivation_failed(&format!("Failed to derive spend key: {e}"))
     })?;
 
     Ok((view_key, spend_key))
@@ -67,7 +64,7 @@ pub fn derive_private_key_from_entropy(
         KeyManagementError::branch_key_derivation_failed(
             branch_seed,
             key_index,
-            &format!("Failed to create private key: {}", e),
+            &format!("Failed to create private key: {e}"),
         )
     })
 }
@@ -115,7 +112,7 @@ mod tests {
         let expected_emoji_address = "🐢📟📈🎉🤖⏰🔪🔬🍟😂😈🍋😂🚜🏦🔑💦🔋🍗🍪🚓🚨💯🔫🚓🎃🎼🐯🐔🎼🎓🚒💦🌈🎮🐯🤔🍺🐑🚢💅🍀🍔🍯😂➕🐀🐘😂🦁🔔🍶🤑💤🌻💯💊🎾🐗🍸🔥📎💅🎮🍯🍗💄";
 
         println!("=== Testing Tari Test Vector ===");
-        println!("Seed phrase: {}", seed_phrase);
+        println!("Seed phrase: {seed_phrase}");
 
         // Convert seed phrase to encrypted bytes (correct approach)
         let encrypted_bytes = crate::key_management::seed_phrase::mnemonic_to_bytes(seed_phrase)
@@ -151,14 +148,14 @@ mod tests {
         let actual_view_public_key = hex::encode(view_public_key.as_bytes());
         let actual_spend_public_key = hex::encode(spend_public_key.as_bytes());
 
-        println!("Expected View Private Key:  {}", expected_view_private_key);
-        println!("Actual View Private Key:    {}", actual_view_private_key);
-        println!("Expected Spend Private Key: {}", expected_spend_private_key);
-        println!("Actual Spend Private Key:   {}", actual_spend_private_key);
-        println!("Expected View Public Key:   {}", expected_view_public_key);
-        println!("Actual View Public Key:     {}", actual_view_public_key);
-        println!("Expected Spend Public Key:  {}", expected_spend_public_key);
-        println!("Actual Spend Public Key:    {}", actual_spend_public_key);
+        println!("Expected View Private Key:  {expected_view_private_key}");
+        println!("Actual View Private Key:    {actual_view_private_key}");
+        println!("Expected Spend Private Key: {expected_spend_private_key}");
+        println!("Actual Spend Private Key:   {actual_spend_private_key}");
+        println!("Expected View Public Key:   {expected_view_public_key}");
+        println!("Actual View Public Key:     {actual_view_public_key}");
+        println!("Expected Spend Public Key:  {expected_spend_public_key}");
+        println!("Actual Spend Public Key:    {actual_spend_public_key}");
 
         // Validate that we can derive keys successfully and they're different
         assert_ne!(
@@ -679,8 +676,7 @@ mod tests {
 
                 assert_eq!(
                     derived_hex, expected_private_hex,
-                    "Mismatch for branch '{}' at index {}",
-                    branch_seed, index
+                    "Mismatch for branch '{branch_seed}' at index {index}"
                 );
 
                 // Ensure we can derive public key consistently

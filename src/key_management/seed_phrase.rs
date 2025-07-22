@@ -838,8 +838,7 @@ pub fn validate_master_key_derivation(
             "cipher_seed" => e,
             "passphrase" => e,
             _ => KeyManagementError::master_key_derivation_failed(&format!(
-                "Failed to derive master key for validation: {}",
-                e
+                "Failed to derive master key for validation: {e}"
             )),
         })?;
 
@@ -947,10 +946,7 @@ pub fn find_matching_seed_phrase(
 
         return Err(KeyManagementError::wallet_recovery_failed(
             "seed phrase search",
-            &format!(
-                "No matching seed phrase found. Errors encountered: {}",
-                error_summary
-            ),
+            &format!("No matching seed phrase found. Errors encountered: {error_summary}"),
             "Verify that the seed phrases are correct and try with different passphrases if needed",
         ));
     }
@@ -1013,7 +1009,7 @@ pub fn detailed_master_key_validation(
     // Step 1: Convert mnemonic to encrypted bytes
     let encrypted_bytes = mnemonic_to_bytes(mnemonic).map_err(|e| {
         KeyManagementError::seed_validation_failed(
-            &format!("Mnemonic to bytes conversion failed: {}", e),
+            &format!("Mnemonic to bytes conversion failed: {e}"),
             "Check that the seed phrase has exactly 24 valid words",
         )
     })?;
@@ -1036,8 +1032,7 @@ pub fn detailed_master_key_validation(
     // Step 3: Re-derive master key
     let derived_master_key = mnemonic_to_master_key(mnemonic, passphrase).map_err(|e| {
         KeyManagementError::master_key_derivation_failed(&format!(
-            "Master key re-derivation failed: {}",
-            e
+            "Master key re-derivation failed: {e}"
         ))
     })?;
 
@@ -1046,7 +1041,7 @@ pub fn detailed_master_key_validation(
         .map_err(|e| {
             KeyManagementError::key_validation_failed(
                 "master",
-                &format!("CipherSeed validation failed: {}", e),
+                &format!("CipherSeed validation failed: {e}"),
             )
         })?;
 
@@ -1331,9 +1326,7 @@ mod tests {
                 let index = find_mnemonic_index_from_word(word).unwrap();
                 assert!(
                     index < MNEMONIC_ENGLISH_WORDS.len(),
-                    "Word index {} is out of range for word: {}",
-                    index,
-                    word
+                    "Word index {index} is out of range for word: {word}"
                 );
             }
 
@@ -1706,16 +1699,14 @@ mod tests {
         // 10 validations should complete in reasonable time (less than 30 seconds, accounting for Argon2)
         assert!(
             duration.as_secs() < 30,
-            "Validation took too long: {:?}",
-            duration
+            "Validation took too long: {duration:?}"
         );
 
         // Each validation should take less than 5 seconds on average
         let avg_time_per_validation = duration.as_millis() / 10;
         assert!(
             avg_time_per_validation < 5000,
-            "Average validation time too high: {}ms",
-            avg_time_per_validation
+            "Average validation time too high: {avg_time_per_validation}ms",
         );
     }
 
@@ -1892,7 +1883,7 @@ mod tests {
             KeyManagementError::wallet_recovery_failed("test", "test", "test"),
         ];
 
-        let expected_categories = vec![
+        let expected_categories = [
             "seed_phrase",
             "seed_phrase",
             "seed_phrase",
