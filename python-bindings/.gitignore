@@ -1,0 +1,16 @@
+/target
+__pycache__/
+.pytest_cache/
+*.py[cod]
+*.so
+.venv/
+env/
+bin/
+build/
+venv/
+.installed.cfg
+.coverage
+.cache
+.DS_Store
+.vscode/
+.python-version

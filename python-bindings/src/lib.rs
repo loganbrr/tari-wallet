@@ -1,8 +1,12 @@
 use pyo3::prelude::*;
 use pyo3::exceptions::PyRuntimeError;
+use pyo3::types::PyDict;
 use std::sync::{Arc, Mutex};
 use lightweight_wallet_libs::wallet::Wallet;
 use lightweight_wallet_libs::data_structures::address::TariAddressFeatures;
+use lightweight_wallet_libs::crypto::signing::{sign_message_with_tari_wallet, verify_message_from_hex, derive_tari_signing_key};
+use lightweight_wallet_libs::crypto::{RistrettoPublicKey, PublicKey};
+use tari_utilities::hex::Hex;
 
 /// Python wrapper for the Tari Wallet
 #[pyclass]
@@ -159,6 +163,61 @@ impl TariWallet {
     /// Representation of the wallet
     fn __repr__(&self) -> PyResult<String> {
         self.__str__()
+    }
+
+    /// Sign a message using the wallet's master key
+    /// 
+    /// Args:
+    ///     message: The message to sign as a string
+    /// 
+    /// Returns:
+    ///     dict: Dictionary with 'signature', 'nonce', and 'public_key' as hex strings
+    fn sign_message(&self, message: String) -> PyResult<PyObject> {
+        let wallet = self.inner.lock()
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock wallet: {}", e)))?;
+        
+        // Get the seed phrase from the wallet
+        let seed_phrase = wallet.export_seed_phrase()
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to export seed phrase: {}", e)))?;
+        
+        // Derive the signing key to get the public key
+        let signing_key = derive_tari_signing_key(&seed_phrase, None)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to derive signing key: {}", e)))?;
+        
+        let public_key = RistrettoPublicKey::from_secret_key(&signing_key);
+        let public_key_hex = public_key.to_hex();
+        
+        let (signature_hex, nonce_hex) = sign_message_with_tari_wallet(&seed_phrase, &message, None)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to sign message: {}", e)))?;
+        
+        Python::with_gil(|py| {
+            let result = PyDict::new(py);
+            result.set_item("signature", signature_hex)?;
+            result.set_item("nonce", nonce_hex)?;
+            result.set_item("public_key", public_key_hex)?;
+            Ok(result.into())
+        })
+    }
+
+    /// Verify a message signature
+    /// 
+    /// Args:
+    ///     message: The original message as a string
+    ///     signature_hex: The signature as a hex string
+    ///     nonce_hex: The nonce as a hex string
+    ///     public_key_hex: The public key as a hex string
+    /// 
+    /// Returns:
+    ///     bool: True if the signature is valid, False otherwise
+    fn verify_message(&self, message: String, signature_hex: String, nonce_hex: String, public_key_hex: String) -> PyResult<bool> {
+        // Parse the public key from hex
+        let public_key = RistrettoPublicKey::from_hex(&public_key_hex)
+            .map_err(|e| PyRuntimeError::new_err(format!("Invalid public key hex: {}", e)))?;
+        
+        let is_valid = verify_message_from_hex(&public_key, &message, &signature_hex, &nonce_hex)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to verify message: {}", e)))?;
+        
+        Ok(is_valid)
     }
 }
 
