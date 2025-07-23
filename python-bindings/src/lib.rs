@@ -8,10 +8,16 @@ use lightweight_wallet_libs::crypto::signing::{sign_message_with_tari_wallet, ve
 use lightweight_wallet_libs::crypto::{RistrettoPublicKey, PublicKey};
 use tari_utilities::hex::Hex;
 
+mod scanner;
+mod types;
+
+pub use scanner::{TariScanner, ScanResult, Balance, ScanProgress};
+pub use types::WalletTransaction;
+
 /// Python wrapper for the Tari Wallet
 #[pyclass]
 pub struct TariWallet {
-    inner: Arc<Mutex<Wallet>>,
+    pub(crate) inner: Arc<Mutex<Wallet>>,
 }
 
 #[pymethods]
@@ -238,6 +244,11 @@ fn generate_new_wallet(passphrase: Option<&str>) -> PyResult<TariWallet> {
 #[pymodule]
 fn lightweight_wallet_libpy(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<TariWallet>()?;
+    m.add_class::<TariScanner>()?;
+    m.add_class::<ScanResult>()?;
+    m.add_class::<Balance>()?;
+    m.add_class::<ScanProgress>()?;
+    m.add_class::<WalletTransaction>()?;
     m.add_function(wrap_pyfunction!(generate_new_wallet, m)?)?;
     Ok(())
 }
