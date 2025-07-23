@@ -61,6 +61,15 @@ The Tari Lightweight Wallet Libraries provide essential wallet functionality ext
 - ✅ CLI tool for signing and verification operations
 - ✅ JSON and compact output formats
 
+### 🐍 **Python Integration**
+- ✅ Native PyO3 bindings for optimal performance
+- ✅ Complete wallet functionality in Python
+- ✅ Message signing and verification
+- ✅ Address generation and management
+- ✅ Thread-safe operations
+- ✅ Blockchain scanning API (placeholder implementation)
+- ✅ Cross-platform Python wheel distribution
+
 ## 📦 **Installation**
 
 Add to your `Cargo.toml`:
@@ -296,6 +305,25 @@ let wallet = Wallet::generate_new_with_seed_phrase(None)?;
 // WASM-compatible with feature flag
 #[cfg(feature = "wasm")]
 use lightweight_wallet_libs::wasm::*;
+```
+
+### Python Bindings (Native PyO3)
+```python
+import lightweight_wallet_libpy
+
+# Create wallet
+wallet = lightweight_wallet_libpy.TariWallet.generate_new_with_seed_phrase()
+
+# Generate addresses
+address = wallet.get_dual_address(None)
+
+# Sign messages
+signature = wallet.sign_message("Hello, Tari!")
+print(f"Signature: {signature['signature']}")
+
+# Blockchain scanning (placeholder implementation)
+scanner = lightweight_wallet_libpy.TariScanner("http://127.0.0.1:18142", wallet)
+result = scanner.scan_blocks(1000, 1010)
 ```
 
 ### Mobile Development

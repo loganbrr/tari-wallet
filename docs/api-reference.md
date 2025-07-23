@@ -16,6 +16,7 @@ Implementation: src/wallet/mod.rs, src/key_management/mod.rs, src/scanning/mod.r
 - [Blockchain Scanning API](#blockchain-scanning-api)
 - [Message Signing API](#message-signing-api)
 - [Storage API](#storage-api)
+- [Python Bindings API](#python-bindings-api)
 - [Error Handling](#error-handling)
 
 ## Core Wallet API
@@ -420,6 +421,235 @@ let stored_wallet = StoredWallet::from_keys(
 stored_wallet.save_to_database(&db_connection).await
     .expect("Failed to save wallet");
 ```
+
+## Python Bindings API
+
+The Tari Lightweight Wallet Libraries provide native Python bindings through PyO3, offering optimal performance and seamless integration with Python applications.
+
+### Installation
+
+Install using pip (when available on PyPI):
+
+```bash
+pip install lightweight-wallet-libpy
+```
+
+Or build from source:
+
+```bash
+cd python-bindings
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install maturin
+maturin develop
+```
+
+### TariWallet Class
+
+The main Python class that wraps the Rust wallet functionality.
+
+#### Creation
+
+```python
+import lightweight_wallet_libpy
+
+# Create a new wallet with random seed phrase
+wallet = lightweight_wallet_libpy.TariWallet.generate_new_with_seed_phrase()
+
+# Create with passphrase
+wallet = lightweight_wallet_libpy.TariWallet.generate_new_with_seed_phrase("my_passphrase")
+
+# Convenience function
+wallet = lightweight_wallet_libpy.generate_new_wallet()
+```
+
+#### Wallet Properties
+
+```python
+# Get/set wallet birthday (block height)
+birthday = wallet.birthday()
+wallet.set_birthday(100000)
+
+# Get/set wallet label
+label = wallet.label()  # Returns Optional[str]
+wallet.set_label("My Wallet")
+
+# Get/set network
+network = wallet.network()
+wallet.set_network("mainnet")
+
+# Get/set key index
+index = wallet.current_key_index()
+wallet.set_current_key_index(5)
+
+# Custom properties
+wallet.set_property("key", "value")
+value = wallet.get_property("key")  # Returns Optional[str]
+removed = wallet.remove_property("key")  # Returns Optional[str]
+```
+
+#### Seed Phrase Operations
+
+```python
+# Export seed phrase
+seed_phrase = wallet.export_seed_phrase()
+print(f"Seed phrase: {seed_phrase}")  # 24 words
+```
+
+#### Address Generation
+
+```python
+# Generate dual address (supports both interactive and one-sided payments)
+dual_address = wallet.get_dual_address(None)
+print(f"Dual address: {dual_address}")
+
+# Generate dual address with payment ID
+payment_id = [1, 2, 3, 4, 5]  # bytes
+dual_address_with_payment = wallet.get_dual_address(payment_id)
+
+# Generate single address (interactive payments only)
+single_address = wallet.get_single_address()
+print(f"Single address: {single_address}")
+```
+
+#### Message Signing
+
+```python
+# Sign a message
+message = "Hello, Tari!"
+signature_result = wallet.sign_message(message)
+
+print(f"Signature: {signature_result['signature']}")
+print(f"Nonce: {signature_result['nonce']}")
+print(f"Public Key: {signature_result['public_key']}")
+
+# Verify a signature
+is_valid = wallet.verify_message(
+    message,
+    signature_result['signature'],
+    signature_result['nonce'],
+    signature_result['public_key']
+)
+print(f"Signature valid: {is_valid}")
+```
+
+### TariScanner Class
+
+Provides blockchain scanning capabilities (currently placeholder implementations).
+
+#### Creation
+
+```python
+# Create scanner for a wallet
+base_node_url = "http://127.0.0.1:18142"
+scanner = lightweight_wallet_libpy.TariScanner(base_node_url, wallet)
+```
+
+#### Scanning Operations
+
+```python
+# Get current blockchain tip height
+tip_height = scanner.get_tip_height()
+print(f"Tip height: {tip_height}")
+
+# Scan a range of blocks
+result = scanner.scan_blocks(1000, 1010)
+print(f"Scanned {result.total_scanned} blocks")
+print(f"Found {result.transaction_count} transactions")
+print(f"Current height: {result.current_height}")
+
+# Scan without end height (defaults to start + 100)
+result = scanner.scan_blocks(1000, None)
+
+# Get wallet balance
+balance = scanner.get_balance()
+print(f"Available: {balance.available}")
+print(f"Pending: {balance.pending}")
+print(f"Immature: {balance.immature}")
+print(f"Total: {balance.total()}")
+```
+
+### Data Types
+
+#### ScanResult
+
+```python
+# Returned by scan_blocks()
+result = scanner.scan_blocks(1000, 1100)
+print(result.transaction_count)  # Number of transactions found
+print(result.total_scanned)      # Number of blocks scanned
+print(result.current_height)     # Latest block height scanned
+print(result)                    # String representation
+```
+
+#### Balance
+
+```python
+# Returned by get_balance()
+balance = scanner.get_balance()
+print(balance.available)         # Spendable balance
+print(balance.pending)           # Pending transactions
+print(balance.immature)          # Immature coinbase
+print(balance.total())           # Total balance
+print(balance)                   # String representation
+```
+
+#### WalletTransaction
+
+```python
+# Available as a data type (not yet returned by scanning)
+# Will be used for actual transaction data in future implementations
+```
+
+### Error Handling
+
+Python bindings convert Rust errors to Python exceptions:
+
+```python
+try:
+    wallet = lightweight_wallet_libpy.TariWallet.generate_new_with_seed_phrase()
+    seed_phrase = wallet.export_seed_phrase()
+except RuntimeError as e:
+    print(f"Wallet operation failed: {e}")
+```
+
+### Thread Safety
+
+The Python bindings are thread-safe:
+
+```python
+import threading
+
+def wallet_operation(wallet):
+    # Safe to use wallet from multiple threads
+    address = wallet.get_dual_address(None)
+    return address
+
+# Create threads
+wallet = lightweight_wallet_libpy.TariWallet.generate_new_with_seed_phrase()
+threads = [threading.Thread(target=wallet_operation, args=(wallet,)) for _ in range(5)]
+
+# Start and join threads
+for t in threads:
+    t.start()
+for t in threads:
+    t.join()
+```
+
+### Performance Notes
+
+- Python bindings use native Rust code for optimal performance
+- No serialization overhead between Python and Rust
+- Direct memory access for efficient operations
+- Async operations are currently implemented as placeholder synchronous methods
+
+### Future Enhancements
+
+- Full async support for blockchain scanning operations
+- Real-time balance calculation from blockchain data
+- Transaction history and UTXO management
+- WebSocket support for real-time updates
+- Integration with storage backends
 
 ## Error Handling
 
