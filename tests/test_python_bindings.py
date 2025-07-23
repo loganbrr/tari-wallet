@@ -186,6 +186,71 @@ def test_string_representations():
     print("✅ String representation tests passed")
 
 
+def test_message_signing_basic():
+    """Test basic message signing functionality."""
+    print("\nTesting basic message signing...")
+    
+    wallet = lightweight_wallet_libpy.TariWallet.generate_new_with_seed_phrase()
+    message = "Hello, Tari from Python!"
+    
+    # Sign the message
+    signature_result = wallet.sign_message(message)
+    
+    # Verify the result structure
+    assert isinstance(signature_result, dict)
+    assert "signature" in signature_result
+    assert "nonce" in signature_result
+    assert "public_key" in signature_result
+    
+    # Verify the signature
+    is_valid = wallet.verify_message(
+        message,
+        signature_result["signature"],
+        signature_result["nonce"],
+        signature_result["public_key"]
+    )
+    assert is_valid is True
+    
+    print("✅ Basic message signing tests passed")
+
+
+def test_scanner_basic():
+    """Test basic scanner functionality."""
+    print("\nTesting basic scanner functionality...")
+    
+    wallet = lightweight_wallet_libpy.TariWallet.generate_new_with_seed_phrase()
+    scanner = lightweight_wallet_libpy.TariScanner("http://127.0.0.1:18142", wallet)
+    
+    # Test scanner methods (placeholder implementations)
+    tip_height = scanner.get_tip_height()
+    assert isinstance(tip_height, int)
+    
+    scan_result = scanner.scan_blocks(1000, 1010)
+    assert hasattr(scan_result, 'transaction_count')
+    assert hasattr(scan_result, 'total_scanned')
+    assert hasattr(scan_result, 'current_height')
+    
+    balance = scanner.get_balance()
+    assert hasattr(balance, 'available')
+    assert hasattr(balance, 'pending')
+    assert hasattr(balance, 'immature')
+    
+    print("✅ Basic scanner tests passed")
+
+
+def test_data_types():
+    """Test wallet transaction and related data types."""
+    print("\nTesting wallet data types...")
+    
+    # Test that we can import all the classes
+    assert hasattr(lightweight_wallet_libpy, 'WalletTransaction')
+    assert hasattr(lightweight_wallet_libpy, 'ScanResult')
+    assert hasattr(lightweight_wallet_libpy, 'Balance')
+    assert hasattr(lightweight_wallet_libpy, 'ScanProgress')
+    
+    print("✅ Data types tests passed")
+
+
 def main():
     """Run all tests."""
     print("=== Tari Wallet Python Bindings Test Suite ===\n")
@@ -198,6 +263,9 @@ def main():
         test_error_handling()
         test_multiple_wallets()
         test_string_representations()
+        test_message_signing_basic()
+        test_scanner_basic()
+        test_data_types()
         
         print("\n🎉 All tests passed! The Python bindings are working correctly.")
         
