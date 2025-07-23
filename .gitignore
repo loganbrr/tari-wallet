@@ -4,3 +4,10 @@ target
 .vscode
 /REFERENCE_*
 *.db
+*.db-journal
+
+# Coverage reports
+coverage/
+tarpaulin-report.html
+cobertura.xml
+lcov.info

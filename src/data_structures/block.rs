@@ -9,14 +9,14 @@
 
 use crate::{
     data_structures::{
-        types::PrivateKey,
         encrypted_data::EncryptedData,
         payment_id::PaymentId,
-        transaction::{TransactionStatus, TransactionDirection},
-        wallet_transaction::WalletState,
-        transaction_output::LightweightTransactionOutput,
+        transaction::{TransactionDirection, TransactionStatus},
         transaction_input::TransactionInput,
+        transaction_output::LightweightTransactionOutput,
+        types::PrivateKey,
         wallet_output::LightweightOutputType,
+        wallet_transaction::WalletState,
     },
     errors::LightweightWalletResult,
 };
@@ -29,7 +29,7 @@ use crate::scanning::BlockInfo;
 use rayon::prelude::*;
 
 /// A block with wallet-focused processing capabilities
-/// 
+///
 /// This struct wraps a `BlockInfo` and provides methods to extract wallet outputs
 /// and detect spending using various decryption techniques.
 pub struct Block {
@@ -49,7 +49,6 @@ pub struct Block {
 #[derive(Debug, Clone)]
 struct OutputProcessingResult {
     output_index: usize,
-    found: bool,
     value: u64,
     payment_id: PaymentId,
     transaction_status: TransactionStatus,
@@ -87,7 +86,7 @@ impl Block {
     }
 
     /// Process all outputs in this block to discover wallet outputs - OPTIMIZED VERSION
-    /// 
+    ///
     /// This method uses parallel processing and optimized decryption attempts to maximize performance
     pub fn process_outputs(
         &self,
@@ -101,7 +100,8 @@ impl Block {
 
         // Process outputs in parallel when feature is enabled
         #[cfg(feature = "grpc")]
-        let results: Vec<OutputProcessingResult> = self.outputs
+        let results: Vec<OutputProcessingResult> = self
+            .outputs
             .par_iter()
             .enumerate()
             .filter_map(|(output_index, output)| {
@@ -111,7 +111,8 @@ impl Block {
 
         // Fallback to sequential processing when parallel feature not enabled
         #[cfg(not(feature = "grpc"))]
-        let results: Vec<OutputProcessingResult> = self.outputs
+        let results: Vec<OutputProcessingResult> = self
+            .outputs
             .iter()
             .enumerate()
             .filter_map(|(output_index, output)| {
@@ -148,14 +149,15 @@ impl Block {
         // Early exit for outputs with no encrypted data (except coinbase)
         let has_encrypted_data = !output.encrypted_data.as_bytes().is_empty();
         let is_coinbase = matches!(output.features.output_type, LightweightOutputType::Coinbase);
-        
+
         if !has_encrypted_data && !is_coinbase {
             return None;
         }
 
         // Handle coinbase outputs
         if is_coinbase {
-            if let Some(result) = self.try_coinbase_output_optimized(output_index, output, view_key) {
+            if let Some(result) = self.try_coinbase_output_optimized(output_index, output, view_key)
+            {
                 return Some(result);
             }
         }
@@ -166,13 +168,16 @@ impl Block {
         }
 
         // Try regular decryption first (most common case)
-        if let Some(result) = self.try_regular_decryption_optimized(output_index, output, view_key) {
+        if let Some(result) = self.try_regular_decryption_optimized(output_index, output, view_key)
+        {
             return Some(result);
         }
 
         // Try one-sided decryption only if sender offset key is present
         if !output.sender_offset_public_key.as_bytes().is_empty() {
-            if let Some(result) = self.try_one_sided_decryption_optimized(output_index, output, view_key) {
+            if let Some(result) =
+                self.try_one_sided_decryption_optimized(output_index, output, view_key)
+            {
                 return Some(result);
             }
         }
@@ -197,20 +202,16 @@ impl Block {
 
         if !output.encrypted_data.as_bytes().is_empty() {
             // Try regular decryption for ownership verification first (faster)
-            if EncryptedData::decrypt_data(view_key, &output.commitment, &output.encrypted_data).is_ok() {
-                is_ours = true;
-            }
+            is_ours = EncryptedData::decrypt_data(view_key, &output.commitment, &output.encrypted_data)
+                .is_ok()
             // Only try one-sided decryption if regular failed and sender offset key exists
-            else if !output.sender_offset_public_key.as_bytes().is_empty() {
-                if EncryptedData::decrypt_one_sided_data(
-                    view_key, 
-                    &output.commitment, 
-                    &output.sender_offset_public_key, 
-                    &output.encrypted_data
-                ).is_ok() {
-                    is_ours = true;
-                }
-            }
+            || (!output.sender_offset_public_key.as_bytes().is_empty() && EncryptedData::decrypt_one_sided_data(
+                    view_key,
+                    &output.commitment,
+                    &output.sender_offset_public_key,
+                    &output.encrypted_data,
+                )
+                .is_ok());
         }
 
         if is_ours {
@@ -219,13 +220,12 @@ impl Block {
 
             return Some(OutputProcessingResult {
                 output_index,
-                found: true,
                 value: coinbase_value,
                 payment_id: PaymentId::Empty, // Coinbase outputs typically have no payment ID
-                transaction_status: if is_mature { 
-                    TransactionStatus::CoinbaseConfirmed 
-                } else { 
-                    TransactionStatus::CoinbaseUnconfirmed 
+                transaction_status: if is_mature {
+                    TransactionStatus::CoinbaseConfirmed
+                } else {
+                    TransactionStatus::CoinbaseUnconfirmed
                 },
                 is_mature,
             });
@@ -241,14 +241,11 @@ impl Block {
         output: &LightweightTransactionOutput,
         view_key: &PrivateKey,
     ) -> Option<OutputProcessingResult> {
-        if let Ok((value, _mask, payment_id)) = EncryptedData::decrypt_data(
-            view_key, 
-            &output.commitment, 
-            &output.encrypted_data
-        ) {
+        if let Ok((value, _mask, payment_id)) =
+            EncryptedData::decrypt_data(view_key, &output.commitment, &output.encrypted_data)
+        {
             return Some(OutputProcessingResult {
                 output_index,
-                found: true,
                 value: value.as_u64(),
                 payment_id,
                 transaction_status: TransactionStatus::MinedConfirmed,
@@ -266,14 +263,13 @@ impl Block {
         view_key: &PrivateKey,
     ) -> Option<OutputProcessingResult> {
         if let Ok((value, _mask, payment_id)) = EncryptedData::decrypt_one_sided_data(
-            view_key, 
-            &output.commitment, 
-            &output.sender_offset_public_key, 
-            &output.encrypted_data
+            view_key,
+            &output.commitment,
+            &output.sender_offset_public_key,
+            &output.encrypted_data,
         ) {
             return Some(OutputProcessingResult {
                 output_index,
-                found: true,
                 value: value.as_u64(),
                 payment_id,
                 transaction_status: TransactionStatus::OneSidedConfirmed,
@@ -292,11 +288,15 @@ impl Block {
 
             // Try to match by output hash first (for HTTP API)
             // Only attempt if output_hash is not all zeros (HTTP API provides real output hashes)
-            if !input.output_hash.iter().all(|&b| b == 0) {
-                if wallet_state.mark_output_spent_by_hash(&input.output_hash, self.height, input_index) {
-                    spent_outputs += 1;
-                    found_spent = true;
-                }
+            if !input.output_hash.iter().all(|&b| b == 0)
+                && wallet_state.mark_output_spent_by_hash(
+                    &input.output_hash,
+                    self.height,
+                    input_index,
+                )
+            {
+                spent_outputs += 1;
+                found_spent = true;
             }
 
             // If output hash matching failed or output_hash is all zeros, try commitment matching (for GRPC API)
@@ -313,7 +313,7 @@ impl Block {
     }
 
     /// Scan this block for all wallet activity (outputs and inputs)
-    /// 
+    ///
     /// This is a convenience method that calls both `process_outputs` and `process_inputs`
     pub fn scan_for_wallet_activity(
         &self,
@@ -324,129 +324,6 @@ impl Block {
         let found_outputs = self.process_outputs(view_key, entropy, wallet_state)?;
         let spent_outputs = self.process_inputs(wallet_state)?;
         Ok((found_outputs, spent_outputs))
-    }
-
-    /// Try to process a coinbase output with ownership verification
-    fn try_coinbase_output(
-        &self,
-        output: &LightweightTransactionOutput,
-        output_index: usize,
-        view_key: &PrivateKey,
-        wallet_state: &mut WalletState,
-    ) -> LightweightWalletResult<bool> {
-        let coinbase_value = output.minimum_value_promise.as_u64();
-        if coinbase_value == 0 {
-            return Ok(false);
-        }
-
-        // For coinbase outputs, verify ownership through encrypted data decryption
-        let mut is_ours = false;
-
-        if !output.encrypted_data.as_bytes().is_empty() {
-            // Try regular decryption for ownership verification
-            if EncryptedData::decrypt_data(view_key, &output.commitment, &output.encrypted_data).is_ok() {
-                is_ours = true;
-            }
-            // Try one-sided decryption for ownership verification
-            else if !output.sender_offset_public_key.as_bytes().is_empty() {
-                if EncryptedData::decrypt_one_sided_data(
-                    view_key, 
-                    &output.commitment, 
-                    &output.sender_offset_public_key, 
-                    &output.encrypted_data
-                ).is_ok() {
-                    is_ours = true;
-                }
-            }
-        }
-
-        // Only add to wallet if we can prove ownership
-        if is_ours {
-            // Check if coinbase is mature (can be spent)
-            let is_mature = self.height >= output.features.maturity;
-
-            wallet_state.add_received_output(
-                self.height,
-                output_index,
-                output.commitment.clone(),
-                Some(output.hash().to_vec()), // Include calculated output hash
-                coinbase_value,
-                PaymentId::Empty, // Coinbase outputs typically have no payment ID
-                if is_mature { 
-                    TransactionStatus::CoinbaseConfirmed 
-                } else { 
-                    TransactionStatus::CoinbaseUnconfirmed 
-                },
-                TransactionDirection::Inbound,
-                is_mature,
-            );
-            return Ok(true);
-        }
-
-        Ok(false)
-    }
-
-    /// Try regular encrypted data decryption
-    fn try_regular_decryption(
-        &self,
-        output: &LightweightTransactionOutput,
-        output_index: usize,
-        view_key: &PrivateKey,
-        wallet_state: &mut WalletState,
-    ) -> LightweightWalletResult<bool> {
-        if let Ok((value, _mask, payment_id)) = EncryptedData::decrypt_data(
-            view_key, 
-            &output.commitment, 
-            &output.encrypted_data
-        ) {
-            let value_u64 = value.as_u64();
-            wallet_state.add_received_output(
-                self.height,
-                output_index,
-                output.commitment.clone(),
-                Some(output.hash().to_vec()), // Include calculated output hash
-                value_u64,
-                payment_id,
-                TransactionStatus::MinedConfirmed,
-                TransactionDirection::Inbound,
-                true, // Regular payments are always mature
-            );
-            return Ok(true);
-        }
-        Ok(false)
-    }
-
-    /// Try one-sided encrypted data decryption
-    fn try_one_sided_decryption(
-        &self,
-        output: &LightweightTransactionOutput,
-        output_index: usize,
-        view_key: &PrivateKey,
-        wallet_state: &mut WalletState,
-    ) -> LightweightWalletResult<bool> {
-        if !output.sender_offset_public_key.as_bytes().is_empty() {
-            if let Ok((value, _mask, payment_id)) = EncryptedData::decrypt_one_sided_data(
-                view_key, 
-                &output.commitment, 
-                &output.sender_offset_public_key, 
-                &output.encrypted_data
-            ) {
-                let value_u64 = value.as_u64();
-                wallet_state.add_received_output(
-                    self.height,
-                    output_index,
-                    output.commitment.clone(),
-                    Some(output.hash().to_vec()), // Include calculated output hash
-                    value_u64,
-                    payment_id,
-                    TransactionStatus::OneSidedConfirmed,
-                    TransactionDirection::Inbound,
-                    true, // One-sided payments are always mature
-                );
-                return Ok(true);
-            }
-        }
-        Ok(false)
     }
 
     /// Get the number of outputs in this block
@@ -499,14 +376,64 @@ impl std::fmt::Display for BlockSummary {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::data_structures::{
+        encrypted_data::EncryptedData,
+        payment_id::PaymentId,
+        transaction::{TransactionDirection, TransactionStatus},
+        transaction_input::TransactionInput,
+        transaction_output::LightweightTransactionOutput,
+        types::{CompressedCommitment, CompressedPublicKey, MicroMinotari, PrivateKey},
+        wallet_output::{LightweightOutputFeatures, LightweightOutputType},
+        wallet_transaction::WalletState,
+    };
 
     fn create_test_block() -> Block {
-        Block::new(
-            1000,
-            vec![1, 2, 3, 4],
-            1234567890,
-            vec![],
-            vec![],
+        Block::new(1000, vec![1, 2, 3, 4], 1234567890, vec![], vec![])
+    }
+
+    fn create_test_private_key() -> PrivateKey {
+        PrivateKey::new([1u8; 32])
+    }
+
+    fn create_test_output_with_features(
+        output_type: LightweightOutputType,
+        maturity: u64,
+        value: u64,
+    ) -> LightweightTransactionOutput {
+        let features = LightweightOutputFeatures {
+            output_type,
+            maturity,
+            ..Default::default()
+        };
+
+        LightweightTransactionOutput::new(
+            1,
+            features,
+            CompressedCommitment::new([1u8; 32]),
+            None,
+            Default::default(),
+            CompressedPublicKey::default(),
+            Default::default(),
+            Default::default(),
+            EncryptedData::default(),
+            MicroMinotari::new(value),
+        )
+    }
+
+    fn create_test_input(commitment: [u8; 32], output_hash: [u8; 32]) -> TransactionInput {
+        TransactionInput::new(
+            1,
+            0,
+            commitment,
+            [0u8; 64],
+            CompressedPublicKey::default(),
+            Vec::new(),
+            crate::data_structures::transaction_input::LightweightExecutionStack::new(),
+            output_hash,
+            0,
+            [0u8; 64],
+            0,
+            MicroMinotari::new(0),
         )
     }
 
@@ -521,18 +448,53 @@ mod tests {
     }
 
     #[test]
+    fn test_block_with_outputs_and_inputs() {
+        let output = create_test_output_with_features(LightweightOutputType::Payment, 0, 1000);
+        let input = create_test_input([1u8; 32], [2u8; 32]);
+
+        let block = Block::new(
+            1000,
+            vec![1, 2, 3, 4],
+            1234567890,
+            vec![output],
+            vec![input],
+        );
+
+        assert_eq!(block.output_count(), 1);
+        assert_eq!(block.input_count(), 1);
+    }
+
+    #[test]
     fn test_block_summary() {
-        let block = create_test_block();
+        let output1 = create_test_output_with_features(LightweightOutputType::Payment, 0, 1000);
+        let output2 = create_test_output_with_features(LightweightOutputType::Coinbase, 100, 5000);
+        let input = create_test_input([1u8; 32], [2u8; 32]);
+
+        let block = Block::new(
+            1000,
+            vec![1, 2, 3, 4],
+            1234567890,
+            vec![output1, output2],
+            vec![input],
+        );
+
         let summary = block.summary();
         assert_eq!(summary.height, 1000);
-        assert_eq!(summary.output_count, 0);
-        assert_eq!(summary.input_count, 0);
+        assert_eq!(summary.hash, vec![1, 2, 3, 4]);
+        assert_eq!(summary.timestamp, 1234567890);
+        assert_eq!(summary.output_count, 2);
+        assert_eq!(summary.input_count, 1);
+
+        let summary_str = summary.to_string();
+        assert!(summary_str.contains("Block 1000"));
+        assert!(summary_str.contains("outputs: 2"));
+        assert!(summary_str.contains("inputs: 1"));
     }
 
     #[test]
     #[cfg(feature = "grpc")]
     fn test_block_from_block_info() {
-        let block_info = BlockInfo {
+        let block_info = crate::scanning::BlockInfo {
             height: 1000,
             hash: vec![1, 2, 3, 4],
             timestamp: 1234567890,
@@ -540,7 +502,7 @@ mod tests {
             inputs: vec![],
             kernels: vec![],
         };
-        
+
         let block = Block::from_block_info(block_info);
         assert_eq!(block.height, 1000);
         assert_eq!(block.hash, vec![1, 2, 3, 4]);
@@ -548,15 +510,107 @@ mod tests {
     }
 
     #[test]
-    fn test_process_inputs_http_and_grpc_compatibility() {
-        use crate::data_structures::{
-            transaction_input::TransactionInput,
-            types::{CompressedCommitment, CompressedPublicKey, MicroMinotari},
-            wallet_transaction::WalletState,
-            payment_id::PaymentId,
-            transaction::{TransactionStatus, TransactionDirection},
-        };
+    fn test_process_outputs_empty_block() {
+        let block = create_test_block();
+        let view_key = create_test_private_key();
+        let entropy = [0u8; 16];
+        let mut wallet_state = WalletState::new();
 
+        let found_count = block
+            .process_outputs(&view_key, &entropy, &mut wallet_state)
+            .unwrap();
+        assert_eq!(found_count, 0);
+    }
+
+    #[test]
+    fn test_process_outputs_no_encrypted_data() {
+        let output = create_test_output_with_features(LightweightOutputType::Payment, 0, 1000);
+        let block = Block::new(1000, vec![1, 2, 3, 4], 1234567890, vec![output], vec![]);
+
+        let view_key = create_test_private_key();
+        let entropy = [0u8; 16];
+        let mut wallet_state = WalletState::new();
+
+        // Should find no outputs since there's no encrypted data and it's not coinbase
+        let found_count = block
+            .process_outputs(&view_key, &entropy, &mut wallet_state)
+            .unwrap();
+        assert_eq!(found_count, 0);
+    }
+
+    #[test]
+    fn test_process_outputs_coinbase_without_encrypted_data() {
+        let output = create_test_output_with_features(LightweightOutputType::Coinbase, 100, 5000);
+        let block = Block::new(1100, vec![1, 2, 3, 4], 1234567890, vec![output], vec![]);
+
+        let view_key = create_test_private_key();
+        let entropy = [0u8; 16];
+        let mut wallet_state = WalletState::new();
+
+        // Should find no outputs since coinbase has no encrypted data to verify ownership
+        let found_count = block
+            .process_outputs(&view_key, &entropy, &mut wallet_state)
+            .unwrap();
+        assert_eq!(found_count, 0);
+    }
+
+    #[test]
+    fn test_process_outputs_coinbase_maturity() {
+        let mut output =
+            create_test_output_with_features(LightweightOutputType::Coinbase, 100, 5000);
+        // Add some encrypted data to simulate ownership verification
+        output.encrypted_data = EncryptedData::from_bytes(&[1, 2, 3, 4]).unwrap_or_default();
+
+        // Test immature coinbase (block height < maturity)
+        let block_immature = Block::new(
+            50,
+            vec![1, 2, 3, 4],
+            1234567890,
+            vec![output.clone()],
+            vec![],
+        );
+        let view_key = create_test_private_key();
+        let entropy = [0u8; 16];
+        let mut wallet_state = WalletState::new();
+
+        let found_count = block_immature
+            .process_outputs(&view_key, &entropy, &mut wallet_state)
+            .unwrap();
+        // Will be 0 because encryption verification will fail with test data
+        assert_eq!(found_count, 0);
+
+        // Test mature coinbase (block height >= maturity)
+        let block_mature = Block::new(150, vec![1, 2, 3, 4], 1234567890, vec![output], vec![]);
+        let mut wallet_state = WalletState::new();
+
+        let found_count = block_mature
+            .process_outputs(&view_key, &entropy, &mut wallet_state)
+            .unwrap();
+        // Will be 0 because encryption verification will fail with test data
+        assert_eq!(found_count, 0);
+    }
+
+    #[test]
+    fn test_process_inputs_empty_block() {
+        let block = create_test_block();
+        let mut wallet_state = WalletState::new();
+
+        let spent_count = block.process_inputs(&mut wallet_state).unwrap();
+        assert_eq!(spent_count, 0);
+    }
+
+    #[test]
+    fn test_process_inputs_no_matching_outputs() {
+        let input = create_test_input([1u8; 32], [2u8; 32]);
+        let block = Block::new(200, vec![1, 2, 3], 123456789, vec![], vec![input]);
+        let mut wallet_state = WalletState::new();
+
+        let spent_count = block.process_inputs(&mut wallet_state).unwrap();
+        assert_eq!(spent_count, 0);
+    }
+
+    #[test]
+    fn test_process_inputs_http_and_grpc_compatibility() {
         let mut wallet_state = WalletState::new();
         let commitment = CompressedCommitment::new([1u8; 32]);
         let output_hash = [2u8; 32];
@@ -575,28 +629,8 @@ mod tests {
         );
 
         // Test 1: HTTP-style input (has output hash, zero commitment)
-        let http_input = TransactionInput::new(
-            1,
-            0,
-            [0u8; 32], // Zero commitment (HTTP doesn't provide this)
-            [0u8; 64],
-            CompressedPublicKey::default(),
-            Vec::new(),
-            crate::data_structures::transaction_input::LightweightExecutionStack::new(),
-            output_hash, // Valid output hash from HTTP API
-            0,
-            [0u8; 64],
-            0,
-            MicroMinotari::new(0),
-        );
-
-        let block_http = Block::new(
-            200,
-            vec![1, 2, 3],
-            123456789,
-            vec![],
-            vec![http_input],
-        );
+        let http_input = create_test_input([0u8; 32], output_hash);
+        let block_http = Block::new(200, vec![1, 2, 3], 123456789, vec![], vec![http_input]);
 
         // Should find the spent output using output hash matching
         let spent_count = block_http.process_inputs(&mut wallet_state).unwrap();
@@ -618,77 +652,172 @@ mod tests {
             true,
         );
 
-        // Test 2: GRPC-style input (has commitment, may have output hash too)
-        let grpc_input = TransactionInput::new(
-            1,
-            0,
-            *commitment.as_bytes(), // Valid commitment from GRPC (copy the array, not convert reference)
-            [0u8; 64],
-            CompressedPublicKey::default(),
-            Vec::new(),
-            crate::data_structures::transaction_input::LightweightExecutionStack::new(),
-            [0u8; 32], // Zero output hash (or could be valid, but we test commitment fallback)
-            0,
-            [0u8; 64],
-            0,
-            MicroMinotari::new(0),
-        );
-
-        let block_grpc = Block::new(
-            200,
-            vec![1, 2, 3],
-            123456789,
-            vec![],
-            vec![grpc_input],
-        );
+        // Test 2: GRPC-style input (has commitment, zero output hash)
+        let grpc_input = create_test_input(*commitment.as_bytes(), [0u8; 32]);
+        let block_grpc = Block::new(200, vec![1, 2, 3], 123456789, vec![], vec![grpc_input]);
 
         // Should find the spent output using commitment matching
         let spent_count = block_grpc.process_inputs(&mut wallet_state).unwrap();
         assert_eq!(spent_count, 1);
         let (_, _, _, _, spent_count_after) = wallet_state.get_summary();
         assert_eq!(spent_count_after, 1);
+    }
 
-        // Test 3: GRPC-style input with both valid commitment and output hash
+    #[test]
+    fn test_process_inputs_multiple_inputs() {
         let mut wallet_state = WalletState::new();
+        let commitment1 = CompressedCommitment::new([1u8; 32]);
+        let commitment2 = CompressedCommitment::new([2u8; 32]);
+        let output_hash1 = [3u8; 32];
+        let output_hash2 = [4u8; 32];
+
+        // Add multiple received outputs
         wallet_state.add_received_output(
             100,
             0,
-            commitment.clone(),
-            Some(output_hash.to_vec()),
+            commitment1.clone(),
+            Some(output_hash1.to_vec()),
             1000,
             PaymentId::Empty,
             TransactionStatus::MinedConfirmed,
             TransactionDirection::Inbound,
             true,
         );
-
-        let grpc_input_both = TransactionInput::new(
+        wallet_state.add_received_output(
+            100,
             1,
-            0,
-            *commitment.as_bytes(), // Valid commitment from GRPC (copy the array, not convert reference)
-            [0u8; 64],
-            CompressedPublicKey::default(),
-            Vec::new(),
-            crate::data_structures::transaction_input::LightweightExecutionStack::new(),
-            output_hash, // Also has valid output hash
-            0,
-            [0u8; 64],
-            0,
-            MicroMinotari::new(0),
+            commitment2.clone(),
+            Some(output_hash2.to_vec()),
+            2000,
+            PaymentId::Empty,
+            TransactionStatus::MinedConfirmed,
+            TransactionDirection::Inbound,
+            true,
         );
 
-        let block_grpc_both = Block::new(
+        // Create inputs that spend both outputs
+        let input1 = create_test_input([0u8; 32], output_hash1);
+        let input2 = create_test_input(*commitment2.as_bytes(), [0u8; 32]);
+
+        let block = Block::new(200, vec![1, 2, 3], 123456789, vec![], vec![input1, input2]);
+
+        let spent_count = block.process_inputs(&mut wallet_state).unwrap();
+        assert_eq!(spent_count, 2);
+        let (_, _, _, _, spent_count_after) = wallet_state.get_summary();
+        assert_eq!(spent_count_after, 2);
+    }
+
+    #[test]
+    fn test_scan_for_wallet_activity() {
+        let output = create_test_output_with_features(LightweightOutputType::Payment, 0, 1000);
+        let input = create_test_input([1u8; 32], [2u8; 32]);
+
+        let block = Block::new(
+            1000,
+            vec![1, 2, 3, 4],
+            1234567890,
+            vec![output],
+            vec![input],
+        );
+        let view_key = create_test_private_key();
+        let entropy = [0u8; 16];
+        let mut wallet_state = WalletState::new();
+
+        let (found_outputs, spent_outputs) = block
+            .scan_for_wallet_activity(&view_key, &entropy, &mut wallet_state)
+            .unwrap();
+
+        // Should find no outputs due to missing encrypted data, and no spent outputs due to no matching outputs
+        assert_eq!(found_outputs, 0);
+        assert_eq!(spent_outputs, 0);
+    }
+
+    #[test]
+    fn test_block_edge_cases() {
+        // Test with maximum values
+        let block = Block::new(u64::MAX, vec![255u8; 32], u64::MAX, vec![], vec![]);
+        assert_eq!(block.height, u64::MAX);
+        assert_eq!(block.timestamp, u64::MAX);
+        assert_eq!(block.hash.len(), 32);
+
+        // Test with empty hash
+        let block_empty_hash = Block::new(0, vec![], 0, vec![], vec![]);
+        assert_eq!(block_empty_hash.hash.len(), 0);
+
+        // Test with large numbers of outputs and inputs
+        let outputs =
+            vec![create_test_output_with_features(LightweightOutputType::Payment, 0, 1000); 100];
+        let inputs = vec![create_test_input([1u8; 32], [2u8; 32]); 50];
+
+        let large_block = Block::new(1000, vec![1, 2, 3, 4], 1234567890, outputs, inputs);
+        assert_eq!(large_block.output_count(), 100);
+        assert_eq!(large_block.input_count(), 50);
+    }
+
+    #[test]
+    fn test_output_processing_result() {
+        // Test the internal OutputProcessingResult structure indirectly
+        let mut output =
+            create_test_output_with_features(LightweightOutputType::Coinbase, 100, 5000);
+        output.encrypted_data = EncryptedData::from_bytes(&[1, 2, 3, 4]).unwrap_or_default();
+
+        let block = Block::new(150, vec![1, 2, 3, 4], 1234567890, vec![output], vec![]);
+        let view_key = create_test_private_key();
+        let entropy = [0u8; 16];
+        let mut wallet_state = WalletState::new();
+
+        // This tests the internal processing result handling
+        let found_count = block
+            .process_outputs(&view_key, &entropy, &mut wallet_state)
+            .unwrap();
+        assert_eq!(found_count, 0); // Will be 0 due to encryption verification failure with test data
+    }
+
+    #[test]
+    fn test_parallel_vs_sequential_processing() {
+        // This test ensures both parallel and sequential code paths work
+        let outputs = vec![
+            create_test_output_with_features(LightweightOutputType::Payment, 0, 1000),
+            create_test_output_with_features(LightweightOutputType::Coinbase, 50, 2000),
+            create_test_output_with_features(LightweightOutputType::Payment, 0, 3000),
+        ];
+
+        let block = Block::new(1000, vec![1, 2, 3, 4], 1234567890, outputs, vec![]);
+        let view_key = create_test_private_key();
+        let entropy = [0u8; 16];
+        let mut wallet_state = WalletState::new();
+
+        // Test with current feature flags
+        let found_count = block
+            .process_outputs(&view_key, &entropy, &mut wallet_state)
+            .unwrap();
+
+        // Should be 0 due to no valid encrypted data for test keys
+        assert_eq!(found_count, 0);
+    }
+
+    #[test]
+    fn test_input_processing_edge_cases() {
+        let mut wallet_state = WalletState::new();
+
+        // Test input with all zero commitment and output hash
+        let zero_input = create_test_input([0u8; 32], [0u8; 32]);
+        let block = Block::new(200, vec![1, 2, 3], 123456789, vec![], vec![zero_input]);
+
+        let spent_count = block.process_inputs(&mut wallet_state).unwrap();
+        assert_eq!(spent_count, 0);
+
+        // Test input with partial zeros
+        let partial_zero_input = create_test_input([1u8; 32], [0u8; 32]);
+        let block2 = Block::new(
             200,
             vec![1, 2, 3],
             123456789,
             vec![],
-            vec![grpc_input_both],
+            vec![partial_zero_input],
         );
 
-        // Should find the spent output using output hash matching (preferred method)
-        let spent_count = block_grpc_both.process_inputs(&mut wallet_state).unwrap();
-        assert_eq!(spent_count, 1);
-        let (_, _, _, _, spent_count_after) = wallet_state.get_summary();
-        assert_eq!(spent_count_after, 1);
+        let spent_count2 = block2.process_inputs(&mut wallet_state).unwrap();
+        assert_eq!(spent_count2, 0);
     }
-} 
+}

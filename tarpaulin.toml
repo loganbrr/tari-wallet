@@ -1,0 +1,59 @@
+[tool.tarpaulin.coverage]
+# Include all workspace members
+workspace = true
+
+# Test all features for comprehensive coverage
+all-features = true
+
+# Exclude files that shouldn't be included in coverage
+exclude-files = [
+    "src/bin/*",
+    "examples/*", 
+    "tests/*",
+    "build.rs"
+]
+
+# Skip the long-running stress tests
+skip = [
+    "test_large_scale_address_generation",
+    "test_concurrent_wallet_operations", 
+    "test_concurrent_scanning_operations",
+    "test_performance_degradation",
+    "test_large_scale_wallet_generation",
+    "test_memory_usage_stress",
+    "test_large_dataset_scanning_performance"
+]
+
+# Output formats
+out = ["xml", "html", "json"]
+
+# Generate HTML report for local viewing
+output-dir = "coverage"
+
+# Set timeout for slow tests
+timeout = 120
+
+# Show verbose output for debugging
+verbose = true
+
+# Don't clean between runs for faster execution
+skip-clean = true
+
+# Count uncoverable lines (like unreachable! macros) as covered
+count-uncoverable = true
+
+# Include line coverage information
+line = true
+
+# Include branch coverage information  
+branch = true
+
+# Fail if coverage drops below threshold (can be adjusted)
+fail-under = 70.0
+
+[tool.tarpaulin.engine]
+# Use Llvm engine for better accuracy
+engine = "Llvm"
+
+# Enable post-test checks
+post-test-delay = 1 

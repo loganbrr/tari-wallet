@@ -1,1 +1,1 @@
-pub mod number;
+// Utilities module - currently empty

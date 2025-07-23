@@ -4,7 +4,7 @@
 //! without requiring the full Tari crypto stack.
 
 use crate::{
-    data_structures::types::{CompressedCommitment, PrivateKey, MicroMinotari},
+    data_structures::types::{CompressedCommitment, MicroMinotari, PrivateKey},
     errors::ValidationError,
 };
 
@@ -89,6 +89,8 @@ mod tests {
         let mut bytes = [0u8; 32];
         bytes[0] = 0x08;
         let commitment = CompressedCommitment::new(bytes);
-        assert!(LightweightCommitmentValidator::validate_correctness(&commitment, None, None).is_ok());
+        assert!(
+            LightweightCommitmentValidator::validate_correctness(&commitment, None, None).is_ok()
+        );
     }
-} 
+}

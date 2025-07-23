@@ -1,5 +1,5 @@
-use tari_script::{TariScript, Opcode};
 use tari_crypto::ristretto::RistrettoPublicKey;
+use tari_script::{Opcode, TariScript};
 
 /// Represents the different types of script patterns we can detect
 #[derive(Debug, Clone, PartialEq)]
@@ -23,7 +23,7 @@ pub fn is_standard_output(script: &TariScript) -> bool {
     if script.size() != 1 {
         return false;
     }
-    
+
     matches!(script.opcode(0), Some(Opcode::Nop))
 }
 
@@ -32,10 +32,10 @@ pub fn check_simple_one_sided_structure(script: &TariScript) -> Option<String> {
     if script.size() != 1 {
         return None;
     }
-    
+
     if let Some(Opcode::PushPubKey(key)) = script.opcode(0) {
         // Use debug representation as a simple way to get a comparable string
-        Some(format!("{:?}", key))
+        Some(format!("{key:?}"))
     } else {
         None
     }
@@ -46,19 +46,19 @@ pub fn check_stealth_one_sided_structure(script: &TariScript) -> Option<(String,
     if script.size() != 3 {
         return None;
     }
-    
+
     // Check pattern: PushPubKey(nonce), Drop, PushPubKey(scanned_pk)
     let nonce_hex = match script.opcode(0) {
-        Some(Opcode::PushPubKey(key)) => format!("{:?}", key),
+        Some(Opcode::PushPubKey(key)) => format!("{key:?}"),
         _ => return None,
     };
-    
+
     if !matches!(script.opcode(1), Some(Opcode::Drop)) {
         return None;
     }
-    
+
     if let Some(Opcode::PushPubKey(scanned_key)) = script.opcode(2) {
-        let key_hex = format!("{:?}", scanned_key);
+        let key_hex = format!("{scanned_key:?}");
         Some((nonce_hex, key_hex))
     } else {
         None
@@ -67,22 +67,25 @@ pub fn check_stealth_one_sided_structure(script: &TariScript) -> Option<(String,
 
 /// Analyze a script and determine which pattern it matches
 /// Note: Key ownership verification is disabled due to tari_crypto version conflicts
-pub fn analyze_script_pattern(script: &TariScript, _derived_keys: &[RistrettoPublicKey]) -> ScriptPattern {
+pub fn analyze_script_pattern(
+    script: &TariScript,
+    _derived_keys: &[RistrettoPublicKey],
+) -> ScriptPattern {
     // Check for standard output pattern first
     if is_standard_output(script) {
         return ScriptPattern::Standard;
     }
-    
+
     // Check for simple one-sided pattern
     if let Some(key_hex) = check_simple_one_sided_structure(script) {
         return ScriptPattern::SimpleOneSided { key_hex };
     }
-    
+
     // Check for stealth one-sided pattern
     if let Some((nonce_hex, key_hex)) = check_stealth_one_sided_structure(script) {
         return ScriptPattern::StealthOneSided { nonce_hex, key_hex };
     }
-    
+
     ScriptPattern::Unknown
 }
 
@@ -119,24 +122,30 @@ pub fn get_stealth_keys(pattern: &ScriptPattern) -> Option<(&str, &str)> {
 mod tests {
     use super::*;
     use tari_script::script;
-    
+
     #[test]
     fn test_standard_output_pattern() {
         let script = script!(Nop);
         assert!(is_standard_output(&script));
-        
+
         let script = script!(Nop Nop);
         assert!(!is_standard_output(&script));
     }
-    
-    #[test] 
+
+    #[test]
     fn test_script_pattern_analysis() {
         let derived_keys = vec![];
-        
+
         let script = script!(Nop);
-        assert_eq!(analyze_script_pattern(&script, &derived_keys), ScriptPattern::Standard);
-        
+        assert_eq!(
+            analyze_script_pattern(&script, &derived_keys),
+            ScriptPattern::Standard
+        );
+
         let script = script!(PushZero);
-        assert_eq!(analyze_script_pattern(&script, &derived_keys), ScriptPattern::Unknown);
+        assert_eq!(
+            analyze_script_pattern(&script, &derived_keys),
+            ScriptPattern::Unknown
+        );
     }
-} 
+}

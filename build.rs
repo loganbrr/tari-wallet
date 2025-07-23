@@ -10,11 +10,11 @@ fn main() {
 
 fn build_grpc() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-    
+
     // Define the proto files to compile
     let proto_files = [
         "../tari/applications/minotari_app_grpc/proto/types.proto",
-        "../tari/applications/minotari_app_grpc/proto/transaction.proto", 
+        "../tari/applications/minotari_app_grpc/proto/transaction.proto",
         "../tari/applications/minotari_app_grpc/proto/block.proto",
         "../tari/applications/minotari_app_grpc/proto/network.proto",
         "../tari/applications/minotari_app_grpc/proto/sidechain_types.proto",
@@ -26,11 +26,14 @@ fn build_grpc() {
         .build_server(false) // We only need the client
         .build_client(true)
         .file_descriptor_set_path(out_dir.join("tari_descriptor.bin"))
-        .compile(&proto_files, &["../tari/applications/minotari_app_grpc/proto"])
+        .compile(
+            &proto_files,
+            &["../tari/applications/minotari_app_grpc/proto"],
+        )
         .unwrap();
 
     // Tell cargo to rerun this build script if any of the proto files change
     for proto_file in &proto_files {
-        println!("cargo:rerun-if-changed={}", proto_file);
+        println!("cargo:rerun-if-changed={proto_file}");
     }
-} 
+}

@@ -1,0 +1,27 @@
+[target.'cfg(not(target_arch = "wasm32"))']
+rustflags = [
+    "-D", "dead_code",
+    "-D", "unused_imports",
+    "-D", "unused_variables",
+    "-D", "unreachable_code",
+]
+
+[target.'cfg(target_arch = "wasm32")']
+rustflags = [
+    "-D", "dead_code", 
+    "-D", "unused_imports",
+    "-D", "unused_variables",
+    "-D", "unreachable_code",
+]
+
+[build]
+# Enable clippy warnings as errors for better code quality
+rustflags = [
+    "-D", "clippy::all",
+    "-D", "clippy::pedantic",
+    "-W", "clippy::nursery",
+    "-A", "clippy::missing_errors_doc",
+    "-A", "clippy::missing_panics_doc",
+    "-A", "clippy::must_use_candidate",
+    "-A", "clippy::module_name_repetitions",
+]

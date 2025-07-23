@@ -3,19 +3,20 @@
 //! This crate provides lightweight wallet functionality for the Tari blockchain,
 //! including UTXO management, transaction validation, and key management.
 
+pub mod common;
 pub mod crypto;
 pub mod data_structures;
 pub mod errors;
-pub mod hex_utils;
-pub mod validation;
 pub mod extraction;
+pub mod hex_utils;
 pub mod key_management;
 #[cfg(any(feature = "grpc", feature = "http"))]
 pub mod scanning;
 #[cfg(feature = "storage")]
 pub mod storage;
-pub mod wallet;
 pub mod utils;
+pub mod validation;
+pub mod wallet;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;
 
@@ -26,12 +27,12 @@ pub mod tari_rpc {
 }
 
 pub use errors::*;
-pub use hex_utils::*;
-pub use validation::*;
 pub use extraction::*;
+pub use hex_utils::*;
 pub use key_management::*;
 #[cfg(feature = "grpc")]
 pub use scanning::*;
 #[cfg(feature = "storage")]
 pub use storage::*;
-pub use wallet::*; 
+pub use validation::*;
+pub use wallet::*;

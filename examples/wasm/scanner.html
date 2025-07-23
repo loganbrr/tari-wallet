@@ -232,17 +232,24 @@
 
         .results-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
             gap: 15px;
             margin-top: 20px;
         }
 
         .result-card {
             background: white;
-            padding: 20px;
+            padding: 15px;
             border-radius: 8px;
             border-left: 4px solid #3498db;
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            min-height: 80px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            overflow: hidden;
+            max-width: 100%;
+            container-type: inline-size;
         }
 
         .result-card:has(#currentBalanceT) {
@@ -252,12 +259,26 @@
         .result-card h4 {
             color: #2c3e50;
             margin-bottom: 10px;
+            font-size: clamp(0.7rem, 2.5vw, 1rem);
+            line-height: 1.3;
+            flex-shrink: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .result-value {
-            font-size: 1.5em;
+            font-size: clamp(0.5rem, 12cqw, 1.4rem);
             font-weight: bold;
             color: #3498db;
+            line-height: 1.1;
+            width: 100%;
+            overflow: hidden;
+            display: block;
+            word-break: break-all;
+            overflow-wrap: break-word;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .hidden {
@@ -422,10 +443,6 @@
                             <textarea id="specificHeights" placeholder="e.g., 100, 200, 300, 1000"></textarea>
                         </div>
                     </div>
-                    <div class="form-group">
-                        <label for="limit">Limit:</label>
-                        <input type="number" id="limit" value="10" min="1" max="1000">
-                    </div>
                 </div>
 
                
@@ -452,6 +469,10 @@
                 <div class="section">
                     <h3>📈 Results</h3>
                     <div class="results-grid" id="resultsGrid">
+                        <div class="result-card">
+                            <h4>Chain Tip Height</h4>
+                            <div class="result-value" id="chainTipHeight">-</div>
+                        </div>
                         <div class="result-card">
                             <h4>Current Block Height</h4>
                             <div class="result-value" id="currentBlockHeight">-</div>
@@ -516,7 +537,7 @@
                     <h3>🧹 Memory Management</h3>
                     <div class="form-group">
                         <label for="maxTransactions">Max Transactions to Keep:</label>
-                        <input type="number" id="maxTransactions" value="5000" min="1000" max="50000" 
+                        <input type="number" id="maxTransactions" value="1000000" min="1000" max="1000000000" 
                                title="Limits memory usage by keeping only the most recent transactions. Balance calculations remain accurate.">
                     </div>
                     <p style="font-size: 0.9em; color: #666; margin-top: 10px;">
@@ -595,15 +616,22 @@
             }
 
             async syncUtxosByBlock(startHeaderHash, endHeaderHash, limit = 10, page = 0) {
-                log('info', `📡 Syncing UTXOs from ${startHeaderHash.substring(0, 16)}... to ${endHeaderHash.substring(0, 16)}...`, true);
+                const endHashDisplay = endHeaderHash ? endHeaderHash.substring(0, 16) + '...' : 'server-controlled';
+                log('info', `📡 Syncing UTXOs from ${startHeaderHash.substring(0, 16)}... to ${endHashDisplay}`, true);
                 try {
-                    const response = await this.request('/sync_utxos_by_block', {
+                    const params = {
                         start_header_hash: startHeaderHash,
-                        end_header_hash: endHeaderHash,
                         limit,
                         page
-                    });
-                    log('info', `✅ Synced ${response.blocks?.length || 0} blocks, has_next_page: ${response.has_next_page}`, true);
+                    };
+                    
+                    // Only include end_header_hash if it's provided
+                    if (endHeaderHash) {
+                        params.end_header_hash = endHeaderHash;
+                    }
+                    
+                    const response = await this.request('/sync_utxos_by_block', params);
+                    log('info', `✅ Synced ${response.blocks?.length || 0} blocks, next_header: ${response.next_header_to_scan ? 'provided' : 'none'}`, true);
                     return response;
                 } catch (error) {
                     log('error', `❌ Failed to sync UTXOs: ${error.message}`);
@@ -662,30 +690,51 @@
                 log('info', `📡 Fetching block range ${startHeight} to ${endHeight} in batches...`, true);
 
                 try {
+                    // Get the starting header hash only
                     const startHeader = await this.getHeaderByHeight(startHeight);
-                    const endHeader = await this.getHeaderByHeight(endHeight);
-
-                    const startHash = this.arrayToHex(startHeader.hash);
-                    const endHash = this.arrayToHex(endHeader.hash);
-
-                    let page = 0;
-                    let hasNextPage = true;
+                    let currentHeaderHash = this.arrayToHex(startHeader.hash);
                     let totalBlocks = 0;
+                    let currentBlockHeight = startHeight;
 
-                    while (hasNextPage) {
-                        const syncResponse = await this.syncUtxosByBlock(startHash, endHash, limit, page);
-                        hasNextPage = syncResponse.has_next_page;
+                    while (currentBlockHeight <= endHeight) {
+                        // Use current header as start, no end header needed (server decides)
+                        const syncResponse = await this.syncUtxosByBlock(currentHeaderHash, null, limit, 0);
+
+                        log('info', `📊 Batch from ${currentBlockHeight}: fetched ${syncResponse.blocks?.length || 0} blocks`, true);
 
                         if (syncResponse.blocks && syncResponse.blocks.length > 0) {
                             totalBlocks += syncResponse.blocks.length;
+                            
+                            // Log block range for this batch
+                            const blockHeights = syncResponse.blocks.map(b => b.height).sort((a, b) => a - b);
+                            const batchStart = blockHeights[0];
+                            const batchEnd = blockHeights[blockHeights.length - 1];
+                            log('info', `   Block range: ${batchStart} to ${batchEnd}`, true);
+                            
+                            // Update current block height
+                            currentBlockHeight = batchEnd + 1;
+                            
                             // Yield the entire HTTP response for batch processing
                             yield syncResponse;
                         }
 
-                        page++;
+                        // Check if we have a next header to continue with
+                        if (syncResponse.next_header_to_scan) {
+                            currentHeaderHash = this.arrayToHex(syncResponse.next_header_to_scan);
+                            log('info', `🔄 Continuing with next header: ${currentHeaderHash.substring(0, 16)}...`, true);
+                        } else {
+                            log('info', '🏁 No more headers to scan, reached end of available data', true);
+                            break;
+                        }
+
+                        // Safety check to prevent scanning beyond our target end height
+                        if (currentBlockHeight > endHeight) {
+                            log('info', `🎯 Reached target end height ${endHeight}, stopping scan`, true);
+                            break;
+                        }
                     }
 
-                    log('success', `✅ Streamed ${totalBlocks} blocks in batches from base node`, true);
+                    log('success', `✅ Streamed ${totalBlocks} blocks using next_header_to_scan from base node`, true);
 
                 } catch (error) {
                     log('error', `❌ Failed to fetch block range: ${error.message}`);
@@ -879,6 +928,7 @@
 
             if (!baseNodeUrl) {
                 updateConnectionStatus('disconnected', 'No URL provided');
+                document.getElementById('chainTipHeight').textContent = '-';
                 return;
             }
 
@@ -890,16 +940,27 @@
             try {
                 log('info', `🔗 Connecting to ${baseNodeUrl}...`);
 
+                // Test connection with genesis block
                 const header = await httpClient.getHeaderByHeight(1);
+                
+                // Get current tip height
+                const tipInfo = await httpClient.getTipInfo();
+                const tipHeight = tipInfo.metadata.best_block_height;
+                
                 updateConnectionStatus('connected', `Connected to ${baseNodeUrl}`);
                 log('success', '✅ Successfully connected to base node');
                 log('info', `   Genesis block hash: ${httpClient.arrayToHex(header.hash).substring(0, 16)}...`);
                 log('info', `   Timestamp: ${new Date(header.timestamp * 1000).toISOString()}`);
+                log('info', `   Chain tip height: ${tipHeight.toLocaleString()}`);
+                
+                // Update the chain tip height in results
+                document.getElementById('chainTipHeight').textContent = tipHeight.toLocaleString();
 
             } catch (error) {
                 updateConnectionStatus('error', `Failed to connect: ${error.message}`);
                 log('error', `❌ Failed to connect to base node: ${error.message}`);
                 log('info', `   Make sure the Tari base node is running on ${baseNodeUrl}`);
+                document.getElementById('chainTipHeight').textContent = '-';
                 console.error(error);
             }
         };
@@ -1102,13 +1163,14 @@
 
                 const baseNodeUrl = document.getElementById('baseNodeUrl').value;
                 const scanMode = document.getElementById('scanMode').value;
-                const limit = parseInt(document.getElementById('limit').value);
+                const limit = 10;
 
                 const httpClient = new HttpClient(baseNodeUrl);
 
                 let blockIterator;
                 let totalBlocks;
                 let scanDescription;
+                let rangeStartHeight, rangeEndHeight; // Store range values for filtering
 
                 if (scanMode === 'specific') {
                     // Parse specific heights
@@ -1136,7 +1198,7 @@
 
                 } else {
                     // Range mode
-                    const startHeight = parseInt(document.getElementById('startHeight').value);
+                    rangeStartHeight = parseInt(document.getElementById('startHeight').value);
                     let endHeight = document.getElementById('endHeight').value;
 
                     // Get tip height if endHeight not specified
@@ -1144,12 +1206,12 @@
                         const tipInfo = await httpClient.getTipInfo();
                         endHeight = tipInfo.metadata.best_block_height;
                     }
-                    endHeight = parseInt(endHeight);
+                    rangeEndHeight = parseInt(endHeight);
 
-                    totalBlocks = endHeight - startHeight + 1;
-                    blockIterator = httpClient.fetchBlockRangeBatches(startHeight, endHeight, limit);
-                    scanDescription = `height range ${startHeight} to ${endHeight}`;
-                    log('info', `🔍 Starting blockchain scan from height ${startHeight} to ${endHeight}`);
+                    totalBlocks = rangeEndHeight - rangeStartHeight + 1;
+                    blockIterator = httpClient.fetchBlockRangeBatches(rangeStartHeight, rangeEndHeight, limit);
+                    scanDescription = `height range ${rangeStartHeight} to ${rangeEndHeight}`;
+                    log('info', `🔍 Starting blockchain scan from height ${rangeStartHeight} to ${rangeEndHeight}`);
                 }
 
                 let blockCount = 0;
@@ -1163,6 +1225,19 @@
                     // Process block batch
                     if (httpResponse.blocks && httpResponse.blocks.length > 0) {
                         const heights = httpResponse.blocks.map(b => b.height).sort((a, b) => a - b);
+                        
+                        // Filter blocks to only include those within our target range for range mode
+                        if (scanMode === 'range') {
+                            // Filter blocks to only count those within our target range
+                            const originalLength = httpResponse.blocks.length;
+                            httpResponse.blocks = httpResponse.blocks.filter(block => 
+                                block.height >= rangeStartHeight && block.height <= rangeEndHeight
+                            );
+                            
+                            if (originalLength !== httpResponse.blocks.length) {
+                                log('info', `🔍 Filtered batch: ${originalLength} → ${httpResponse.blocks.length} blocks (removed blocks outside range ${rangeStartHeight}-${rangeEndHeight})`, true);
+                            }
+                        }
                     }
 
                     // Process the entire batch
@@ -1182,6 +1257,9 @@
                     const percentage = (blockCount / totalBlocks) * 100;
                     updateProgress(percentage, `Scanned ${blockCount}/${totalBlocks} blocks`);
                     updateResults(blockCount, cumulativeStats, highestBlockInBatch, totalDownloadSize);
+                    
+                    // Debug logging for progress tracking
+                    log('info', `📈 Progress: ${blockCount}/${totalBlocks} blocks (${percentage.toFixed(1)}%)`, true);
 
                     // Explicit memory cleanup to help garbage collection
                     // Clear references to large HTTP response data
@@ -1316,7 +1394,7 @@
 
         function loadSavedValues() {
             // Load all saved values except scannerData
-            const fieldsToLoad = ['scannerData', 'baseNodeUrl', 'startHeight', 'endHeight', 'limit', 'scanMode', 'specificHeights', 'maxTransactions'];
+            const fieldsToLoad = ['scannerData', 'baseNodeUrl', 'startHeight', 'endHeight', 'scanMode', 'specificHeights', 'maxTransactions'];
 
             fieldsToLoad.forEach(fieldId => {
                 const element = document.getElementById(fieldId);
@@ -1334,7 +1412,7 @@
 
         function setupInputSaving() {
             // Fields to save (excluding scannerData)
-            const fieldsToSave = ['scannerData', 'baseNodeUrl', 'startHeight', 'endHeight', 'limit', 'scanMode', 'specificHeights', 'maxTransactions'];
+            const fieldsToSave = ['scannerData', 'baseNodeUrl', 'startHeight', 'endHeight', 'scanMode', 'specificHeights', 'maxTransactions'];
 
             fieldsToSave.forEach(fieldId => {
                 const element = document.getElementById(fieldId);

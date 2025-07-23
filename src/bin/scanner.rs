@@ -2,6 +2,8 @@
 //!
 //! A comprehensive wallet scanner that tracks all transactions across blocks,
 //! maintains complete transaction history, and provides accurate running balances.
+
+#![cfg(not(target_arch = "wasm32"))]
 //!
 //! ## Features
 //! - Cross-block transaction tracking
@@ -101,11 +103,19 @@
 
 #[cfg(feature = "grpc")]
 use clap::Parser;
+#[cfg(all(feature = "grpc", feature = "storage"))]
+use lightweight_wallet_libs::storage::{
+    OutputStatus, SqliteStorage, StoredOutput, StoredWallet, WalletStorage,
+};
 #[cfg(feature = "grpc")]
 use lightweight_wallet_libs::{
+    common::format_number,
     data_structures::{
-        block::Block, payment_id::PaymentId, transaction::TransactionDirection,
-        transaction_output::LightweightTransactionOutput, types::{PrivateKey, CompressedCommitment},
+        block::Block,
+        payment_id::PaymentId,
+        transaction::TransactionDirection,
+        transaction_output::LightweightTransactionOutput,
+        types::{CompressedCommitment, PrivateKey},
         wallet_transaction::WalletState,
     },
     errors::LightweightWalletResult,
@@ -114,15 +124,8 @@ use lightweight_wallet_libs::{
         seed_phrase::{mnemonic_to_bytes, CipherSeed},
     },
     scanning::{BlockchainScanner, GrpcBlockchainScanner, GrpcScannerBuilder},
-    utils::number::format_number,
     wallet::Wallet,
-    KeyManagementError,
-    LightweightWalletError,
-};
-#[cfg(all(feature = "grpc", feature = "storage"))]
-use lightweight_wallet_libs::{
-    storage::{OutputStatus, SqliteStorage, StoredOutput, WalletStorage, StoredWallet},
-    errors::ValidationError,
+    KeyManagementError, LightweightWalletError,
 };
 #[cfg(feature = "grpc")]
 use tari_utilities::ByteArray;
@@ -131,13 +134,21 @@ use tokio::signal;
 #[cfg(feature = "grpc")]
 use tokio::time::Instant;
 
+// Background writer imports (non-WASM32 only)
+#[cfg(all(feature = "grpc", feature = "storage", not(target_arch = "wasm32")))]
+use tokio::sync::{mpsc, oneshot};
+
 /// Enhanced Tari Wallet Scanner CLI
 #[cfg(feature = "grpc")]
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
-struct CliArgs {
+pub struct CliArgs {
     /// Seed phrase for the wallet (uses memory-only storage when provided)
-    #[arg(short, long, help = "Seed phrase for the wallet (uses memory-only storage)")]
+    #[arg(
+        short,
+        long,
+        help = "Seed phrase for the wallet (uses memory-only storage)"
+    )]
     seed_phrase: Option<String>,
 
     /// Private view key in hex format (alternative to seed phrase, uses memory-only storage)
@@ -247,11 +258,51 @@ impl std::str::FromStr for OutputFormat {
             "summary" => Ok(OutputFormat::Summary),
             "json" => Ok(OutputFormat::Json),
             _ => Err(format!(
-                "Invalid output format: {}. Valid options: detailed, summary, json",
-                s
+                "Invalid output format: {s}. Valid options: detailed, summary, json"
             )),
         }
     }
+}
+
+/// Background writer commands for non-WASM32 architectures
+#[cfg(all(feature = "grpc", feature = "storage", not(target_arch = "wasm32")))]
+#[derive(Debug)]
+pub enum BackgroundWriterCommand {
+    SaveTransactions {
+        wallet_id: u32,
+        transactions:
+            Vec<lightweight_wallet_libs::data_structures::wallet_transaction::WalletTransaction>,
+        response_tx: oneshot::Sender<LightweightWalletResult<()>>,
+    },
+    SaveOutputs {
+        outputs: Vec<StoredOutput>,
+        response_tx: oneshot::Sender<LightweightWalletResult<Vec<u32>>>,
+    },
+    UpdateWalletScannedBlock {
+        wallet_id: u32,
+        block_height: u64,
+        response_tx: oneshot::Sender<LightweightWalletResult<()>>,
+    },
+    MarkTransactionSpent {
+        commitment: CompressedCommitment,
+        block_height: u64,
+        input_index: usize,
+        response_tx: oneshot::Sender<LightweightWalletResult<bool>>,
+    },
+    MarkTransactionsSpentBatch {
+        commitments: Vec<(CompressedCommitment, u64, usize)>,
+        response_tx: oneshot::Sender<LightweightWalletResult<usize>>,
+    },
+    Shutdown {
+        response_tx: oneshot::Sender<()>,
+    },
+}
+
+/// Background writer service for non-WASM32 architectures
+#[cfg(all(feature = "grpc", feature = "storage", not(target_arch = "wasm32")))]
+pub struct BackgroundWriter {
+    pub command_tx: mpsc::UnboundedSender<BackgroundWriterCommand>,
+    pub join_handle: tokio::task::JoinHandle<()>,
 }
 
 /// Unified storage handler for the scanner
@@ -261,6 +312,11 @@ pub struct ScannerStorage {
     pub database: Option<Box<dyn WalletStorage>>,
     pub wallet_id: Option<u32>,
     pub is_memory_only: bool,
+    pub last_saved_transaction_count: usize,
+
+    // Background writer for non-WASM32 architectures
+    #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+    pub background_writer: Option<BackgroundWriter>,
 }
 
 #[cfg(feature = "grpc")]
@@ -272,14 +328,15 @@ impl ScannerStorage {
             database: None,
             wallet_id: None,
             is_memory_only: true,
+            last_saved_transaction_count: 0,
+            #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+            background_writer: None,
         }
     }
 
     /// Create a new scanner storage instance with database
     #[cfg(feature = "storage")]
-    pub async fn new_with_database(
-        database_path: &str,
-    ) -> LightweightWalletResult<Self> {
+    pub async fn new_with_database(database_path: &str) -> LightweightWalletResult<Self> {
         let storage: Box<dyn WalletStorage> = if database_path == ":memory:" {
             Box::new(SqliteStorage::new_in_memory().await?)
         } else {
@@ -292,7 +349,122 @@ impl ScannerStorage {
             database: Some(storage),
             wallet_id: None,
             is_memory_only: false,
+            last_saved_transaction_count: 0,
+            #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+            background_writer: None,
         })
+    }
+
+    /// Start the background writer service (non-WASM32 only)
+    #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+    pub async fn start_background_writer(
+        &mut self,
+        database_path: &str,
+    ) -> LightweightWalletResult<()> {
+        if self.background_writer.is_some() || self.database.is_none() {
+            return Ok(()); // Already started or no database
+        }
+
+        let (command_tx, mut command_rx) = mpsc::unbounded_channel::<BackgroundWriterCommand>();
+
+        // Create a new database connection for the background writer using the same path
+        let background_database: Box<dyn WalletStorage> = if database_path == ":memory:" {
+            // For in-memory databases, we can't share the connection, so fall back to direct storage
+            return Ok(());
+        } else {
+            Box::new(lightweight_wallet_libs::storage::SqliteStorage::new(database_path).await?)
+        };
+
+        // Initialize the background database (ensure schema exists)
+        background_database.initialize().await?;
+
+        // Spawn the background writer task
+        let join_handle = tokio::spawn(async move {
+            Self::background_writer_loop(background_database, &mut command_rx).await;
+        });
+
+        self.background_writer = Some(BackgroundWriter {
+            command_tx,
+            join_handle,
+        });
+
+        Ok(())
+    }
+
+    /// Background writer main loop (non-WASM32 only)
+    #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+    async fn background_writer_loop(
+        storage: Box<dyn WalletStorage>,
+        command_rx: &mut mpsc::UnboundedReceiver<BackgroundWriterCommand>,
+    ) {
+        while let Some(command) = command_rx.recv().await {
+            match command {
+                BackgroundWriterCommand::SaveTransactions {
+                    wallet_id,
+                    transactions,
+                    response_tx,
+                } => {
+                    let result = storage.save_transactions(wallet_id, &transactions).await;
+                    let _ = response_tx.send(result);
+                }
+                BackgroundWriterCommand::SaveOutputs {
+                    outputs,
+                    response_tx,
+                } => {
+                    let result = storage.save_outputs(&outputs).await;
+                    let _ = response_tx.send(result);
+                }
+                BackgroundWriterCommand::UpdateWalletScannedBlock {
+                    wallet_id,
+                    block_height,
+                    response_tx,
+                } => {
+                    let result = storage
+                        .update_wallet_scanned_block(wallet_id, block_height)
+                        .await;
+                    let _ = response_tx.send(result);
+                }
+                BackgroundWriterCommand::MarkTransactionSpent {
+                    commitment,
+                    block_height,
+                    input_index,
+                    response_tx,
+                } => {
+                    let result = storage
+                        .mark_transaction_spent(&commitment, block_height, input_index)
+                        .await;
+                    let _ = response_tx.send(result);
+                }
+                BackgroundWriterCommand::MarkTransactionsSpentBatch {
+                    commitments,
+                    response_tx,
+                } => {
+                    let result = storage.mark_transactions_spent_batch(&commitments).await;
+                    let _ = response_tx.send(result);
+                }
+                BackgroundWriterCommand::Shutdown { response_tx } => {
+                    let _ = response_tx.send(());
+                    break;
+                }
+            }
+        }
+    }
+
+    /// Stop the background writer service (non-WASM32 only)
+    #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+    pub async fn stop_background_writer(&mut self) -> LightweightWalletResult<()> {
+        if let Some(writer) = self.background_writer.take() {
+            let (response_tx, response_rx) = oneshot::channel();
+            if writer
+                .command_tx
+                .send(BackgroundWriterCommand::Shutdown { response_tx })
+                .is_ok()
+            {
+                let _ = response_rx.await;
+            }
+            let _ = writer.join_handle.await;
+        }
+        Ok(())
     }
 
     /// List available wallets in the database
@@ -311,14 +483,11 @@ impl ScannerStorage {
         &mut self,
         config: &ScanConfig,
         scan_context: Option<&ScanContext>,
-        original_seed_phrase: Option<&str>,
     ) -> LightweightWalletResult<Option<ScanContext>> {
-        let storage = match &self.database {
-            Some(storage) => storage,
-            None => return Ok(None), // Memory-only mode
-        };
-
-
+        // Only perform database operations if database is available
+        if self.database.is_none() {
+            return Ok(None);
+        }
 
         // Handle wallet selection and loading
         self.wallet_id = self.select_or_create_wallet(config, scan_context).await?;
@@ -347,8 +516,7 @@ impl ScannerStorage {
                 return Ok(wallet.id);
             } else {
                 return Err(LightweightWalletError::ResourceNotFound(format!(
-                    "Wallet '{}' not found",
-                    wallet_name
+                    "Wallet '{wallet_name}' not found"
                 )));
             }
         }
@@ -361,14 +529,14 @@ impl ScannerStorage {
                 let wallet =
                     StoredWallet::view_only("default".to_string(), scan_ctx.view_key.clone(), 0);
                 let wallet_id = storage.save_wallet(&wallet).await?;
-                println!("✅ Created default wallet with ID {}", wallet_id);
-                return Ok(Some(wallet_id));
+                println!("✅ Created default wallet with ID {wallet_id}");
+                Ok(Some(wallet_id))
             } else {
-                return Err(LightweightWalletError::InvalidArgument {
+                Err(LightweightWalletError::InvalidArgument {
                     argument: "wallets".to_string(),
                     value: "empty".to_string(),
                     message: "No wallets found and no keys provided to create one. Provide --seed-phrase or --view-key, or use an existing wallet.".to_string(),
-                });
+                })
             }
         } else if wallets.len() == 1 {
             let wallet = &wallets[0];
@@ -388,30 +556,37 @@ impl ScannerStorage {
     ) -> LightweightWalletResult<Option<u32>> {
         println!("\n📂 Available wallets in database:");
         println!("================================");
-        
+
         for (index, wallet) in wallets.iter().enumerate() {
             let wallet_type = if wallet.has_seed_phrase() {
                 "Full wallet"
             } else {
                 "View-only"
             };
-            
+
             let resume_info = if wallet.get_resume_block() > 0 {
-                format!(" (resume from block {})", format_number(wallet.get_resume_block()))
+                format!(
+                    " (resume from block {})",
+                    format_number(wallet.get_resume_block())
+                )
             } else {
                 String::new()
             };
-            
-            println!("{}. {} - {}{}", 
-                index + 1, 
-                wallet.name, 
+
+            println!(
+                "{}. {} - {}{}",
+                index + 1,
+                wallet.name,
                 wallet_type,
                 resume_info
             );
         }
-        
+
         println!("\nSelect a wallet to use for scanning:");
-        print!("Enter wallet number (1-{}), or 'q' to quit: ", wallets.len());
+        print!(
+            "Enter wallet number (1-{}), or 'q' to quit: ",
+            wallets.len()
+        );
         std::io::Write::flush(&mut std::io::stdout()).unwrap();
 
         let mut input = String::new();
@@ -424,7 +599,7 @@ impl ScannerStorage {
         }
 
         let choice = input.trim().to_lowercase();
-        
+
         if choice == "q" || choice == "quit" {
             println!("👋 Exiting scanner.");
             std::process::exit(0);
@@ -436,13 +611,14 @@ impl ScannerStorage {
                 println!("✅ Selected wallet: {}", selected_wallet.name);
                 Ok(selected_wallet.id)
             }
-            _ => {
-                return Err(LightweightWalletError::InvalidArgument {
-                    argument: "wallet_selection".to_string(),
-                    value: choice,
-                    message: format!("Invalid selection. Please enter a number between 1 and {}, or 'q' to quit.", wallets.len()),
-                });
-            }
+            _ => Err(LightweightWalletError::InvalidArgument {
+                argument: "wallet_selection".to_string(),
+                value: choice,
+                message: format!(
+                    "Invalid selection. Please enter a number between 1 and {}, or 'q' to quit.",
+                    wallets.len()
+                ),
+            }),
         }
     }
 
@@ -461,7 +637,7 @@ impl ScannerStorage {
             }
 
             let view_key = wallet.get_view_key().map_err(|e| {
-                LightweightWalletError::StorageError(format!("Failed to get view key: {}", e))
+                LightweightWalletError::StorageError(format!("Failed to get view key: {e}"))
             })?;
 
             // Create entropy array - derive from seed phrase if available
@@ -487,8 +663,7 @@ impl ScannerStorage {
             Ok(Some(ScanContext { view_key, entropy }))
         } else {
             Err(LightweightWalletError::ResourceNotFound(format!(
-                "Wallet with ID {} not found",
-                wallet_id
+                "Wallet with ID {wallet_id} not found"
             )))
         }
     }
@@ -507,7 +682,79 @@ impl ScannerStorage {
         }
     }
 
-    /// Save transactions to storage
+    /// Save transactions to storage incrementally - architecture-specific implementation
+    #[cfg(feature = "storage")]
+    pub async fn save_transactions_incremental(
+        &mut self,
+        all_transactions: &[lightweight_wallet_libs::data_structures::wallet_transaction::WalletTransaction],
+    ) -> LightweightWalletResult<()> {
+        if let Some(wallet_id) = self.wallet_id {
+            // Only save new transactions since last save
+            if all_transactions.len() > self.last_saved_transaction_count {
+                let new_transactions = &all_transactions[self.last_saved_transaction_count..];
+                if !new_transactions.is_empty() {
+                    // Architecture-specific implementation
+                    self.save_transactions_arch_specific(wallet_id, new_transactions.to_vec())
+                        .await?;
+                    self.last_saved_transaction_count = all_transactions.len();
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Architecture-specific transaction saving (non-WASM32: background writer)
+    #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+    async fn save_transactions_arch_specific(
+        &self,
+        wallet_id: u32,
+        transactions: Vec<
+            lightweight_wallet_libs::data_structures::wallet_transaction::WalletTransaction,
+        >,
+    ) -> LightweightWalletResult<()> {
+        if let Some(writer) = &self.background_writer {
+            let (response_tx, response_rx) = oneshot::channel();
+            writer
+                .command_tx
+                .send(BackgroundWriterCommand::SaveTransactions {
+                    wallet_id,
+                    transactions,
+                    response_tx,
+                })
+                .map_err(|_| {
+                    LightweightWalletError::StorageError(
+                        "Background writer channel closed".to_string(),
+                    )
+                })?;
+
+            response_rx.await.map_err(|_| {
+                LightweightWalletError::StorageError("Background writer response lost".to_string())
+            })?
+        } else if let Some(storage) = &self.database {
+            // Fallback to direct storage if background writer not available
+            storage.save_transactions(wallet_id, &transactions).await
+        } else {
+            Ok(()) // Memory-only mode
+        }
+    }
+
+    /// Architecture-specific transaction saving (WASM32: direct storage)
+    #[cfg(all(feature = "storage", target_arch = "wasm32"))]
+    async fn save_transactions_arch_specific(
+        &self,
+        wallet_id: u32,
+        transactions: Vec<
+            lightweight_wallet_libs::data_structures::wallet_transaction::WalletTransaction,
+        >,
+    ) -> LightweightWalletResult<()> {
+        if let Some(storage) = &self.database {
+            storage.save_transactions(wallet_id, &transactions).await
+        } else {
+            Ok(()) // Memory-only mode
+        }
+    }
+
+    /// Save transactions to storage (legacy method for compatibility)
     #[cfg(feature = "storage")]
     pub async fn save_transactions(
         &self,
@@ -520,23 +767,245 @@ impl ScannerStorage {
         }
     }
 
-    /// Save UTXO outputs to storage
+    /// Save UTXO outputs to storage - architecture-specific implementation
     #[cfg(feature = "storage")]
-    pub async fn save_outputs(&self, outputs: &[StoredOutput]) -> LightweightWalletResult<Vec<u32>> {
-        if let Some(storage) = &self.database {
-            storage.save_outputs(outputs).await
+    pub async fn save_outputs(
+        &self,
+        outputs: &[StoredOutput],
+    ) -> LightweightWalletResult<Vec<u32>> {
+        self.save_outputs_arch_specific(outputs.to_vec()).await
+    }
+
+    /// Architecture-specific output saving (non-WASM32: background writer)
+    #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+    async fn save_outputs_arch_specific(
+        &self,
+        outputs: Vec<StoredOutput>,
+    ) -> LightweightWalletResult<Vec<u32>> {
+        if let Some(writer) = &self.background_writer {
+            let (response_tx, response_rx) = oneshot::channel();
+            writer
+                .command_tx
+                .send(BackgroundWriterCommand::SaveOutputs {
+                    outputs,
+                    response_tx,
+                })
+                .map_err(|_| {
+                    LightweightWalletError::StorageError(
+                        "Background writer channel closed".to_string(),
+                    )
+                })?;
+
+            response_rx.await.map_err(|_| {
+                LightweightWalletError::StorageError("Background writer response lost".to_string())
+            })?
+        } else if let Some(storage) = &self.database {
+            // Fallback to direct storage if background writer not available
+            storage.save_outputs(&outputs).await
         } else {
             Ok(Vec::new()) // Memory-only mode
         }
     }
 
-    /// Update wallet's latest scanned block
+    /// Architecture-specific output saving (WASM32: direct storage)
+    #[cfg(all(feature = "storage", target_arch = "wasm32"))]
+    async fn save_outputs_arch_specific(
+        &self,
+        outputs: Vec<StoredOutput>,
+    ) -> LightweightWalletResult<Vec<u32>> {
+        if let Some(storage) = &self.database {
+            storage.save_outputs(&outputs).await
+        } else {
+            Ok(Vec::new()) // Memory-only mode
+        }
+    }
+
+    /// Update wallet's latest scanned block - architecture-specific implementation
     #[cfg(feature = "storage")]
-    pub async fn update_wallet_scanned_block(&self, block_height: u64) -> LightweightWalletResult<()> {
-        if let (Some(storage), Some(wallet_id)) = (&self.database, self.wallet_id) {
-            storage.update_wallet_scanned_block(wallet_id, block_height).await
+    pub async fn update_wallet_scanned_block(
+        &self,
+        block_height: u64,
+    ) -> LightweightWalletResult<()> {
+        if let Some(wallet_id) = self.wallet_id {
+            self.update_wallet_scanned_block_arch_specific(wallet_id, block_height)
+                .await
         } else {
             Ok(()) // Memory-only mode
+        }
+    }
+
+    /// Architecture-specific wallet scanned block update (non-WASM32: background writer)
+    #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+    async fn update_wallet_scanned_block_arch_specific(
+        &self,
+        wallet_id: u32,
+        block_height: u64,
+    ) -> LightweightWalletResult<()> {
+        if let Some(writer) = &self.background_writer {
+            let (response_tx, response_rx) = oneshot::channel();
+            writer
+                .command_tx
+                .send(BackgroundWriterCommand::UpdateWalletScannedBlock {
+                    wallet_id,
+                    block_height,
+                    response_tx,
+                })
+                .map_err(|_| {
+                    LightweightWalletError::StorageError(
+                        "Background writer channel closed".to_string(),
+                    )
+                })?;
+
+            response_rx.await.map_err(|_| {
+                LightweightWalletError::StorageError("Background writer response lost".to_string())
+            })?
+        } else if let Some(storage) = &self.database {
+            // Fallback to direct storage if background writer not available
+            storage
+                .update_wallet_scanned_block(wallet_id, block_height)
+                .await
+        } else {
+            Ok(()) // Memory-only mode
+        }
+    }
+
+    /// Architecture-specific wallet scanned block update (WASM32: direct storage)
+    #[cfg(all(feature = "storage", target_arch = "wasm32"))]
+    async fn update_wallet_scanned_block_arch_specific(
+        &self,
+        wallet_id: u32,
+        block_height: u64,
+    ) -> LightweightWalletResult<()> {
+        if let Some(storage) = &self.database {
+            storage
+                .update_wallet_scanned_block(wallet_id, block_height)
+                .await
+        } else {
+            Ok(()) // Memory-only mode
+        }
+    }
+
+    /// Mark transaction as spent - architecture-specific implementation
+    #[cfg(feature = "storage")]
+    pub async fn mark_transaction_spent_arch_specific(
+        &self,
+        commitment: &CompressedCommitment,
+        block_height: u64,
+        input_index: usize,
+    ) -> LightweightWalletResult<bool> {
+        self.mark_transaction_spent_impl(commitment, block_height, input_index)
+            .await
+    }
+
+    /// Mark multiple transactions as spent in batch - architecture-specific implementation
+    #[cfg(feature = "storage")]
+    pub async fn mark_transactions_spent_batch_arch_specific(
+        &self,
+        spent_commitments: &[(CompressedCommitment, u64, usize)],
+    ) -> LightweightWalletResult<usize> {
+        self.mark_transactions_spent_batch_impl(spent_commitments)
+            .await
+    }
+
+    /// Architecture-specific batch transaction spent marking (non-WASM32: background writer)
+    #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+    async fn mark_transactions_spent_batch_impl(
+        &self,
+        spent_commitments: &[(CompressedCommitment, u64, usize)],
+    ) -> LightweightWalletResult<usize> {
+        if let Some(writer) = &self.background_writer {
+            let (response_tx, response_rx) = oneshot::channel();
+            writer
+                .command_tx
+                .send(BackgroundWriterCommand::MarkTransactionsSpentBatch {
+                    commitments: spent_commitments.to_vec(),
+                    response_tx,
+                })
+                .map_err(|_| {
+                    LightweightWalletError::StorageError(
+                        "Background writer channel closed".to_string(),
+                    )
+                })?;
+
+            response_rx.await.map_err(|_| {
+                LightweightWalletError::StorageError("Background writer response lost".to_string())
+            })?
+        } else if let Some(storage) = &self.database {
+            // Fallback to direct storage if background writer not available
+            storage
+                .mark_transactions_spent_batch(spent_commitments)
+                .await
+        } else {
+            Ok(0) // Memory-only mode
+        }
+    }
+
+    /// Architecture-specific batch transaction spent marking (WASM32: direct storage)
+    #[cfg(all(feature = "storage", target_arch = "wasm32"))]
+    async fn mark_transactions_spent_batch_impl(
+        &self,
+        spent_commitments: &[(CompressedCommitment, u64, usize)],
+    ) -> LightweightWalletResult<usize> {
+        if let Some(storage) = &self.database {
+            storage
+                .mark_transactions_spent_batch(spent_commitments)
+                .await
+        } else {
+            Ok(0) // Memory-only mode
+        }
+    }
+
+    /// Architecture-specific transaction spent marking (non-WASM32: background writer)
+    #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+    async fn mark_transaction_spent_impl(
+        &self,
+        commitment: &CompressedCommitment,
+        block_height: u64,
+        input_index: usize,
+    ) -> LightweightWalletResult<bool> {
+        if let Some(writer) = &self.background_writer {
+            let (response_tx, response_rx) = oneshot::channel();
+            writer
+                .command_tx
+                .send(BackgroundWriterCommand::MarkTransactionSpent {
+                    commitment: commitment.clone(),
+                    block_height,
+                    input_index,
+                    response_tx,
+                })
+                .map_err(|_| {
+                    LightweightWalletError::StorageError(
+                        "Background writer channel closed".to_string(),
+                    )
+                })?;
+
+            response_rx.await.map_err(|_| {
+                LightweightWalletError::StorageError("Background writer response lost".to_string())
+            })?
+        } else if let Some(storage) = &self.database {
+            // Fallback to direct storage if background writer not available
+            storage
+                .mark_transaction_spent(commitment, block_height, input_index)
+                .await
+        } else {
+            Ok(false) // Memory-only mode
+        }
+    }
+
+    /// Architecture-specific transaction spent marking (WASM32: direct storage)
+    #[cfg(all(feature = "storage", target_arch = "wasm32"))]
+    async fn mark_transaction_spent_impl(
+        &self,
+        commitment: &CompressedCommitment,
+        block_height: u64,
+        input_index: usize,
+    ) -> LightweightWalletResult<bool> {
+        if let Some(storage) = &self.database {
+            storage
+                .mark_transaction_spent(commitment, block_height, input_index)
+                .await
+        } else {
+            Ok(false) // Memory-only mode
         }
     }
 
@@ -544,18 +1013,21 @@ impl ScannerStorage {
     /// This method is kept for compatibility but is no longer used in the main scanning flow.
     /// Spending detection is handled by wallet_state.mark_output_spent() called from block.process_inputs()
     #[cfg(feature = "storage")]
-    pub async fn mark_outputs_spent(&self, spent_outputs: &[(Vec<u8>, u64, usize)]) -> LightweightWalletResult<()> {
+    pub async fn mark_outputs_spent(
+        &self,
+        spent_outputs: &[(Vec<u8>, u64, usize)],
+    ) -> LightweightWalletResult<()> {
         if let Some(storage) = &self.database {
             for (commitment, block_height, input_index) in spent_outputs {
                 // Get the output by commitment
                 if let Some(mut output) = storage.get_output_by_commitment(commitment).await? {
                     // Calculate transaction ID
                     let tx_id = generate_transaction_id(*block_height, *input_index);
-                    
+
                     // Update the output as spent
                     output.status = OutputStatus::Spent as u32;
                     output.spent_in_tx_id = Some(tx_id);
-                    
+
                     // Save the updated output
                     storage.update_output(&output).await?;
                 }
@@ -566,7 +1038,9 @@ impl ScannerStorage {
 
     /// Get storage statistics for the current wallet
     #[cfg(feature = "storage")]
-    pub async fn get_statistics(&self) -> LightweightWalletResult<lightweight_wallet_libs::storage::StorageStats> {
+    pub async fn get_statistics(
+        &self,
+    ) -> LightweightWalletResult<lightweight_wallet_libs::storage::StorageStats> {
         if let Some(storage) = &self.database {
             // Get wallet-specific statistics if we have a wallet_id
             storage.get_wallet_statistics(self.wallet_id).await
@@ -613,7 +1087,7 @@ impl ScannerStorage {
         #[cfg(feature = "storage")]
         if let Some(_storage) = &self.database {
             if let Some(db_path) = &config.database_path {
-                println!("💾 Using SQLite database: {}", db_path);
+                println!("💾 Using SQLite database: {db_path}");
             } else {
                 println!("💾 Using in-memory database");
             }
@@ -635,7 +1109,10 @@ impl ScannerStorage {
     }
 
     /// Display completion information
-    pub async fn display_completion_info(&self, config: &ScanConfig) -> LightweightWalletResult<()> {
+    pub async fn display_completion_info(
+        &self,
+        config: &ScanConfig,
+    ) -> LightweightWalletResult<()> {
         if config.quiet {
             return Ok(());
         }
@@ -660,10 +1137,7 @@ impl ScannerStorage {
             // Also show UTXO output count if available
             let utxo_count = self.get_unspent_outputs_count().await?;
             if utxo_count > 0 {
-                println!(
-                    "🔗 UTXO outputs stored: {}",
-                    format_number(utxo_count)
-                );
+                println!("🔗 UTXO outputs stored: {}", format_number(utxo_count));
             }
         }
 
@@ -777,12 +1251,12 @@ impl ScanProgress {
 
         print!("\r🔍 Progress: {:.1}% ({}/{}) | Block {} | {:.1} blocks/s | Found: {} outputs, {} spent   ",
             progress_percent,
-            self.blocks_processed,
-            self.total_blocks,
-            self.current_block,
+            format_number(self.blocks_processed),
+            format_number(self.total_blocks),
+            format_number(self.current_block),
             blocks_per_sec,
-            self.outputs_found,
-            self.inputs_found
+            format_number(self.outputs_found),
+            format_number(self.inputs_found)
         );
         std::io::Write::flush(&mut std::io::stdout()).unwrap();
     }
@@ -891,14 +1365,15 @@ pub enum ScanResult {
 #[cfg(all(feature = "grpc", feature = "storage"))]
 fn derive_entropy_from_seed_phrase(seed_phrase: &str) -> LightweightWalletResult<[u8; 16]> {
     use lightweight_wallet_libs::key_management::seed_phrase::{mnemonic_to_bytes, CipherSeed};
-    
+
     let encrypted_bytes = mnemonic_to_bytes(seed_phrase)?;
     let cipher_seed = CipherSeed::from_enciphered_bytes(&encrypted_bytes, None)?;
     let entropy = cipher_seed.entropy();
-    
-    let entropy_array: [u8; 16] = entropy.try_into()
+
+    let entropy_array: [u8; 16] = entropy
+        .try_into()
         .map_err(|_| KeyManagementError::key_derivation_failed("Invalid entropy length"))?;
-    
+
     Ok(entropy_array)
 }
 
@@ -934,7 +1409,8 @@ fn extract_utxo_outputs_from_wallet_state(
                     derive_utxo_spending_keys(&scan_context.entropy, output_index as u64)?;
 
                 // Extract script input data and lock height
-                let (input_data, script_lock_height) = extract_script_data(&blockchain_output.script.bytes)?;
+                let (input_data, script_lock_height) =
+                    extract_script_data(&blockchain_output.script.bytes)?;
 
                 // Create StoredOutput from blockchain data
                 let stored_output = StoredOutput {
@@ -960,8 +1436,7 @@ fn extract_utxo_outputs_from_wallet_state(
                     features_json: serde_json::to_string(&blockchain_output.features).map_err(
                         |e| {
                             LightweightWalletError::StorageError(format!(
-                                "Failed to serialize features: {}",
-                                e
+                                "Failed to serialize features: {e}"
                             ))
                         },
                     )?,
@@ -1056,10 +1531,10 @@ fn extract_script_data(script_bytes: &[u8]) -> LightweightWalletResult<(Vec<u8>,
                 i += 1;
                 if i + data_len <= script_bytes.len() {
                     let data = script_bytes[i..i + data_len].to_vec();
-                    
+
                     // Check if this data might be input data (execution stack data)
                     // Input data is typically non-zero and has meaningful structure
-                    if !data.iter().all(|&b| b == 0) && data.len() >= 1 {
+                    if !data.iter().all(|&b| b == 0) && !data.is_empty() {
                         // Prefer larger, more structured data as input data
                         if input_data.is_empty() || data.len() > input_data.len() {
                             input_data = data.clone();
@@ -1073,19 +1548,19 @@ fn extract_script_data(script_bytes: &[u8]) -> LightweightWalletResult<(Vec<u8>,
                         } else {
                             u64::from_le_bytes(data.clone().try_into().unwrap_or([0; 8]))
                         };
-                        
+
                         // Store as potential height if it looks reasonable
                         if height > 0 && height < 10_000_000 && height > 100 {
                             potential_heights.push(height);
                         }
                     }
-                    
+
                     i += data_len;
                 } else {
                     break; // Malformed script
                 }
             }
-            
+
             // OP_PUSHDATA1 (0x4c) - next byte is data length
             0x4c => {
                 if i + 1 < script_bytes.len() {
@@ -1093,10 +1568,11 @@ fn extract_script_data(script_bytes: &[u8]) -> LightweightWalletResult<(Vec<u8>,
                     i += 2;
                     if i + data_len <= script_bytes.len() {
                         let data = script_bytes[i..i + data_len].to_vec();
-                        if !data.iter().all(|&b| b == 0) && data.len() >= 1 {
-                            if input_data.is_empty() || data.len() > input_data.len() {
-                                input_data = data.clone();
-                            }
+                        if !data.iter().all(|&b| b == 0)
+                            && !data.is_empty()
+                            && (input_data.is_empty() || data.len() > input_data.len())
+                        {
+                            input_data = data.clone();
                         }
 
                         // Check for height values
@@ -1106,7 +1582,7 @@ fn extract_script_data(script_bytes: &[u8]) -> LightweightWalletResult<(Vec<u8>,
                             } else {
                                 u64::from_le_bytes(data.clone().try_into().unwrap_or([0; 8]))
                             };
-                            
+
                             if height > 0 && height < 10_000_000 && height > 100 {
                                 potential_heights.push(height);
                             }
@@ -1120,18 +1596,21 @@ fn extract_script_data(script_bytes: &[u8]) -> LightweightWalletResult<(Vec<u8>,
                     break;
                 }
             }
-            
+
             // OP_PUSHDATA2 (0x4d) - next 2 bytes are data length (little-endian)
             0x4d => {
                 if i + 2 < script_bytes.len() {
-                    let data_len = u16::from_le_bytes([script_bytes[i + 1], script_bytes[i + 2]]) as usize;
+                    let data_len =
+                        u16::from_le_bytes([script_bytes[i + 1], script_bytes[i + 2]]) as usize;
                     i += 3;
                     if i + data_len <= script_bytes.len() {
                         let data = script_bytes[i..i + data_len].to_vec();
-                        if !data.iter().all(|&b| b == 0) && data.len() >= 1 && data.len() <= 256 {
-                            if input_data.is_empty() || data.len() > input_data.len() {
-                                input_data = data;
-                            }
+                        if !data.iter().all(|&b| b == 0)
+                            && !data.is_empty()
+                            && data.len() <= 256
+                            && (input_data.is_empty() || data.len() > input_data.len())
+                        {
+                            input_data = data;
                         }
                         i += data_len;
                     } else {
@@ -1141,7 +1620,7 @@ fn extract_script_data(script_bytes: &[u8]) -> LightweightWalletResult<(Vec<u8>,
                     break;
                 }
             }
-            
+
             // OP_CHECKHEIGHTVERIFY or similar time-lock opcodes
             // In Tari, this might be represented differently, but we'll look for patterns
             0x65..=0x6a => {
@@ -1158,7 +1637,7 @@ fn extract_script_data(script_bytes: &[u8]) -> LightweightWalletResult<(Vec<u8>,
                 }
                 i += 1;
             }
-            
+
             // OP_NOP and other common opcodes that might precede time locks
             0x61 => {
                 // OP_NOP - check if followed by height data
@@ -1173,7 +1652,7 @@ fn extract_script_data(script_bytes: &[u8]) -> LightweightWalletResult<(Vec<u8>,
                 }
                 i += 1;
             }
-            
+
             // All other opcodes
             _ => {
                 i += 1;
@@ -1185,7 +1664,7 @@ fn extract_script_data(script_bytes: &[u8]) -> LightweightWalletResult<(Vec<u8>,
     if script_lock_height == 0 && !potential_heights.is_empty() {
         // Sort potential heights and pick the most reasonable one
         potential_heights.sort();
-        
+
         // Prefer heights that are in the typical blockchain range
         for &height in &potential_heights {
             if height > 1000 && height < 1_000_000 {
@@ -1193,7 +1672,7 @@ fn extract_script_data(script_bytes: &[u8]) -> LightweightWalletResult<(Vec<u8>,
                 break;
             }
         }
-        
+
         // If no reasonable height found, use the smallest positive one
         if script_lock_height == 0 {
             script_lock_height = potential_heights[0];
@@ -1222,46 +1701,19 @@ fn extract_script_data(script_bytes: &[u8]) -> LightweightWalletResult<(Vec<u8>,
 fn generate_transaction_id(block_height: u64, input_index: usize) -> u64 {
     // Create a deterministic transaction ID by combining block height and input index
     // This is a simplified approach - in a real implementation, you'd use the actual transaction hash
-    // 
+    //
     // Format: [32-bit block_height][32-bit input_index]
     // This ensures unique IDs while being deterministic and easily debuggable
-    
+
     // Use the block height as the upper 32 bits and input index as lower 32 bits
     let tx_id = ((block_height & 0xFFFFFFFF) << 32) | (input_index as u64 & 0xFFFFFFFF);
-    
+
     // Ensure we don't return 0 (which is often treated as "no transaction")
     if tx_id == 0 {
         1
     } else {
         tx_id
     }
-}
-
-/// Validate that the extracted script data is reasonable
-#[cfg(all(feature = "grpc", feature = "storage"))]
-fn validate_script_data(input_data: &[u8], script_lock_height: u64) -> LightweightWalletResult<()> {
-    // Validate input data
-    if input_data.len() > 1024 {
-        return Err(LightweightWalletError::ValidationError(
-            ValidationError::ScriptValidationFailed(
-                format!("Input data too large: {} bytes (max 1024)", input_data.len())
-            )
-        ));
-    }
-
-    // Validate script lock height
-    if script_lock_height > 0 {
-        // Should be a reasonable block height
-        if script_lock_height > 100_000_000 {
-            return Err(LightweightWalletError::ValidationError(
-                ValidationError::ScriptValidationFailed(
-                    format!("Script lock height too large: {}", script_lock_height)
-                )
-            ));
-        }
-    }
-
-    Ok(())
 }
 
 /// Derive spending keys for a UTXO output using wallet entropy
@@ -1292,9 +1744,10 @@ fn derive_utxo_spending_keys(
         )?;
 
         // Convert to PrivateKey type
-        let spending_key = PrivateKey::new(spending_key_raw.as_bytes().try_into().map_err(|_| {
-            KeyManagementError::key_derivation_failed("Failed to convert spending key")
-        })?);
+        let spending_key =
+            PrivateKey::new(spending_key_raw.as_bytes().try_into().map_err(|_| {
+                KeyManagementError::key_derivation_failed("Failed to convert spending key")
+            })?);
 
         let script_private_key =
             PrivateKey::new(script_private_key_raw.as_bytes().try_into().map_err(|_| {
@@ -1307,7 +1760,7 @@ fn derive_utxo_spending_keys(
         let placeholder_key_bytes = [0u8; 32];
         let spending_key = PrivateKey::new(placeholder_key_bytes);
         let script_private_key = PrivateKey::new(placeholder_key_bytes);
-        
+
         Ok((spending_key, script_private_key))
     }
 }
@@ -1323,7 +1776,7 @@ fn compute_output_hash(output: &LightweightTransactionOutput) -> LightweightWall
     hasher.update(output.commitment.as_bytes());
     hasher.update(output.script.bytes.as_slice());
     hasher.update(output.sender_offset_public_key.as_bytes());
-    hasher.update(&output.minimum_value_promise.as_u64().to_le_bytes());
+    hasher.update(output.minimum_value_promise.as_u64().to_le_bytes());
 
     Ok(hasher.finalize().to_vec())
 }
@@ -1340,9 +1793,12 @@ async fn scan_wallet_across_blocks_with_cancellation(
     let has_specific_blocks = config.block_heights.is_some();
 
     // Handle automatic resume functionality for database storage
-    let (from_block, to_block) = if config.use_database && config.explicit_from_block.is_none() && config.block_heights.is_none() {
+    let (from_block, to_block) = if config.use_database
+        && config.explicit_from_block.is_none()
+        && config.block_heights.is_none()
+    {
         #[cfg(feature = "storage")]
-        if let Some(wallet_id) = storage_backend.wallet_id {
+        if let Some(_wallet_id) = storage_backend.wallet_id {
             // Get the wallet to check its resume block
             if let Some(wallet_birthday) = storage_backend.get_wallet_birthday().await? {
                 if !config.quiet {
@@ -1380,10 +1836,15 @@ async fn scan_wallet_across_blocks_with_cancellation(
         .unwrap_or_else(|| (from_block..=to_block).collect());
 
     if !config.quiet {
-        display_scan_info(&config, &block_heights, has_specific_blocks);
+        display_scan_info(config, &block_heights, has_specific_blocks);
     }
 
+    // Create a fresh wallet state for this scan (don't load historical transactions)
     let mut wallet_state = WalletState::new();
+
+    // Reset transaction counter for this scan session (only count new transactions found)
+    storage_backend.last_saved_transaction_count = 0;
+
     let _progress = ScanProgress::new(block_heights.len());
     let batch_size = config.batch_size;
 
@@ -1407,7 +1868,7 @@ async fn scan_wallet_across_blocks_with_cancellation(
                 batch_heights[0],
                 "Scanning",
             );
-            print!("\r{}", progress_bar);
+            print!("\r{progress_bar}");
             std::io::Write::flush(&mut std::io::stdout()).unwrap();
         }
 
@@ -1419,8 +1880,8 @@ async fn scan_wallet_across_blocks_with_cancellation(
                     "\n❌ Error scanning batch starting at block {}: {}",
                     batch_heights[0], e
                 );
-                println!("   Batch heights: {:?}", batch_heights);
-                println!("   Error details: {:?}", e);
+                println!("   Batch heights: {batch_heights:?}");
+                println!("   Error details: {e:?}");
 
                 let remaining_blocks = &block_heights[batch_start_index..];
                 if handle_scan_error(
@@ -1449,10 +1910,7 @@ async fn scan_wallet_across_blocks_with_cancellation(
                 Some(block) => block.clone(),
                 None => {
                     if !config.quiet {
-                        println!(
-                            "\n⚠️  Block {} not found in batch, skipping...",
-                            block_height
-                        );
+                        println!("\n⚠️  Block {block_height} not found in batch, skipping...");
                     }
                     continue;
                 }
@@ -1473,9 +1931,8 @@ async fn scan_wallet_across_blocks_with_cancellation(
                 (Err(e), _) | (_, Err(e)) => Err(e),
             };
 
-            let (_found_outputs, spent_outputs_count) = match scan_result {
+            let (_found_outputs, _spent_outputs_count) = match scan_result {
                 Ok(result) => {
-
                     // Note: Spent output tracking is handled automatically by wallet_state.mark_output_spent()
                     // called from block.process_inputs() - and we also update the database below
 
@@ -1483,68 +1940,123 @@ async fn scan_wallet_across_blocks_with_cancellation(
                     #[cfg(feature = "storage")]
                     if storage_backend.wallet_id.is_some() {
                         // Mark any transactions as spent in the database that were marked as spent in this block
-                        for (input_index, input) in block.inputs.iter().enumerate() {
-                            let input_commitment = CompressedCommitment::new(input.commitment);
-                            if let Some(storage) = &storage_backend.database {
-                                if let Err(e) = storage.mark_transaction_spent(
-                                    &input_commitment,
-                                    *block_height,
-                                    input_index,
-                                ).await {
-                                    if !config.quiet {
-                                        println!("\n⚠️  Warning: Failed to mark transaction as spent in database for commitment {}: {}", 
-                                            hex::encode(&input_commitment.as_bytes()[..8]), e);
+                        // OPTIMIZATION: Only mark transactions if we actually have spent transactions in wallet state
+
+                        // Early exit: Skip spent marking entirely if wallet has no spent transactions
+                        let wallet_has_spent_transactions =
+                            wallet_state.transactions.iter().any(|tx| tx.is_spent);
+                        let _spent_markings_made = if !wallet_has_spent_transactions
+                            || block.inputs.is_empty()
+                        {
+                            0 // Skip processing entirely
+                        } else {
+                            // Quick bloom filter check: If no inputs match wallet commitments, skip entirely
+                            let wallet_commitments: std::collections::HashSet<_> = wallet_state
+                                .transactions
+                                .iter()
+                                .filter(|tx| tx.is_spent)
+                                .map(|tx| tx.commitment.clone())
+                                .collect();
+
+                            // Fast set intersection check - if no block inputs are in wallet, skip
+                            let has_relevant_inputs = block.inputs.iter().any(|input| {
+                                let input_commitment = CompressedCommitment::new(input.commitment);
+                                wallet_commitments.contains(&input_commitment)
+                            });
+
+                            if !has_relevant_inputs {
+                                0 // No relevant inputs in this block, skip database operations
+                            } else {
+                                // Pre-build a HashMap of spent commitments for O(1) lookup instead of O(n) linear search
+                                // This reduces complexity from O(inputs × transactions) to O(inputs + transactions)
+                                let spent_commitments: std::collections::HashMap<
+                                    CompressedCommitment,
+                                    bool,
+                                > = wallet_state
+                                    .transactions
+                                    .iter()
+                                    .filter(|tx| tx.is_spent)
+                                    .map(|tx| (tx.commitment.clone(), true))
+                                    .collect();
+
+                                // Early exit: Skip if no spent commitments in wallet
+                                if spent_commitments.is_empty() {
+                                    0
+                                } else {
+                                    // Collect all commitments that need to be marked as spent for batch processing
+                                    let mut batch_spent_commitments = Vec::new();
+                                    for (input_index, input) in block.inputs.iter().enumerate() {
+                                        let input_commitment =
+                                            CompressedCommitment::new(input.commitment);
+
+                                        // Fast O(1) HashMap lookup instead of O(n) linear search
+                                        if spent_commitments.contains_key(&input_commitment) {
+                                            batch_spent_commitments.push((
+                                                input_commitment,
+                                                *block_height,
+                                                input_index,
+                                            ));
+                                        }
+                                    }
+
+                                    // Execute batch spent marking only if we found relevant commitments
+                                    if !batch_spent_commitments.is_empty() {
+                                        match storage_backend
+                                            .mark_transactions_spent_batch_arch_specific(
+                                                &batch_spent_commitments,
+                                            )
+                                            .await
+                                        {
+                                            Ok(count) => count,
+                                            Err(e) => {
+                                                if !config.quiet {
+                                                    println!("\n⚠️  Warning: Failed to batch mark transactions as spent: {e}");
+                                                }
+                                                0
+                                            }
+                                        }
+                                    } else {
+                                        0
                                     }
                                 }
                             }
-                        }
+                        };
 
-                        // Save ALL accumulated transactions frequently (using INSERT OR REPLACE to handle duplicates)
-                        // This ensures no transactions are lost if individual block saves fail
-                        // Save every block to ensure data integrity (INSERT OR REPLACE handles duplicates efficiently)
-                        let should_save_transactions = true;
-
-                        if should_save_transactions {
-                            let all_transactions: Vec<_> = wallet_state
-                                .transactions
-                                .iter()
-                                .cloned()
-                                .collect();
+                        // Save only NEW transactions incrementally (significant performance improvement)
+                        // This reduces O(n²) database writes to O(n) writes
+                        let all_transactions: Vec<_> = wallet_state.transactions.to_vec();
 
                         if !all_transactions.is_empty() {
-                            // Save transaction data (includes both inbound and outbound transactions)
+                            // Get the count before incremental save
+                            let prev_saved_count = storage_backend.last_saved_transaction_count;
+
+                            // Save only new transactions since last save (incremental)
                             if let Err(e) = storage_backend
-                                .save_transactions(&all_transactions)
+                                .save_transactions_incremental(&all_transactions)
                                 .await
                             {
                                 if !config.quiet {
-                                    println!("\n⚠️  Warning: Failed to save {} accumulated transactions to database: {}", 
-                                        format_number(all_transactions.len()), e);
+                                    println!("\n⚠️  Warning: Failed to save new transactions to database: {e}");
                                 }
                             } else {
-                                // Validate that we're saving both inbound and outbound transactions correctly
-                                let inbound_count = all_transactions.iter().filter(|tx| tx.transaction_direction == TransactionDirection::Inbound).count();
-                                let outbound_count = all_transactions.iter().filter(|tx| tx.transaction_direction == TransactionDirection::Outbound).count();
-                                
-                                if !config.quiet {
-                                    println!("\n💾 Saved {} total transactions to database ({} inbound, {} outbound)", 
-                                        format_number(all_transactions.len()), 
-                                        format_number(inbound_count), format_number(outbound_count));
-                                }
-                                
-                                // Verify that outbound transactions have proper spending details
-                                for tx in &all_transactions {
-                                    if tx.transaction_direction == TransactionDirection::Outbound {
-                                        if tx.input_index.is_none() {
-                                            if !config.quiet {
-                                                println!("\n⚠️  Warning: Outbound transaction missing input_index");
-                                            }
-                                        }
+                                // Verify that outbound transactions have proper spending details (only for new transactions)
+                                let new_transactions = if all_transactions.len() > prev_saved_count
+                                {
+                                    &all_transactions[prev_saved_count..]
+                                } else {
+                                    &[]
+                                };
+
+                                for tx in new_transactions {
+                                    if tx.transaction_direction == TransactionDirection::Outbound
+                                        && tx.input_index.is_none()
+                                        && !config.quiet
+                                    {
+                                        println!("\n⚠️  Warning: Outbound transaction missing input_index");
                                     }
                                 }
                             }
                         }
-                        } // Close the should_save_transactions if block
 
                         // Extract and save UTXO data for wallet outputs (works for both seed phrase and view-key modes)
                         match extract_utxo_outputs_from_wallet_state(
@@ -1556,27 +2068,16 @@ async fn scan_wallet_across_blocks_with_cancellation(
                         ) {
                             Ok(utxo_outputs) => {
                                 if !utxo_outputs.is_empty() {
-                                    if let Err(e) = storage_backend.save_outputs(&utxo_outputs).await {
+                                    if let Err(e) =
+                                        storage_backend.save_outputs(&utxo_outputs).await
+                                    {
                                         if !config.quiet {
                                             println!("\n⚠️  Warning: Failed to save {} UTXO outputs from block {} to database: {}", 
                                                 format_number(utxo_outputs.len()), format_number(*block_height), e);
                                         }
-                                    } else if !config.quiet {
-                                        let unspent_utxos = utxo_outputs.iter().filter(|o| o.status == (OutputStatus::Unspent as u32)).count();
-                                        let spent_utxos = utxo_outputs.iter().filter(|o| o.status == (OutputStatus::Spent as u32)).count();
-                                        println!("\n🔗 Saved {} UTXO outputs for block {} ({} unspent, {} spent)", 
-                                            format_number(utxo_outputs.len()), format_number(*block_height),
-                                            format_number(unspent_utxos), format_number(spent_utxos));
-                                            
-                                        // Verify that all UTXOs have proper spending keys (or placeholders for view-key mode)
-                                        for utxo in &utxo_outputs {
-                                            if utxo.spending_key.is_empty() {
-                                                println!("⚠️  Warning: UTXO missing spending key for commitment: {}", hex::encode(&utxo.commitment[..8]));
-                                            }
-                                        }
                                     }
                                 }
-                            },
+                            }
                             Err(e) => {
                                 if !config.quiet {
                                     println!(
@@ -1591,9 +2092,9 @@ async fn scan_wallet_across_blocks_with_cancellation(
                     result
                 }
                 Err(e) => {
-                    println!("\n❌ Error processing block {}: {}", block_height, e);
-                    println!("   Block height: {}", block_height);
-                    println!("   Error details: {:?}", e);
+                    println!("\n❌ Error processing block {block_height}: {e}");
+                    println!("   Block height: {block_height}");
+                    println!("   Error details: {e:?}");
 
                     let remaining_blocks = &block_heights[global_block_index..];
                     if handle_scan_error(
@@ -1614,15 +2115,20 @@ async fn scan_wallet_across_blocks_with_cancellation(
             };
         }
 
-
-
         // Update wallet scanned block at the end of each batch (for progress tracking)
         #[cfg(feature = "storage")]
         if storage_backend.wallet_id.is_some() {
             if let Some(last_block_height) = batch_heights.last() {
-                if let Err(e) = storage_backend.update_wallet_scanned_block(*last_block_height).await {
+                if let Err(e) = storage_backend
+                    .update_wallet_scanned_block(*last_block_height)
+                    .await
+                {
                     if !config.quiet {
-                        println!("\n⚠️  Warning: Failed to update wallet scanned block to {}: {}", format_number(*last_block_height), e);
+                        println!(
+                            "\n⚠️  Warning: Failed to update wallet scanned block to {}: {}",
+                            format_number(*last_block_height),
+                            e
+                        );
                     }
                 }
             }
@@ -1641,7 +2147,7 @@ async fn scan_wallet_across_blocks_with_cancellation(
                     "Scanning"
                 },
             );
-            print!("\r{}", progress_bar);
+            print!("\r{progress_bar}");
             std::io::Write::flush(&mut std::io::stdout()).unwrap();
         }
     }
@@ -1650,12 +2156,22 @@ async fn scan_wallet_across_blocks_with_cancellation(
     #[cfg(feature = "storage")]
     if storage_backend.wallet_id.is_some() {
         if let Some(highest_block) = block_heights.last() {
-            if let Err(e) = storage_backend.update_wallet_scanned_block(*highest_block).await {
+            if let Err(e) = storage_backend
+                .update_wallet_scanned_block(*highest_block)
+                .await
+            {
                 if !config.quiet {
-                    println!("\n⚠️  Warning: Failed to final update wallet scanned block to {}: {}", format_number(*highest_block), e);
+                    println!(
+                        "\n⚠️  Warning: Failed to final update wallet scanned block to {}: {}",
+                        format_number(*highest_block),
+                        e
+                    );
                 }
             } else if !config.quiet {
-                println!("\n💾 Final wallet scanned block updated to: {}", format_number(*highest_block));
+                println!(
+                    "\n💾 Final wallet scanned block updated to: {}",
+                    format_number(*highest_block)
+                );
             }
         }
     }
@@ -1668,7 +2184,7 @@ async fn scan_wallet_across_blocks_with_cancellation(
             block_heights.last().cloned().unwrap_or(0),
             "Complete",
         );
-        println!("\r{}", final_progress_bar);
+        println!("\r{final_progress_bar}");
 
         let (inbound_count, outbound_count, _) = wallet_state.get_direction_counts();
         println!("\n✅ Scan complete!");
@@ -1699,7 +2215,7 @@ fn display_scan_info(config: &ScanConfig, block_heights: &[u64], has_specific_bl
                 format!(
                     "{}..{} and {} others",
                     format_number(block_heights[0]),
-                    format_number(*block_heights.last().unwrap()),
+                    format_number(block_heights.last().copied().unwrap_or(0)),
                     format_number(block_heights.len() - 2)
                 )
             }
@@ -1713,7 +2229,6 @@ fn display_scan_info(config: &ScanConfig, block_heights: &[u64], has_specific_bl
             format_number(block_range)
         );
     }
-
 
     println!();
 }
@@ -1780,7 +2295,10 @@ fn display_wallet_activity(wallet_state: &WalletState, from_block: u64, to_block
         sorted_transactions.sort_by_key(|(_, tx)| tx.block_height);
 
         // Create a mapping from commitments to transactions for spent tracking
-        let mut commitment_to_inbound: std::collections::HashMap<Vec<u8>, &lightweight_wallet_libs::data_structures::wallet_transaction::WalletTransaction> = std::collections::HashMap::new();
+        let mut commitment_to_inbound: std::collections::HashMap<
+            Vec<u8>,
+            &lightweight_wallet_libs::data_structures::wallet_transaction::WalletTransaction,
+        > = std::collections::HashMap::new();
         for tx in &wallet_state.transactions {
             if tx.transaction_direction == TransactionDirection::Inbound {
                 commitment_to_inbound.insert(tx.commitment.as_bytes().to_vec(), tx);
@@ -1810,7 +2328,10 @@ fn display_wallet_activity(wallet_state: &WalletState, from_block: u64, to_block
             match tx.transaction_direction {
                 TransactionDirection::Inbound => {
                     let status = if tx.is_spent {
-                        format!("SPENT in block {}", format_number(tx.spent_in_block.unwrap_or(0)))
+                        format!(
+                            "SPENT in block {}",
+                            format_number(tx.spent_in_block.unwrap_or(0))
+                        )
                     } else {
                         "UNSPENT".to_string()
                     };
@@ -1832,9 +2353,11 @@ fn display_wallet_activity(wallet_state: &WalletState, from_block: u64, to_block
                     if tx.is_spent {
                         if let Some(spent_block) = tx.spent_in_block {
                             if let Some(spent_input) = tx.spent_in_input {
-                                println!("   └─ Spent as input #{} in block {}", 
-                                    format_number(spent_input), 
-                                    format_number(spent_block));
+                                println!(
+                                    "   └─ Spent as input #{} in block {}",
+                                    format_number(spent_input),
+                                    format_number(spent_block)
+                                );
                             }
                         }
                     }
@@ -1854,9 +2377,11 @@ fn display_wallet_activity(wallet_state: &WalletState, from_block: u64, to_block
                     // Try to find which output this is spending
                     let commitment_bytes = tx.commitment.as_bytes().to_vec();
                     if let Some(original_tx) = commitment_to_inbound.get(&commitment_bytes) {
-                        println!("   └─ Spending output from block {} (output #{})", 
+                        println!(
+                            "   └─ Spending output from block {} (output #{})",
                             format_number(original_tx.block_height),
-                            format_number(original_tx.output_index.unwrap_or(0)));
+                            format_number(original_tx.output_index.unwrap_or(0))
+                        );
                     }
                 }
                 TransactionDirection::Unknown => {
@@ -1882,7 +2407,7 @@ fn display_wallet_activity(wallet_state: &WalletState, from_block: u64, to_block
                             .chars()
                             .all(|c| c.is_ascii_graphic() || c.is_ascii_whitespace())
                         {
-                            println!("   💬 Payment ID: \"{}\"", text);
+                            println!("   💬 Payment ID: \"{text}\"");
                         } else {
                             println!("   💬 Payment ID (hex): {}", hex::encode(user_data));
                         }
@@ -1893,7 +2418,7 @@ fn display_wallet_activity(wallet_state: &WalletState, from_block: u64, to_block
                 PaymentId::TransactionInfo { user_data, .. } if !user_data.is_empty() => {
                     // Convert the binary data to utf8 string if possible otherwise print as hex
                     if let Ok(text) = std::str::from_utf8(user_data) {
-                        println!("   💬 Payment ID: \"{}\"", text);
+                        println!("   💬 Payment ID: \"{text}\"");
                     } else {
                         println!("   💬 Payment ID (hex): {}", hex::encode(user_data));
                     }
@@ -1901,7 +2426,7 @@ fn display_wallet_activity(wallet_state: &WalletState, from_block: u64, to_block
                 _ => {
                     let user_data_str = tx.payment_id.user_data_as_string();
                     if !user_data_str.is_empty() {
-                        println!("   💬 Payment ID: \"{}\"", user_data_str);
+                        println!("   💬 Payment ID: \"{user_data_str}\"");
                     }
                 }
             }
@@ -2013,8 +2538,6 @@ async fn main() -> LightweightWalletResult<()> {
 
     let args = CliArgs::parse();
 
-
-
     // Validate input arguments
     let keys_provided = args.seed_phrase.is_some() || args.view_key.is_some();
 
@@ -2076,7 +2599,7 @@ async fn main() -> LightweightWalletResult<()> {
         .await
         .map_err(|e| {
             if !args.quiet {
-                eprintln!("❌ Failed to connect to Tari base node: {}", e);
+                eprintln!("❌ Failed to connect to Tari base node: {e}");
                 eprintln!("💡 Make sure tari_base_node is running with GRPC enabled on port 18142");
             }
             e
@@ -2117,16 +2640,16 @@ async fn main() -> LightweightWalletResult<()> {
         }
     };
 
-    // Handle wallet operations for database storage
+    // Handle wallet operations for database storage (only when no keys provided)
     #[cfg(feature = "storage")]
-    let (loaded_scan_context, wallet_birthday) = {
-        let loaded_context = storage_backend.handle_wallet_operations(
-            &temp_config,
-            scan_context.as_ref(),
-            args.seed_phrase.as_deref(),
-        ).await?;
-
-
+    let (loaded_scan_context, wallet_birthday) = if keys_provided {
+        // Keys provided directly - skip database operations entirely
+        (None, None)
+    } else {
+        // No keys provided - use database storage
+        let loaded_context = storage_backend
+            .handle_wallet_operations(&temp_config, scan_context.as_ref())
+            .await?;
 
         // Get wallet birthday if we have a wallet
         let wallet_birthday = if args.from_block.is_none() {
@@ -2139,10 +2662,7 @@ async fn main() -> LightweightWalletResult<()> {
     };
 
     #[cfg(not(feature = "storage"))]
-    let (loaded_scan_context, wallet_birthday): (
-        Option<ScanContext>,
-        Option<u64>,
-    ) = (None, None);
+    let (loaded_scan_context, wallet_birthday): (Option<ScanContext>, Option<u64>) = (None, None);
 
     // Use loaded scan context if we didn't have one initially, or fall back to provided scan context
     let final_scan_context = if let Some(loaded_context) = loaded_scan_context {
@@ -2168,6 +2688,17 @@ async fn main() -> LightweightWalletResult<()> {
     // Update the config with the correct from_block
     let block_height_range = BlockHeightRange::new(from_block, to_block, args.blocks.clone());
     let config = block_height_range.into_scan_config(&args)?;
+
+    // Start background writer for non-WASM32 architectures (if using database storage)
+    #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+    if !storage_backend.is_memory_only {
+        if !args.quiet {
+            println!("🚀 Starting background database writer...");
+        }
+        storage_backend
+            .start_background_writer(&args.database)
+            .await?;
+    }
 
     // Display storage info and existing data
     if !args.quiet {
@@ -2210,22 +2741,31 @@ async fn main() -> LightweightWalletResult<()> {
                 }
             }
 
-                // Display storage completion info and verify data integrity
-    if !args.quiet {
-        storage_backend.display_completion_info(&config).await?;
-        
-        // Verify that transaction flow data was persisted correctly
-        #[cfg(feature = "storage")]
-        if storage_backend.wallet_id.is_some() {
-            let stats = storage_backend.get_statistics().await?;
-            // Show the stored values
-            println!("Database total received: {}", format_number(stats.total_received));
-            println!("Database total spent: {}", format_number(stats.total_spent));
-            println!("Database balance: {}", format_number(stats.current_balance));
-            println!("Database inbound count: {}", format_number(stats.inbound_count));
-            println!("Database outbound count: {}", format_number(stats.outbound_count));
-        }
-    }
+            // Display storage completion info and verify data integrity
+            if !args.quiet {
+                storage_backend.display_completion_info(&config).await?;
+
+                // Verify that transaction flow data was persisted correctly
+                #[cfg(feature = "storage")]
+                if storage_backend.wallet_id.is_some() {
+                    let stats = storage_backend.get_statistics().await?;
+                    // Show the stored values
+                    println!(
+                        "Database total received: {}",
+                        format_number(stats.total_received)
+                    );
+                    println!("Database total spent: {}", format_number(stats.total_spent));
+                    println!("Database balance: {}", format_number(stats.current_balance));
+                    println!(
+                        "Database inbound count: {}",
+                        format_number(stats.inbound_count)
+                    );
+                    println!(
+                        "Database outbound count: {}",
+                        format_number(stats.outbound_count)
+                    );
+                }
+            }
         }
         Some(Ok(ScanResult::Interrupted(wallet_state))) => {
             if !args.quiet {
@@ -2255,7 +2795,7 @@ async fn main() -> LightweightWalletResult<()> {
         }
         Some(Err(e)) => {
             if !args.quiet {
-                eprintln!("❌ Scan failed: {}", e);
+                eprintln!("❌ Scan failed: {e}");
             }
             return Err(e);
         }
@@ -2269,6 +2809,15 @@ async fn main() -> LightweightWalletResult<()> {
             }
             std::process::exit(130); // Standard exit code for SIGINT
         }
+    }
+
+    // Stop background writer gracefully
+    #[cfg(all(feature = "storage", not(target_arch = "wasm32")))]
+    if !storage_backend.is_memory_only {
+        if !args.quiet {
+            println!("🛑 Stopping background database writer...");
+        }
+        storage_backend.stop_background_writer().await?;
     }
 
     Ok(())
@@ -2332,11 +2881,15 @@ fn display_summary_results(wallet_state: &WalletState, config: &ScanConfig) {
     println!("Spent outputs: {}", format_number(spent_count));
 }
 
-
-
 #[cfg(not(feature = "grpc"))]
 fn main() {
     eprintln!("This example requires the 'grpc' feature to be enabled.");
     eprintln!("Run with: cargo run --bin scanner --features grpc");
+    std::process::exit(1);
+}
+
+#[cfg(target_arch = "wasm32")]
+fn main() {
+    eprintln!("This binary is not for wasm32 targets.");
     std::process::exit(1);
 }

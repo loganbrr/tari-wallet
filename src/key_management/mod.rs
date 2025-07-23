@@ -1,10 +1,10 @@
 //! Lightweight key management and derivation for Tari wallet
-//! 
+//!
 //! This module provides simplified key management functionality for lightweight wallets,
 //! including deterministic key derivation from seed phrases and imported private keys.
 
-pub mod seed_phrase;
 pub mod key_derivation;
+pub mod seed_phrase;
 pub mod stealth_address;
 
 use crate::data_structures::types::PrivateKey;
@@ -16,7 +16,7 @@ use zeroize::Zeroize;
 pub struct KeyDerivationPath {
     /// Branch Seed
     pub branch_seed: String,
-    
+
     /// Key Index
     pub key_index: u64,
 }
@@ -30,25 +30,21 @@ impl KeyDerivationPath {
         }
     }
 
-    /// Convert path to string representation (e.g., "m/44'/123456'/0'/0/0")
-    pub fn to_string(&self) -> String {
-        format!(
-            "m/{}'/{:06}'",
-            self.branch_seed, self.key_index
-        )
-    }
-
     /// Parse path from string representation
     pub fn from_string(path: &str) -> Result<Self, KeyManagementError> {
         let parts: Vec<&str> = path.split('/').collect();
         if parts.len() != 2 || parts[0] != "m" {
             return Err(KeyManagementError::InvalidKeyDerivationPath(
-                "Invalid path format".to_string()
+                "Invalid path format".to_string(),
             ));
         }
 
-        let key_index = parts[1].trim_end_matches('\'').parse::<u64>()
-            .map_err(|_| KeyManagementError::InvalidKeyDerivationPath("Invalid key index".to_string()))?;
+        let key_index = parts[1]
+            .trim_end_matches('\'')
+            .parse::<u64>()
+            .map_err(|_| {
+                KeyManagementError::InvalidKeyDerivationPath("Invalid key index".to_string())
+            })?;
 
         Ok(Self {
             branch_seed: "".to_string(),
@@ -60,6 +56,12 @@ impl KeyDerivationPath {
 impl Default for KeyDerivationPath {
     fn default() -> Self {
         Self::new("".to_string(), 0)
+    }
+}
+
+impl std::fmt::Display for KeyDerivationPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "m/{}'/{:06}'", self.branch_seed, self.key_index)
     }
 }
 
@@ -96,20 +98,29 @@ impl DerivedKeyPair {
 /// Key manager for deterministic key derivation
 pub trait KeyManager {
     /// Derive a key pair from the given path
-    fn derive_key_pair(&self, path: &KeyDerivationPath) -> Result<DerivedKeyPair, KeyManagementError>;
-    
+    fn derive_key_pair(
+        &self,
+        path: &KeyDerivationPath,
+    ) -> Result<DerivedKeyPair, KeyManagementError>;
+
     /// Derive a private key from the given path
-    fn derive_private_key(&self, path: &KeyDerivationPath) -> Result<PrivateKey, KeyManagementError>;
-    
+    fn derive_private_key(
+        &self,
+        path: &KeyDerivationPath,
+    ) -> Result<PrivateKey, KeyManagementError>;
+
     /// Derive a public key from the given path
-    fn derive_public_key(&self, path: &KeyDerivationPath) -> Result<crate::data_structures::types::CompressedPublicKey, KeyManagementError>;
-    
+    fn derive_public_key(
+        &self,
+        path: &KeyDerivationPath,
+    ) -> Result<crate::data_structures::types::CompressedPublicKey, KeyManagementError>;
+
     /// Get the next key pair in sequence
     fn next_key_pair(&mut self) -> Result<DerivedKeyPair, KeyManagementError>;
-    
+
     /// Get the current key index
     fn current_key_index(&self) -> u64;
-    
+
     /// Update the current key index
     fn update_key_index(&mut self, new_index: u64);
 }
@@ -168,9 +179,14 @@ impl Drop for ImportedPrivateKey {
     }
 }
 
-pub use seed_phrase::{mnemonic_to_master_key, generate_seed_phrase, validate_seed_phrase, bytes_to_mnemonic, mnemonic_to_bytes, CipherSeed};
+pub use key_derivation::{
+    derive_private_key_from_entropy, derive_view_and_spend_keys_from_entropy,
+};
+pub use seed_phrase::{
+    bytes_to_mnemonic, generate_seed_phrase, mnemonic_to_bytes, mnemonic_to_master_key,
+    validate_seed_phrase, CipherSeed,
+};
 pub use stealth_address::{StealthAddress, StealthAddressService};
-pub use key_derivation::{derive_view_and_spend_keys_from_entropy, derive_private_key_from_entropy};
 
 /// Key store for managing both derived and imported keys
 #[derive(Debug)]
@@ -194,31 +210,42 @@ impl KeyStore {
     }
 
     /// Add an imported private key to the store
-    pub fn add_imported_key(&mut self, imported_key: ImportedPrivateKey) -> Result<(), KeyManagementError> {
+    pub fn add_imported_key(
+        &mut self,
+        imported_key: ImportedPrivateKey,
+    ) -> Result<(), KeyManagementError> {
         // Check for duplicates (by comparing private key bytes)
         for existing_key in &self.imported_keys {
             if existing_key.private_key.as_bytes() == imported_key.private_key.as_bytes() {
                 return Err(KeyManagementError::KeyImportFailed(
-                    "Private key already exists in store".to_string()
+                    "Private key already exists in store".to_string(),
                 ));
             }
         }
-        
+
         self.imported_keys.push(imported_key);
         Ok(())
     }
 
     /// Import a private key from hex string
-    pub fn import_private_key_from_hex(&mut self, hex: &str, label: Option<String>) -> Result<(), KeyManagementError> {
+    pub fn import_private_key_from_hex(
+        &mut self,
+        hex: &str,
+        label: Option<String>,
+    ) -> Result<(), KeyManagementError> {
         let private_key = PrivateKey::from_hex(hex)
             .map_err(|e| KeyManagementError::InvalidPrivateKey(e.to_string()))?;
-        
+
         let imported_key = ImportedPrivateKey::new(private_key, label);
         self.add_imported_key(imported_key)
     }
 
     /// Import a private key from bytes
-    pub fn import_private_key_from_bytes(&mut self, bytes: [u8; 32], label: Option<String>) -> Result<(), KeyManagementError> {
+    pub fn import_private_key_from_bytes(
+        &mut self,
+        bytes: [u8; 32],
+        label: Option<String>,
+    ) -> Result<(), KeyManagementError> {
         let private_key = PrivateKey::new(bytes);
         let imported_key = ImportedPrivateKey::new(private_key, label);
         self.add_imported_key(imported_key)
@@ -230,22 +257,37 @@ impl KeyStore {
     }
 
     /// Get imported key by index
-    pub fn get_imported_key(&self, index: usize) -> Result<&ImportedPrivateKey, KeyManagementError> {
-        self.imported_keys.get(index)
-            .ok_or_else(|| KeyManagementError::KeyNotFound(format!("Imported key at index {}", index)))
+    pub fn get_imported_key(
+        &self,
+        index: usize,
+    ) -> Result<&ImportedPrivateKey, KeyManagementError> {
+        self.imported_keys.get(index).ok_or_else(|| {
+            KeyManagementError::KeyNotFound(format!("Imported key at index {index}"))
+        })
     }
 
     /// Get imported key by label
-    pub fn get_imported_key_by_label(&self, label: &str) -> Result<&ImportedPrivateKey, KeyManagementError> {
-        self.imported_keys.iter()
-            .find(|key| key.label.as_ref().map_or(false, |l| l == label))
-            .ok_or_else(|| KeyManagementError::KeyNotFound(format!("Imported key with label '{}'", label)))
+    pub fn get_imported_key_by_label(
+        &self,
+        label: &str,
+    ) -> Result<&ImportedPrivateKey, KeyManagementError> {
+        self.imported_keys
+            .iter()
+            .find(|key| key.label.as_ref().is_some_and(|l| l == label))
+            .ok_or_else(|| {
+                KeyManagementError::KeyNotFound(format!("Imported key with label '{label}'"))
+            })
     }
 
     /// Remove imported key by index
-    pub fn remove_imported_key(&mut self, index: usize) -> Result<ImportedPrivateKey, KeyManagementError> {
+    pub fn remove_imported_key(
+        &mut self,
+        index: usize,
+    ) -> Result<ImportedPrivateKey, KeyManagementError> {
         if index >= self.imported_keys.len() {
-            return Err(KeyManagementError::KeyNotFound(format!("Imported key at index {}", index)));
+            return Err(KeyManagementError::KeyNotFound(format!(
+                "Imported key at index {index}"
+            )));
         }
         Ok(self.imported_keys.remove(index))
     }
@@ -284,7 +326,7 @@ impl KeyStore {
         for imported_key in &mut self.imported_keys {
             imported_key.zeroize();
         }
-        
+
         self.derived_keys.clear();
         self.imported_keys.clear();
         self.current_key_index = 0;
@@ -293,7 +335,7 @@ impl KeyStore {
     /// Get a copy of the key store with zeroized sensitive data
     pub fn clone_public_only(&self) -> Self {
         Self {
-            derived_keys: Vec::new(), // Don't clone private keys
+            derived_keys: Vec::new(),  // Don't clone private keys
             imported_keys: Vec::new(), // Don't clone private keys
             current_key_index: self.current_key_index,
         }
@@ -420,10 +462,10 @@ impl From<&[u8]> for SecureKeyBuffer {
 pub trait SecureKeyOps {
     /// Securely copy key data
     fn secure_copy(&self) -> Self;
-    
+
     /// Securely compare with another key
     fn secure_compare(&self, other: &Self) -> bool;
-    
+
     /// Securely clear the key data
     fn secure_clear(&mut self);
 }
@@ -432,36 +474,33 @@ impl SecureKeyOps for PrivateKey {
     fn secure_copy(&self) -> Self {
         Self::new(self.as_bytes())
     }
-    
+
     fn secure_compare(&self, other: &Self) -> bool {
         // Use constant-time comparison to prevent timing attacks
         let self_bytes = self.as_bytes();
         let other_bytes = other.as_bytes();
-        
+
         if self_bytes.len() != other_bytes.len() {
             return false;
         }
-        
+
         let mut result = 0u8;
         for (a, b) in self_bytes.iter().zip(other_bytes.iter()) {
             result |= a ^ b;
         }
-        
+
         result == 0
     }
-    
+
     fn secure_clear(&mut self) {
         self.zeroize();
     }
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::data_structures::types::CompressedPublicKey;
-
 
     #[test]
     fn test_imported_private_key() {
@@ -486,12 +525,14 @@ mod tests {
     fn test_import_private_key_from_bytes() {
         let mut store = KeyStore::new();
         let key_bytes = [1u8; 32];
-        
-        store.import_private_key_from_bytes(key_bytes, Some("test_key".to_string())).unwrap();
-        
+
+        store
+            .import_private_key_from_bytes(key_bytes, Some("test_key".to_string()))
+            .unwrap();
+
         assert_eq!(store.imported_key_count(), 1);
         assert_eq!(store.total_key_count(), 1);
-        
+
         let imported_key = store.get_imported_key(0).unwrap();
         assert_eq!(imported_key.private_key.as_bytes(), key_bytes);
         assert_eq!(imported_key.label, Some("test_key".to_string()));
@@ -501,11 +542,13 @@ mod tests {
     fn test_import_private_key_from_hex() {
         let mut store = KeyStore::new();
         let hex_key = "0101010101010101010101010101010101010101010101010101010101010101";
-        
-        store.import_private_key_from_hex(hex_key, Some("hex_key".to_string())).unwrap();
-        
+
+        store
+            .import_private_key_from_hex(hex_key, Some("hex_key".to_string()))
+            .unwrap();
+
         assert_eq!(store.imported_key_count(), 1);
-        
+
         let imported_key = store.get_imported_key(0).unwrap();
         assert_eq!(imported_key.private_key.to_hex(), hex_key);
         assert_eq!(imported_key.label, Some("hex_key".to_string()));
@@ -515,9 +558,11 @@ mod tests {
     fn test_import_duplicate_key() {
         let mut store = KeyStore::new();
         let key_bytes = [1u8; 32];
-        
-        store.import_private_key_from_bytes(key_bytes, Some("key1".to_string())).unwrap();
-        
+
+        store
+            .import_private_key_from_bytes(key_bytes, Some("key1".to_string()))
+            .unwrap();
+
         // Try to import the same key again
         let result = store.import_private_key_from_bytes(key_bytes, Some("key2".to_string()));
         assert!(result.is_err());
@@ -528,9 +573,11 @@ mod tests {
     fn test_get_imported_key_by_label() {
         let mut store = KeyStore::new();
         let key_bytes = [1u8; 32];
-        
-        store.import_private_key_from_bytes(key_bytes, Some("test_label".to_string())).unwrap();
-        
+
+        store
+            .import_private_key_from_bytes(key_bytes, Some("test_label".to_string()))
+            .unwrap();
+
         let imported_key = store.get_imported_key_by_label("test_label").unwrap();
         assert_eq!(imported_key.private_key.as_bytes(), key_bytes);
         assert_eq!(imported_key.label, Some("test_label".to_string()));
@@ -547,10 +594,12 @@ mod tests {
     fn test_remove_imported_key() {
         let mut store = KeyStore::new();
         let key_bytes = [1u8; 32];
-        
-        store.import_private_key_from_bytes(key_bytes, Some("test_key".to_string())).unwrap();
+
+        store
+            .import_private_key_from_bytes(key_bytes, Some("test_key".to_string()))
+            .unwrap();
         assert_eq!(store.imported_key_count(), 1);
-        
+
         let removed_key = store.remove_imported_key(0).unwrap();
         assert_eq!(removed_key.private_key.as_bytes(), key_bytes);
         assert_eq!(store.imported_key_count(), 0);
@@ -574,11 +623,11 @@ mod tests {
     fn test_secure_key_buffer() {
         let data = vec![1, 2, 3, 4, 5];
         let mut buffer = SecureKeyBuffer::new(data.clone());
-        
+
         assert_eq!(buffer.as_slice(), &data);
         assert_eq!(buffer.len(), 5);
         assert!(!buffer.is_empty());
-        
+
         buffer.clear();
         assert!(buffer.is_empty());
         assert_eq!(buffer.len(), 0);
@@ -611,15 +660,15 @@ mod tests {
         let key1 = PrivateKey::new([1u8; 32]);
         let key2 = PrivateKey::new([1u8; 32]);
         let key3 = PrivateKey::new([2u8; 32]);
-        
+
         // Test secure copy
         let key1_copy = key1.secure_copy();
         assert!(key1.secure_compare(&key1_copy));
-        
+
         // Test secure compare
         assert!(key1.secure_compare(&key2));
         assert!(!key1.secure_compare(&key3));
-        
+
         // Test secure clear
         let mut key_to_clear = key1.secure_copy();
         key_to_clear.secure_clear();
@@ -631,14 +680,14 @@ mod tests {
     fn test_imported_private_key_zeroization() {
         let private_key = PrivateKey::new([1u8; 32]);
         let mut imported = ImportedPrivateKey::new(private_key, Some("test".to_string()));
-        
+
         // Verify the key exists
         assert_eq!(imported.private_key.as_bytes(), [1u8; 32]);
         assert_eq!(imported.label, Some("test".to_string()));
-        
+
         // Zeroize the key
         imported.zeroize();
-        
+
         // Verify the key is zeroized and metadata is cleared
         assert_eq!(imported.private_key.as_bytes(), [0u8; 32]);
         assert_eq!(imported.label, None);
@@ -651,13 +700,13 @@ mod tests {
         let public_key = CompressedPublicKey::from_private_key(&private_key);
         let path = KeyDerivationPath::new("".to_string(), 0);
         let mut key_pair = DerivedKeyPair::new(private_key, public_key, 0, path);
-        
+
         // Verify the key exists
         assert_eq!(key_pair.private_key.as_bytes(), [1u8; 32]);
-        
+
         // Zeroize the key
         key_pair.zeroize();
-        
+
         // Verify the key is zeroized
         assert_eq!(key_pair.private_key.as_bytes(), [0u8; 32]);
     }
@@ -666,16 +715,18 @@ mod tests {
     fn test_key_store_secure_clone() {
         let mut store = KeyStore::new();
         let key_bytes = [1u8; 32];
-        store.import_private_key_from_bytes(key_bytes, Some("test_key".to_string())).unwrap();
-        
+        store
+            .import_private_key_from_bytes(key_bytes, Some("test_key".to_string()))
+            .unwrap();
+
         // Clone the store
         let cloned_store = store.clone();
-        
+
         // Verify that the cloned store doesn't contain private keys
         assert_eq!(cloned_store.imported_key_count(), 0);
         assert_eq!(cloned_store.derived_key_count(), 0);
         assert_eq!(cloned_store.total_key_count(), 0);
-        
+
         // But the original store still has the key
         assert_eq!(store.imported_key_count(), 1);
         assert_eq!(store.total_key_count(), 1);
@@ -685,14 +736,16 @@ mod tests {
     fn test_key_store_clear() {
         let mut store = KeyStore::new();
         let key_bytes = [1u8; 32];
-        store.import_private_key_from_bytes(key_bytes, Some("test_key".to_string())).unwrap();
-        
+        store
+            .import_private_key_from_bytes(key_bytes, Some("test_key".to_string()))
+            .unwrap();
+
         // Verify the key exists
         assert_eq!(store.imported_key_count(), 1);
-        
+
         // Clear the store
         store.clear();
-        
+
         // Verify the store is empty
         assert_eq!(store.imported_key_count(), 0);
         assert_eq!(store.derived_key_count(), 0);
@@ -704,23 +757,20 @@ mod tests {
     fn test_secure_key_buffer_zeroization() {
         let data = vec![1, 2, 3, 4, 5];
         let mut buffer = SecureKeyBuffer::new(data);
-        
+
         // Verify the data exists
         assert_eq!(buffer.as_slice(), &[1, 2, 3, 4, 5]);
-        
+
         // Zeroize the buffer
         buffer.zeroize();
-        
+
         // Verify the buffer is zeroized
         let empty_slice: &[u8] = &[];
         assert_eq!(buffer.as_slice(), empty_slice);
-        
+
         // Now clear the buffer
         buffer.clear();
         let empty_slice: &[u8] = &[];
         assert_eq!(buffer.as_slice(), empty_slice);
     }
-
-   
 }
-

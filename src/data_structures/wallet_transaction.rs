@@ -1,18 +1,18 @@
 //! Wallet transaction structures for lightweight wallets
-//! 
+//!
 //! This module contains structures for tracking wallet transactions and state
 //! across blocks, including transaction metadata and spending status.
 
-use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
 use borsh::{BorshDeserialize, BorshSerialize};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use crate::data_structures::{
-    types::CompressedCommitment,
     payment_id::PaymentId,
-    transaction::{TransactionStatus, TransactionDirection},
+    transaction::{TransactionDirection, TransactionStatus},
+    types::CompressedCommitment,
 };
-use crate::utils::number::format_number;
+// Simple number formatting (removed utils::number module)
 
 /// A wallet transaction representing either a received output or spent input
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
@@ -47,6 +47,7 @@ pub struct WalletTransaction {
 
 impl WalletTransaction {
     /// Create a new wallet transaction
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         block_height: u64,
         output_index: Option<usize>,
@@ -100,7 +101,7 @@ impl WalletTransaction {
 
     /// Get the output hash as hex string (if available)
     pub fn output_hash_hex(&self) -> Option<String> {
-        self.output_hash.as_ref().map(|hash| hex::encode(hash))
+        self.output_hash.as_ref().map(hex::encode)
     }
 }
 
@@ -157,8 +158,9 @@ impl WalletState {
         self.outputs_by_hash.clear();
         for (index, transaction) in self.transactions.iter().enumerate() {
             // Index by commitment
-            self.outputs_by_commitment.insert(transaction.commitment.as_bytes().to_vec(), index);
-            
+            self.outputs_by_commitment
+                .insert(transaction.commitment.as_bytes().to_vec(), index);
+
             // Index by output hash if available
             if let Some(ref output_hash) = transaction.output_hash {
                 self.outputs_by_hash.insert(output_hash.clone(), index);
@@ -167,6 +169,7 @@ impl WalletState {
     }
 
     /// Add a received output to the wallet state
+    #[allow(clippy::too_many_arguments)]
     pub fn add_received_output(
         &mut self,
         block_height: u64,
@@ -193,25 +196,33 @@ impl WalletState {
         );
 
         let tx_index = self.transactions.len();
-        
+
         // Index by commitment
-        self.outputs_by_commitment.insert(commitment.as_bytes().to_vec(), tx_index);
-        
+        self.outputs_by_commitment
+            .insert(commitment.as_bytes().to_vec(), tx_index);
+
         // Index by output hash if available - CRITICAL for spent detection
         if let Some(hash) = output_hash {
             self.outputs_by_hash.insert(hash.clone(), tx_index);
-            
+
             // Debug logging for output hash indexing
             #[cfg(all(feature = "wasm", target_arch = "wasm32"))]
             {
                 let hash_hex = hex::encode(&hash);
-                web_sys::console::log_1(&format!("📝 INDEXED OUTPUT: Hash {} -> Value {} μT (total tracked: {})", 
-                    hash_hex, value, self.outputs_by_hash.len()).into());
+                web_sys::console::log_1(
+                    &format!(
+                        "📝 INDEXED OUTPUT: Hash {} -> Value {} μT (total tracked: {})",
+                        hash_hex,
+                        value,
+                        self.outputs_by_hash.len()
+                    )
+                    .into(),
+                );
             }
         }
-        
+
         self.transactions.push(transaction);
-        
+
         self.total_received += value;
         self.running_balance += value as i64;
         self.unspent_count += 1;
@@ -229,16 +240,16 @@ impl WalletState {
             if let Some(transaction) = self.transactions.get_mut(tx_index) {
                 if !transaction.is_spent {
                     transaction.mark_spent(block_height, input_index);
-                    
+
                     // Use the value from our stored transaction, not the input
                     let spent_value = transaction.value;
-                    
+
                     // Update balance and counters for the spent inbound transaction
                     self.total_spent += spent_value;
                     self.running_balance -= spent_value as i64;
                     self.unspent_count -= 1;
                     self.spent_count += 1;
-                    
+
                     // Create an outbound transaction record for the spending
                     // (this is just for tracking/display, doesn't affect balance)
                     let outbound_transaction = WalletTransaction::new(
@@ -253,9 +264,9 @@ impl WalletState {
                         TransactionDirection::Outbound,
                         true, // Always mature since we're spending
                     );
-                    
+
                     self.transactions.push(outbound_transaction);
-                    
+
                     return true;
                 }
             }
@@ -275,17 +286,18 @@ impl WalletState {
             if let Some(transaction) = self.transactions.get_mut(tx_index) {
                 if !transaction.is_spent {
                     transaction.mark_spent(block_height, input_index);
-                    
+
                     // Use the value from our stored transaction, not the input
                     let spent_value = transaction.value;
-                    
+
                     // Update balance and counters for the spent inbound transaction
-                    let _old_total_spent = self.total_spent;
+                    #[cfg(all(feature = "wasm", target_arch = "wasm32"))]
+                    let old_total_spent = self.total_spent;
                     self.total_spent += spent_value;
                     self.running_balance -= spent_value as i64;
                     self.unspent_count -= 1;
                     self.spent_count += 1;
-                    
+
                     // Debug logging for spent value tracking
                     #[cfg(all(feature = "wasm", target_arch = "wasm32"))]
                     {
@@ -293,7 +305,7 @@ impl WalletState {
                         web_sys::console::log_1(&format!("💰 SPENT VALUE UPDATE: Hash {} - Value: {} μT, Total spent: {} -> {} μT", 
                             hash_hex, spent_value, old_total_spent, self.total_spent).into());
                     }
-                    
+
                     // Create an outbound transaction record for the spending
                     // (this is just for tracking/display, doesn't affect balance)
                     let outbound_transaction = WalletTransaction::new(
@@ -308,9 +320,9 @@ impl WalletState {
                         TransactionDirection::Outbound,
                         true, // Always mature since we're spending
                     );
-                    
+
                     self.transactions.push(outbound_transaction);
-                    
+
                     return true;
                 }
             }
@@ -319,8 +331,14 @@ impl WalletState {
             #[cfg(all(feature = "wasm", target_arch = "wasm32"))]
             {
                 let hash_hex = hex::encode(output_hash);
-                web_sys::console::log_1(&format!("🔍 OUTPUT HASH LOOKUP FAILED: {} (not found in {} tracked hashes)", 
-                    hash_hex, self.outputs_by_hash.len()).into());
+                web_sys::console::log_1(
+                    &format!(
+                        "🔍 OUTPUT HASH LOOKUP FAILED: {} (not found in {} tracked hashes)",
+                        hash_hex,
+                        self.outputs_by_hash.len()
+                    )
+                    .into(),
+                );
             }
         }
         false
@@ -328,12 +346,19 @@ impl WalletState {
 
     /// Get summary statistics (total_received, total_spent, balance, unspent_count, spent_count)
     pub fn get_summary(&self) -> (u64, u64, i64, usize, usize) {
-        (self.total_received, self.total_spent, self.running_balance, self.unspent_count, self.spent_count)
+        (
+            self.total_received,
+            self.total_spent,
+            self.running_balance,
+            self.unspent_count,
+            self.spent_count,
+        )
     }
 
     /// Get total value of unspent outputs (only considers inbound transactions)
     pub fn get_unspent_value(&self) -> u64 {
-        self.transactions.iter()
+        self.transactions
+            .iter()
             .filter(|tx| tx.transaction_direction == TransactionDirection::Inbound && !tx.is_spent)
             .map(|tx| tx.value)
             .sum()
@@ -351,22 +376,34 @@ impl WalletState {
 
     /// Get unspent transactions (only inbound transactions)
     pub fn get_unspent_transactions(&self) -> Vec<&WalletTransaction> {
-        self.transactions.iter().filter(|tx| tx.transaction_direction == TransactionDirection::Inbound && !tx.is_spent).collect()
+        self.transactions
+            .iter()
+            .filter(|tx| tx.transaction_direction == TransactionDirection::Inbound && !tx.is_spent)
+            .collect()
     }
 
     /// Get spent transactions (only inbound transactions that have been spent)
     pub fn get_spent_transactions(&self) -> Vec<&WalletTransaction> {
-        self.transactions.iter().filter(|tx| tx.transaction_direction == TransactionDirection::Inbound && tx.is_spent).collect()
+        self.transactions
+            .iter()
+            .filter(|tx| tx.transaction_direction == TransactionDirection::Inbound && tx.is_spent)
+            .collect()
     }
 
     /// Get inbound transactions
     pub fn get_inbound_transactions(&self) -> Vec<&WalletTransaction> {
-        self.transactions.iter().filter(|tx| tx.transaction_direction == TransactionDirection::Inbound).collect()
+        self.transactions
+            .iter()
+            .filter(|tx| tx.transaction_direction == TransactionDirection::Inbound)
+            .collect()
     }
 
     /// Get outbound transactions
     pub fn get_outbound_transactions(&self) -> Vec<&WalletTransaction> {
-        self.transactions.iter().filter(|tx| tx.transaction_direction == TransactionDirection::Outbound).collect()
+        self.transactions
+            .iter()
+            .filter(|tx| tx.transaction_direction == TransactionDirection::Outbound)
+            .collect()
     }
 
     /// Get transaction counts by direction (inbound, outbound, unknown)
@@ -374,7 +411,7 @@ impl WalletState {
         let mut inbound = 0;
         let mut outbound = 0;
         let mut unknown = 0;
-        
+
         for tx in &self.transactions {
             match tx.transaction_direction {
                 TransactionDirection::Inbound => inbound += 1,
@@ -382,7 +419,7 @@ impl WalletState {
                 TransactionDirection::Unknown => unknown += 1,
             }
         }
-        
+
         (inbound, outbound, unknown)
     }
 
@@ -393,40 +430,50 @@ impl WalletState {
 
     /// Get all tracked output hashes (for debugging) - returns (hash, transaction_index, value, is_spent)
     pub fn get_tracked_hashes(&self) -> Vec<(Vec<u8>, usize, u64, bool)> {
-        self.outputs_by_hash.iter().map(|(hash, &tx_index)| {
-            if let Some(tx) = self.transactions.get(tx_index) {
-                (hash.clone(), tx_index, tx.value, tx.is_spent)
-            } else {
-                (hash.clone(), tx_index, 0, false)
-            }
-        }).collect()
+        self.outputs_by_hash
+            .iter()
+            .map(|(hash, &tx_index)| {
+                if let Some(tx) = self.transactions.get(tx_index) {
+                    (hash.clone(), tx_index, tx.value, tx.is_spent)
+                } else {
+                    (hash.clone(), tx_index, 0, false)
+                }
+            })
+            .collect()
     }
 
     /// Create an enhanced progress bar with balance information
-    pub fn format_progress_bar(&self, current: u64, total: u64, block_height: u64, phase: &str) -> String {
+    pub fn format_progress_bar(
+        &self,
+        current: u64,
+        total: u64,
+        block_height: u64,
+        phase: &str,
+    ) -> String {
         let progress_percent = (current as f64 / total as f64) * 100.0;
         let bar_width = 40; // Shorter bar to make room for balance info
         let filled_width = ((progress_percent / 100.0) * bar_width as f64) as usize;
-        let bar = format!("{}{}",
+        let bar = format!(
+            "{}{}",
             "█".repeat(filled_width),
             "░".repeat(bar_width - filled_width)
         );
-        
+
         let unspent_value = self.get_unspent_value();
         let balance_t = self.running_balance as f64 / 1_000_000.0;
         let unspent_t = unspent_value as f64 / 1_000_000.0;
         let spent_t = self.total_spent as f64 / 1_000_000.0;
-        
+
         format!(
-            "[{}] {:.1}% {} Block {} | 💰 {:.6}T | 📈 {:.6}T | 📉 {:.6}T | {} TX",
-            bar, 
-            progress_percent, 
+            "[{}] {:.1}% {} Block {} | 💰 {}T | 📈 {}T | 📉 {}T | {} TX",
+            bar,
+            progress_percent,
             phase,
-            format_number(block_height),
-            balance_t,
-            unspent_t, 
-            spent_t,
-            format_number(self.transactions.len())
+            crate::common::format_number(block_height),
+            crate::common::format_number(format!("{balance_t:.6}")),
+            crate::common::format_number(format!("{unspent_t:.6}")),
+            crate::common::format_number(format!("{spent_t:.6}")),
+            crate::common::format_number(self.transactions.len())
         )
     }
 }
@@ -463,9 +510,9 @@ impl From<WalletStateSerde> for WalletState {
 mod tests {
     use super::*;
     use crate::data_structures::{
-        types::CompressedCommitment,
         payment_id::PaymentId,
-        transaction::{TransactionStatus, TransactionDirection},
+        transaction::{TransactionDirection, TransactionStatus},
+        types::CompressedCommitment,
     };
 
     #[test]
@@ -533,7 +580,7 @@ mod tests {
     fn test_wallet_state_add_received_output() {
         let mut state = WalletState::new();
         let commitment = CompressedCommitment::new([1u8; 32]);
-        
+
         state.add_received_output(
             100,
             0,
@@ -561,7 +608,7 @@ mod tests {
     fn test_wallet_state_mark_output_spent() {
         let mut state = WalletState::new();
         let commitment = CompressedCommitment::new([1u8; 32]);
-        
+
         // Add an output
         state.add_received_output(
             100,
@@ -601,11 +648,17 @@ mod tests {
         assert!(state.transactions[0].is_spent);
         assert_eq!(state.transactions[0].spent_in_block, Some(200));
         assert_eq!(state.transactions[0].spent_in_input, Some(5));
-        assert_eq!(state.transactions[0].transaction_direction, TransactionDirection::Inbound);
+        assert_eq!(
+            state.transactions[0].transaction_direction,
+            TransactionDirection::Inbound
+        );
 
         // New outbound transaction should exist
         let outbound_tx = &state.transactions[1];
-        assert_eq!(outbound_tx.transaction_direction, TransactionDirection::Outbound);
+        assert_eq!(
+            outbound_tx.transaction_direction,
+            TransactionDirection::Outbound
+        );
         assert_eq!(outbound_tx.block_height, 200);
         assert_eq!(outbound_tx.input_index, Some(5));
         assert_eq!(outbound_tx.output_index, None);
@@ -617,11 +670,11 @@ mod tests {
     fn test_wallet_state_mark_nonexistent_output_spent() {
         let mut state = WalletState::new();
         let commitment = CompressedCommitment::new([1u8; 32]);
-        
+
         // Try to mark a non-existent output as spent
         let marked = state.mark_output_spent(&commitment, 200, 5);
         assert!(!marked);
-        
+
         assert_eq!(state.get_balance(), 0);
         assert_eq!(state.transactions.len(), 0);
     }
@@ -631,15 +684,29 @@ mod tests {
         let mut state = WalletState::new();
         let commitment1 = CompressedCommitment::new([1u8; 32]);
         let commitment2 = CompressedCommitment::new([2u8; 32]);
-        
+
         // Add two outputs
         state.add_received_output(
-            100, 0, commitment1.clone(), None, 1000000, PaymentId::Empty,
-            TransactionStatus::MinedConfirmed, TransactionDirection::Inbound, true,
+            100,
+            0,
+            commitment1.clone(),
+            None,
+            1000000,
+            PaymentId::Empty,
+            TransactionStatus::MinedConfirmed,
+            TransactionDirection::Inbound,
+            true,
         );
         state.add_received_output(
-            200, 1, commitment2, None, 2000000, PaymentId::Empty,
-            TransactionStatus::MinedConfirmed, TransactionDirection::Inbound, true,
+            200,
+            1,
+            commitment2,
+            None,
+            2000000,
+            PaymentId::Empty,
+            TransactionStatus::MinedConfirmed,
+            TransactionDirection::Inbound,
+            true,
         );
 
         // Spend one
@@ -658,13 +725,29 @@ mod tests {
     fn test_wallet_transaction_coinbase_detection() {
         let commitment = CompressedCommitment::new([1u8; 32]);
         let coinbase_tx = WalletTransaction::new(
-            100, Some(0), None, commitment.clone(), None, 1000000, PaymentId::Empty,
-            TransactionStatus::CoinbaseConfirmed, TransactionDirection::Inbound, true,
+            100,
+            Some(0),
+            None,
+            commitment.clone(),
+            None,
+            1000000,
+            PaymentId::Empty,
+            TransactionStatus::CoinbaseConfirmed,
+            TransactionDirection::Inbound,
+            true,
         );
-        
+
         let regular_tx = WalletTransaction::new(
-            100, Some(0), None, commitment, None, 1000000, PaymentId::Empty,
-            TransactionStatus::MinedConfirmed, TransactionDirection::Inbound, true,
+            100,
+            Some(0),
+            None,
+            commitment,
+            None,
+            1000000,
+            PaymentId::Empty,
+            TransactionStatus::MinedConfirmed,
+            TransactionDirection::Inbound,
+            true,
         );
 
         assert!(coinbase_tx.is_coinbase());
@@ -676,15 +759,29 @@ mod tests {
         let mut state = WalletState::new();
         let commitment1 = CompressedCommitment::new([1u8; 32]);
         let commitment2 = CompressedCommitment::new([2u8; 32]);
-        
+
         // Add inbound transactions
         state.add_received_output(
-            100, 0, commitment1.clone(), None, 1000000, PaymentId::Empty,
-            TransactionStatus::MinedConfirmed, TransactionDirection::Inbound, true,
+            100,
+            0,
+            commitment1.clone(),
+            None,
+            1000000,
+            PaymentId::Empty,
+            TransactionStatus::MinedConfirmed,
+            TransactionDirection::Inbound,
+            true,
         );
         state.add_received_output(
-            200, 1, commitment2.clone(), None, 2000000, PaymentId::Empty,
-            TransactionStatus::MinedConfirmed, TransactionDirection::Inbound, true,
+            200,
+            1,
+            commitment2.clone(),
+            None,
+            2000000,
+            PaymentId::Empty,
+            TransactionStatus::MinedConfirmed,
+            TransactionDirection::Inbound,
+            true,
         );
 
         // Initial state: 2 inbound, 0 outbound
@@ -714,10 +811,17 @@ mod tests {
 
         let mut state = WalletState::new();
         let commitment = CompressedCommitment::new([1u8; 32]);
-        
+
         state.add_received_output(
-            100, 0, commitment, None, 1000000, PaymentId::Empty,
-            TransactionStatus::MinedConfirmed, TransactionDirection::Inbound, true,
+            100,
+            0,
+            commitment,
+            None,
+            1000000,
+            PaymentId::Empty,
+            TransactionStatus::MinedConfirmed,
+            TransactionDirection::Inbound,
+            true,
         );
 
         // Test JSON serialization
@@ -732,4 +836,4 @@ mod tests {
         assert_eq!(state.transactions.len(), deserialized.transactions.len());
         assert_eq!(state.get_balance(), deserialized.get_balance());
     }
-} 
+}

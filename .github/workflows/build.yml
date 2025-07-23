@@ -1,0 +1,152 @@
+name: Build and Release
+
+on:
+  push:
+    # branches: [ main ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  build-wasm:
+    name: Build WASM
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-wasm-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build WASM for Web
+        run: wasm-pack build --target web --out-dir pkg/web --features http
+
+      - name: Build WASM for Node.js
+        run: wasm-pack build --target nodejs --out-dir pkg/nodejs --features http
+
+      - name: Upload WASM Web artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: wasm-web
+          path: pkg/web/
+
+      - name: Upload WASM Node.js artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: wasm-nodejs
+          path: pkg/nodejs/
+
+  build-binaries:
+    name: Build Binaries
+    runs-on: ${{ matrix.os }}
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact-name: linux-x64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact-name: windows-x64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact-name: macos-arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build binaries
+        run: cargo build --release --target ${{ matrix.target }} --features grpc-storage
+
+      - name: Prepare artifacts (Unix)
+        if: matrix.os != 'windows-latest'
+        run: |
+          mkdir -p artifacts
+          cp target/${{ matrix.target }}/release/scanner artifacts/
+          cp target/${{ matrix.target }}/release/wallet artifacts/
+          tar -czf tari-wallet-${{ matrix.artifact-name }}.tar.gz -C artifacts .
+
+      - name: Prepare artifacts (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          mkdir artifacts
+          copy target\${{ matrix.target }}\release\scanner.exe artifacts\
+          copy target\${{ matrix.target }}\release\wallet.exe artifacts\
+          7z a tari-wallet-${{ matrix.artifact-name }}.zip artifacts\*
+
+      - name: Upload binary artifacts (Unix)
+        if: matrix.os != 'windows-latest'
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: tari-wallet-${{ matrix.artifact-name }}.tar.gz
+
+      - name: Upload binary artifacts (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: tari-wallet-${{ matrix.artifact-name }}.zip
+
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: [build-wasm, build-binaries]
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            linux-x64/tari-wallet-linux-x64.tar.gz
+            windows-x64/tari-wallet-windows-x64.zip
+            macos-arm64/tari-wallet-macos-arm64.tar.gz
+          generate_release_notes: true
+          draft: false
+          prerelease: false
