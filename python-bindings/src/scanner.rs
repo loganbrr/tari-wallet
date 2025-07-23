@@ -1,15 +1,17 @@
-//! Python bindings for blockchain scanning functionality
+//! Python bindings for blockchain scanning functionality wrapping HttpBlockchainScanner
 
 use pyo3::prelude::*;
+use pyo3::exceptions::PyRuntimeError;
 use std::sync::{Arc, Mutex};
 use lightweight_wallet_libs::wallet::Wallet;
+use lightweight_wallet_libs::scanning::BlockchainScanner;
+use lightweight_wallet_libs::errors::LightweightWalletError;
+use crate::runtime::{execute_async, get_or_create_scanner};
 
-/// Python wrapper for blockchain scanner
+/// Python wrapper for blockchain scanner wrapping HttpBlockchainScanner
 #[pyclass]
 pub struct TariScanner {
-    #[allow(dead_code)] // TODO: Used in future async implementation
     base_url: String,
-    #[allow(dead_code)] // TODO: Used in future balance/scanning implementation
     wallet: Arc<Mutex<Wallet>>,
 }
 
@@ -60,38 +62,91 @@ impl TariScanner {
         })
     }
 
-    /// Get the current tip height from the blockchain (placeholder)
+    /// Get the current tip height from the blockchain
     fn get_tip_height(&self) -> PyResult<u64> {
-        // TODO: Implement async blockchain scanning
-        // For now, return a placeholder value
-        Ok(0)
-    }
-
-    /// Scan a range of blocks for transactions (placeholder)
-    fn scan_blocks(
-        &self,
-        from_height: u64,
-        to_height: Option<u64>,
-    ) -> PyResult<ScanResult> {
-        let end_height = to_height.unwrap_or(from_height + 100);
+        let base_url = self.base_url.clone();
         
-        // TODO: Implement actual blockchain scanning
-        // For now, return a placeholder result
-        Ok(ScanResult {
-            transaction_count: 0,
-            total_scanned: end_height - from_height + 1,
-            current_height: end_height,
+        execute_async(async move {
+            let scanner_arc = get_or_create_scanner(&base_url).await?;
+            let mut scanner = scanner_arc.lock()
+                .map_err(|_| LightweightWalletError::ValidationError("Failed to lock scanner".into()))?;
+            let tip_info = scanner.get_tip_info().await?;
+            Ok(tip_info.best_block_height)
         })
     }
 
-    /// Get wallet balance (placeholder implementation)
+    /// Scan a range of blocks for transactions
+    fn scan_blocks(&self, from_height: u64, to_height: Option<u64>) -> PyResult<ScanResult> {
+        let base_url = self.base_url.clone();
+        let wallet = Arc::clone(&self.wallet);
+        
+        execute_async(async move {
+            let scanner_arc = get_or_create_scanner(&base_url).await?;
+            let mut scanner = scanner_arc.lock()
+                .map_err(|_| LightweightWalletError::ValidationError("Failed to lock scanner".into()))?;
+            
+            // Get wallet for key derivation
+            let wallet_guard = wallet.lock()
+                .map_err(|_| LightweightWalletError::ValidationError("Failed to lock wallet".into()))?;
+            
+            // Create scan config using the existing method
+            let scan_config = scanner.create_scan_config_with_wallet_keys(&*wallet_guard, from_height, to_height)?;
+            drop(wallet_guard);
+            
+            // Perform the actual scan
+            let block_results = scanner.scan_blocks(scan_config).await?;
+            
+            let total_wallet_outputs = block_results.iter()
+                .map(|block| block.wallet_outputs.len() as u64)
+                .sum();
+            
+            let end_height = to_height.unwrap_or(from_height + 100);
+            
+            Ok(ScanResult {
+                transaction_count: total_wallet_outputs,
+                total_scanned: end_height - from_height + 1,
+                current_height: end_height,
+            })
+        })
+    }
+
+    /// Get wallet balance by performing a quick scan from wallet birthday
     fn get_balance(&self) -> PyResult<Balance> {
-        // This is a placeholder implementation
-        // In a real implementation, you'd need to track UTXOs and their states
-        Ok(Balance {
-            available: 0, // TODO: Calculate from unspent outputs
-            pending: 0,   // TODO: Calculate from pending transactions
-            immature: 0,  // TODO: Calculate from immature coinbase outputs
+        let base_url = self.base_url.clone();
+        let wallet = Arc::clone(&self.wallet);
+        
+        execute_async(async move {
+            let scanner_arc = get_or_create_scanner(&base_url).await?;
+            let mut scanner = scanner_arc.lock()
+                .map_err(|_| LightweightWalletError::ValidationError("Failed to lock scanner".into()))?;
+            
+            // Get wallet birthday for scan start
+            let start_height = {
+                let wallet_guard = wallet.lock()
+                    .map_err(|_| LightweightWalletError::ValidationError("Failed to lock wallet".into()))?;
+                wallet_guard.birthday()
+            };
+            
+            // Create wallet scan config and perform scan
+            let wallet_guard = wallet.lock()
+                .map_err(|_| LightweightWalletError::ValidationError("Failed to lock wallet".into()))?;
+            let scan_config = scanner.create_scan_config_with_wallet_keys(&*wallet_guard, start_height, None)?;
+            drop(wallet_guard);
+            
+            // Perform the scan
+            let block_results = scanner.scan_blocks(scan_config).await?;
+            
+            // Calculate balance from results
+            let total_value: u64 = block_results.iter()
+                .flat_map(|block| &block.wallet_outputs)
+                .map(|output| output.value().as_u64())
+                .sum();
+            
+            Ok(Balance {
+                available: total_value,
+                pending: 0,    // Could be enhanced to track pending transactions
+                immature: 0,   // Could be enhanced to track coinbase maturity
+            })
         })
     }
 }

@@ -10,6 +10,7 @@ use tari_utilities::hex::Hex;
 
 mod scanner;
 mod types;
+mod runtime;
 
 pub use scanner::{TariScanner, ScanResult, Balance, ScanProgress};
 pub use types::WalletTransaction;
@@ -224,6 +225,76 @@ impl TariWallet {
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to verify message: {}", e)))?;
         
         Ok(is_valid)
+    }
+
+    /// Sync wallet with blockchain from birthday to current tip
+    /// 
+    /// Args:
+    ///     base_node_url: The base node URL for blockchain scanning
+    ///     
+    /// Returns:
+    ///     dict: Sync result with total_value found and blocks scanned
+    fn sync(&self, base_node_url: String) -> PyResult<PyObject> {
+        use lightweight_wallet_libs::scanning::{HttpBlockchainScanner, BlockchainScanner};
+        
+        let wallet = Arc::clone(&self.inner);
+        let url_for_result = base_node_url.clone();
+        
+        // Use blocking approach to perform sync
+        let result = std::thread::spawn(move || -> Result<(u64, u64, u64, u64), String> {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async move {
+                let mut scanner = HttpBlockchainScanner::new(base_node_url).await
+                    .map_err(|e| format!("Failed to create scanner: {}", e))?;
+                
+                // Get wallet birthday for scan start
+                let start_height = {
+                    let wallet_guard = wallet.lock()
+                        .map_err(|e| format!("Failed to lock wallet: {}", e))?;
+                    wallet_guard.birthday()
+                };
+                
+                // Get current tip height
+                let tip_info = scanner.get_tip_info().await
+                    .map_err(|e| format!("Failed to get tip height: {}", e))?;
+                let end_height = tip_info.best_block_height;
+                
+                // Create scan config and perform scan
+                let wallet_guard = wallet.lock()
+                    .map_err(|e| format!("Failed to lock wallet: {}", e))?;
+                let scan_config = scanner.create_scan_config_with_wallet_keys(&*wallet_guard, start_height, Some(end_height))
+                    .map_err(|e| format!("Failed to create scan config: {}", e))?;
+                drop(wallet_guard);
+                
+                // Perform the sync scan
+                let block_results = scanner.scan_blocks(scan_config).await
+                    .map_err(|e| format!("Sync scan failed: {}", e))?;
+                
+                // Calculate results
+                let total_value: u64 = block_results.iter()
+                    .flat_map(|block| &block.wallet_outputs)
+                    .map(|output| output.value().as_u64())
+                    .sum();
+                
+                let blocks_scanned = end_height.saturating_sub(start_height);
+                
+                Ok((total_value, blocks_scanned, start_height, end_height))
+            })
+        }).join().map_err(|_| PyRuntimeError::new_err("Thread panicked"))?;
+        
+        let (total_value, blocks_scanned, start_height, end_height) = result
+            .map_err(|e| PyRuntimeError::new_err(e))?;
+        
+        // Create result dict
+        Python::with_gil(|py| {
+            let result = PyDict::new(py);
+            result.set_item("total_value", total_value)?;
+            result.set_item("blocks_scanned", blocks_scanned)?;
+            result.set_item("start_height", start_height)?;
+            result.set_item("end_height", end_height)?;
+            result.set_item("base_node_url", url_for_result)?;
+            Ok(result.into())
+        })
     }
 }
 
