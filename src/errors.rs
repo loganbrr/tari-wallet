@@ -1,6 +1,10 @@
 use thiserror::Error;
 
 /// Main error type for the lightweight wallet library
+/// 
+/// This error type implements proper error chaining through the `source()` method
+/// provided by the `Error` trait. Variants using `#[from]` automatically provide
+/// source chain integration for improved debugging and error analysis.
 #[derive(Debug, Error)]
 pub enum LightweightWalletError {
     #[error("Data structure error: {0}")]
@@ -1475,5 +1479,66 @@ mod tests {
         let key_error = KeyManagementError::KeyNotFound("test".to_string());
         let wallet_error = LightweightWalletError::from(key_error);
         assert!(wallet_error.to_string().contains("Key management error"));
+    }
+
+    #[test]
+    fn test_error_source_chain() {
+        use std::error::Error;
+
+        // Test that error source chain is properly implemented for #[from] variants
+        let validation_error = ValidationError::RangeProofValidationFailed("test validation".to_string());
+        let wallet_error = LightweightWalletError::from(validation_error);
+        
+        // Verify the source chain
+        let source = wallet_error.source();
+        assert!(source.is_some(), "Wallet error should have a source");
+        assert!(source.unwrap().to_string().contains("Range proof validation failed"));
+
+        // Test DataStructure error source
+        let data_error = DataStructureError::InvalidAddress("invalid address".to_string());
+        let wallet_error = LightweightWalletError::from(data_error);
+        
+        let source = wallet_error.source();
+        assert!(source.is_some(), "Wallet error should have a source for data structure errors");
+        assert!(source.unwrap().to_string().contains("Invalid address"));
+
+        // Test that root-level errors have no source
+        let conversion_error = LightweightWalletError::ConversionError("test conversion".to_string());
+        assert!(conversion_error.source().is_none(), "Conversion error should be a root error with no source");
+
+        let invalid_arg_error = LightweightWalletError::InvalidArgument {
+            argument: "test_arg".to_string(),
+            value: "test_value".to_string(),
+            message: "test_message".to_string(),
+        };
+        assert!(invalid_arg_error.source().is_none(), "Invalid argument error should be a root error with no source");
+    }
+
+    #[test]
+    fn test_nested_error_chain() {
+        use std::error::Error;
+
+        // Create a nested error: io_error -> serialization_error -> wallet_error
+        let io_error = std::io::Error::new(std::io::ErrorKind::WriteZero, "disk full");
+        let serialization_error = SerializationError::from(io_error);
+        let wallet_error = LightweightWalletError::from(serialization_error);
+
+        // Walk the error chain
+        let mut current_error: &dyn Error = &wallet_error;
+        let mut error_messages = Vec::new();
+        
+        loop {
+            error_messages.push(current_error.to_string());
+            if let Some(source) = current_error.source() {
+                current_error = source;
+            } else {
+                break;
+            }
+        }
+
+        // Verify we have a complete error chain
+        assert!(error_messages.len() >= 2, "Should have at least 2 errors in chain");
+        assert!(error_messages[0].contains("Serialization error"), "Top-level should be wallet error");
+        assert!(error_messages[1].contains("Buffer overflow"), "Second level should be serialization error");
     }
 }

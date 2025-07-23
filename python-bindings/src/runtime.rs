@@ -366,7 +366,7 @@ mod tests {
         // Test health logic without requiring actual scanner
         // Note: We'll skip the scanner field and just test the health computation logic
         
-        let now = Instant::now();
+        let _now = Instant::now();
         
         // Test error count threshold
         assert_eq!(3u32, 3); // MAX_ERROR_COUNT threshold
