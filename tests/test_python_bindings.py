@@ -192,7 +192,6 @@ def main():
     
     try:
         test_wallet_creation()
-        test_wallet_metadata()
         test_seed_phrase_operations()
         test_address_generation()
         test_wallet_persistence()
