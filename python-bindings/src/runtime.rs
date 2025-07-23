@@ -38,7 +38,7 @@ pub async fn get_or_create_scanner(base_url: &str) -> Result<Arc<Mutex<HttpBlock
     // Check if we already have a scanner for this URL
     {
         let pool = SCANNER_POOL.lock()
-            .map_err(|_| LightweightWalletError::ValidationError("Failed to lock scanner pool".into()))?;
+            .map_err(|_| LightweightWalletError::ConversionError("Failed to lock scanner pool".into()))?;
         
         if let Some(scanner) = pool.get(&url_key) {
             return Ok(Arc::clone(scanner));
@@ -52,7 +52,7 @@ pub async fn get_or_create_scanner(base_url: &str) -> Result<Arc<Mutex<HttpBlock
     // Add to pool
     {
         let mut pool = SCANNER_POOL.lock()
-            .map_err(|_| LightweightWalletError::ValidationError("Failed to lock scanner pool".into()))?;
+            .map_err(|_| LightweightWalletError::ConversionError("Failed to lock scanner pool".into()))?;
         pool.insert(url_key, Arc::clone(&arc_scanner));
     }
     
@@ -60,6 +60,7 @@ pub async fn get_or_create_scanner(base_url: &str) -> Result<Arc<Mutex<HttpBlock
 }
 
 /// Clear the scanner pool (useful for testing or when URLs change)
+#[allow(dead_code)]
 pub fn clear_scanner_pool() -> PyResult<()> {
     let mut pool = SCANNER_POOL.lock()
         .map_err(|_| PyRuntimeError::new_err("Failed to lock scanner pool"))?;
@@ -68,6 +69,7 @@ pub fn clear_scanner_pool() -> PyResult<()> {
 }
 
 /// Get pool statistics for monitoring
+#[allow(dead_code)]
 pub fn get_pool_stats() -> PyResult<(usize, Vec<String>)> {
     let pool = SCANNER_POOL.lock()
         .map_err(|_| PyRuntimeError::new_err("Failed to lock scanner pool"))?;

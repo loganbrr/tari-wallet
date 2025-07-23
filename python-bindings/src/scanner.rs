@@ -1,12 +1,13 @@
 //! Python bindings for blockchain scanning functionality wrapping HttpBlockchainScanner
 
 use pyo3::prelude::*;
-use pyo3::exceptions::PyRuntimeError;
+
 use std::sync::{Arc, Mutex};
 use lightweight_wallet_libs::wallet::Wallet;
 use lightweight_wallet_libs::scanning::BlockchainScanner;
 use lightweight_wallet_libs::errors::LightweightWalletError;
 use crate::runtime::{execute_async, get_or_create_scanner};
+use tari_utilities::hex;
 
 /// Python wrapper for blockchain scanner wrapping HttpBlockchainScanner
 #[pyclass]
@@ -69,7 +70,7 @@ impl TariScanner {
         execute_async(async move {
             let scanner_arc = get_or_create_scanner(&base_url).await?;
             let mut scanner = scanner_arc.lock()
-                .map_err(|_| LightweightWalletError::ValidationError("Failed to lock scanner".into()))?;
+                .map_err(|_| LightweightWalletError::ConversionError("Failed to lock scanner".into()))?;
             let tip_info = scanner.get_tip_info().await?;
             Ok(tip_info.best_block_height)
         })
@@ -83,11 +84,11 @@ impl TariScanner {
         execute_async(async move {
             let scanner_arc = get_or_create_scanner(&base_url).await?;
             let mut scanner = scanner_arc.lock()
-                .map_err(|_| LightweightWalletError::ValidationError("Failed to lock scanner".into()))?;
+                .map_err(|_| LightweightWalletError::ConversionError("Failed to lock scanner".into()))?;
             
             // Get wallet for key derivation
             let wallet_guard = wallet.lock()
-                .map_err(|_| LightweightWalletError::ValidationError("Failed to lock wallet".into()))?;
+                .map_err(|_| LightweightWalletError::ConversionError("Failed to lock wallet".into()))?;
             
             // Create scan config using the existing method
             let scan_config = scanner.create_scan_config_with_wallet_keys(&*wallet_guard, from_height, to_height)?;
@@ -118,18 +119,18 @@ impl TariScanner {
         execute_async(async move {
             let scanner_arc = get_or_create_scanner(&base_url).await?;
             let mut scanner = scanner_arc.lock()
-                .map_err(|_| LightweightWalletError::ValidationError("Failed to lock scanner".into()))?;
+                .map_err(|_| LightweightWalletError::ConversionError("Failed to lock scanner".into()))?;
             
             // Get wallet birthday for scan start
             let start_height = {
                 let wallet_guard = wallet.lock()
-                    .map_err(|_| LightweightWalletError::ValidationError("Failed to lock wallet".into()))?;
+                    .map_err(|_| LightweightWalletError::ConversionError("Failed to lock wallet".into()))?;
                 wallet_guard.birthday()
             };
             
             // Create wallet scan config and perform scan
             let wallet_guard = wallet.lock()
-                .map_err(|_| LightweightWalletError::ValidationError("Failed to lock wallet".into()))?;
+                .map_err(|_| LightweightWalletError::ConversionError("Failed to lock wallet".into()))?;
             let scan_config = scanner.create_scan_config_with_wallet_keys(&*wallet_guard, start_height, None)?;
             drop(wallet_guard);
             
@@ -146,6 +147,56 @@ impl TariScanner {
                 available: total_value,
                 pending: 0,    // Could be enhanced to track pending transactions
                 immature: 0,   // Could be enhanced to track coinbase maturity
+            })
+        })
+    }
+
+    /// Get a single block by height
+    fn get_block_by_height(&self, height: u64) -> PyResult<Option<String>> {
+        let base_url = self.base_url.clone();
+        
+        execute_async(async move {
+            let scanner_arc = get_or_create_scanner(&base_url).await?;
+            let mut scanner = scanner_arc.lock()
+                .map_err(|_| LightweightWalletError::ConversionError("Failed to lock scanner".into()))?;
+            
+            let block_info = scanner.get_block_by_height(height).await?;
+            Ok(block_info.map(|b| format!("Block {} with {} outputs", b.height, b.outputs.len())))
+        })
+    }
+
+    /// Search for specific UTXOs by commitment (hex-encoded)
+    fn search_utxos(&self, commitment_hexes: Vec<String>) -> PyResult<ScanResult> {
+        let base_url = self.base_url.clone();
+        
+        execute_async(async move {
+            let scanner_arc = get_or_create_scanner(&base_url).await?;
+            let mut scanner = scanner_arc.lock()
+                .map_err(|_| LightweightWalletError::ConversionError("Failed to lock scanner".into()))?;
+            
+            // Convert hex strings to bytes
+            let commitments: Result<Vec<Vec<u8>>, LightweightWalletError> = commitment_hexes
+                .iter()
+                .map(|hex_str| {
+                    hex::from_hex(hex_str)
+                        .map_err(|e| LightweightWalletError::ConversionError(format!("Hex decode error: {}", e)))
+                })
+                .collect();
+            let commitments = commitments?;
+            
+            let block_results = scanner.search_utxos(commitments).await?;
+            
+            let total_wallet_outputs = block_results.iter()
+                .map(|block| block.wallet_outputs.len() as u64)
+                .sum();
+                
+            Ok(ScanResult {
+                transaction_count: total_wallet_outputs,
+                total_scanned: block_results.len() as u64,
+                current_height: block_results.iter()
+                    .map(|b| b.height)
+                    .max()
+                    .unwrap_or(0),
             })
         })
     }

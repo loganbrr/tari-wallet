@@ -1224,6 +1224,7 @@ name = "lightweight_wallet_libpy"
 version = "0.1.0"
 dependencies = [
  "lightweight_wallet_libs",
+ "once_cell",
  "pyo3",
  "pyo3-async-runtimes",
  "tari_utilities 0.8.0",
