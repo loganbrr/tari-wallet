@@ -14,10 +14,12 @@ use lightweight_wallet_libs::storage::{
 };
 use crate::runtime::execute_async;
 
+use lightweight_wallet_libs::storage::sqlite::SqliteStorage;
+
 /// Python wrapper for UTXO management
 #[pyclass]
 pub struct TariUTXOManager {
-    storage: Arc<Mutex<Option<Box<dyn WalletStorage + Send + Sync>>>>,
+    storage: Arc<Mutex<Option<Arc<Mutex<Option<SqliteStorage>>>>>>,
 }
 
 /// Python wrapper for UTXO information
@@ -103,9 +105,15 @@ impl TariUTXOManager {
     /// 
     /// Args:
     ///     storage: TariWalletStorage instance
-    fn set_storage(&self, _storage: &crate::TariWalletStorage) -> PyResult<()> {
-        // This is a placeholder - in practice we'd need to extract the storage
-        // from TariWalletStorage, but for now this provides the interface
+    fn set_storage(&self, storage: &crate::storage::TariWalletStorage) -> PyResult<()> {
+        // Get the shared storage Arc from TariWalletStorage
+        let shared_storage = storage.get_shared_storage()?;
+        
+        // Set the storage
+        *self.storage.lock()
+            .map_err(|_| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("Failed to lock storage"))? = 
+            Some(shared_storage);
+        
         Ok(())
     }
 
@@ -128,10 +136,24 @@ impl TariUTXOManager {
                     )
                 })?;
             
-            let storage = storage_guard.as_ref()
+            let storage_arc_inner = storage_guard.as_ref()
                 .ok_or_else(|| {
                     lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
                         "Storage not initialized - call set_storage() first".into()
+                    )
+                })?;
+
+            let inner_storage_guard = storage_arc_inner.lock()
+                .map_err(|_| {
+                    lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
+                        "Failed to lock inner storage".into()
+                    )
+                })?;
+            
+            let storage = inner_storage_guard.as_ref()
+                .ok_or_else(|| {
+                    lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
+                        "Inner storage not initialized".into()
                     )
                 })?;
 
@@ -252,10 +274,24 @@ impl TariUTXOManager {
                     )
                 })?;
             
-            let storage = storage_guard.as_ref()
+            let storage_arc_inner = storage_guard.as_ref()
                 .ok_or_else(|| {
                     lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
                         "Storage not initialized - call set_storage() first".into()
+                    )
+                })?;
+
+            let inner_storage_guard = storage_arc_inner.lock()
+                .map_err(|_| {
+                    lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
+                        "Failed to lock inner storage".into()
+                    )
+                })?;
+            
+            let storage = inner_storage_guard.as_ref()
+                .ok_or_else(|| {
+                    lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
+                        "Inner storage not initialized".into()
                     )
                 })?;
 
@@ -320,10 +356,24 @@ impl TariUTXOManager {
                     )
                 })?;
             
-            let storage = storage_guard.as_ref()
+            let storage_arc_inner = storage_guard.as_ref()
                 .ok_or_else(|| {
                     lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
                         "Storage not initialized - call set_storage() first".into()
+                    )
+                })?;
+
+            let inner_storage_guard = storage_arc_inner.lock()
+                .map_err(|_| {
+                    lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
+                        "Failed to lock inner storage".into()
+                    )
+                })?;
+            
+            let storage = inner_storage_guard.as_ref()
+                .ok_or_else(|| {
+                    lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
+                        "Inner storage not initialized".into()
                     )
                 })?;
 

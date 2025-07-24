@@ -8,7 +8,6 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use std::sync::{Arc, Mutex};
 use std::path::PathBuf;
-
 use lightweight_wallet_libs::storage::{
     WalletStorage,
     sqlite::SqliteStorage,
@@ -1437,5 +1436,24 @@ impl TariWalletStorage {
     /// Representation
     fn __repr__(&self) -> String {
         self.__str__()
+    }
+}
+
+impl TariWalletStorage {
+    /// Get a shared storage Arc for use with UTXO manager
+    /// Internal method not exposed to Python
+    pub(crate) fn get_shared_storage(&self) -> PyResult<Arc<Mutex<Option<SqliteStorage>>>> {
+        // Check if storage is initialized
+        {
+            let storage_guard = self.inner.lock()
+                .map_err(|_| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("Failed to lock storage"))?;
+            
+            if storage_guard.is_none() {
+                return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("Storage not initialized - call initialize() first"));
+            }
+        }
+
+        // Return the shared Arc for use by UTXO manager
+        Ok(Arc::clone(&self.inner))
     }
 }
