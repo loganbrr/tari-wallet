@@ -1366,6 +1366,7 @@ dependencies = [
  "crc32fast",
  "curve25519-dalek",
  "digest",
+ "futures",
  "getrandom 0.2.16",
  "hex",
  "js-sys",
