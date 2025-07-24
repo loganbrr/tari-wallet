@@ -55,7 +55,19 @@ pub struct ScanProgress {
 #[pymethods]
 impl TariScanner {
     /// Create a new scanner with the given base node URL
+    /// 
+    /// Args:
+    ///     base_node_url: The base node URL for blockchain connections (e.g., "http://localhost:18142")
+    ///     wallet: TariWallet instance for key derivation and address generation
+    /// 
+    /// Returns:
+    ///     TariScanner: A new scanner instance configured for the specified base node
+    /// 
+    /// Example:
+    ///     >>> wallet = TariWallet.generate_new_with_seed_phrase(None)
+    ///     >>> scanner = TariScanner("http://localhost:18142", wallet)
     #[new]
+    #[pyo3(signature = (base_node_url, wallet), text_signature = "(base_node_url, wallet)")]
     fn new(base_node_url: String, wallet: &crate::TariWallet) -> PyResult<Self> {
         Ok(TariScanner {
             base_url: base_node_url,
