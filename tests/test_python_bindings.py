@@ -51,29 +51,33 @@ def test_address_generation():
     
     wallet = lightweight_wallet_libpy.generate_new_wallet()
     
+    # Create address features
+    features = lightweight_wallet_libpy.AddressFeatures.interactive_and_one_sided()
+    interactive_features = lightweight_wallet_libpy.AddressFeatures.interactive_only()
+    
     # Test dual address generation
-    dual_address = wallet.get_dual_address(None)
+    dual_address = wallet.get_dual_address(features, None)
     print(f"Dual address: {dual_address[:50]}...")
     assert len(dual_address) > 0
     
     # Test dual address with payment ID
     payment_id = [1, 2, 3, 4, 5]
-    dual_address_with_payment = wallet.get_dual_address(payment_id)
+    dual_address_with_payment = wallet.get_dual_address(features, payment_id)
     print(f"Dual address with payment ID: {dual_address_with_payment[:50]}...")
     assert len(dual_address_with_payment) > 0
     assert dual_address != dual_address_with_payment  # Should be different
     
     # Test single address generation
-    single_address = wallet.get_single_address()
+    single_address = wallet.get_single_address(interactive_features)
     print(f"Single address: {single_address[:50]}...")
     assert len(single_address) > 0
     assert single_address != dual_address  # Should be different
     
     # Test deterministic address generation
-    dual_address2 = wallet.get_dual_address(None)
+    dual_address2 = wallet.get_dual_address(features, None)
     assert dual_address == dual_address2  # Should be the same
     
-    single_address2 = wallet.get_single_address()
+    single_address2 = wallet.get_single_address(interactive_features)
     assert single_address == single_address2  # Should be the same
     
     print("✅ Address generation tests passed")
@@ -98,7 +102,8 @@ def test_wallet_persistence():
     assert wallet.get_property("test_key") == "test_value"
     
     # Generate addresses and verify state still persists
-    address = wallet.get_dual_address(None)
+    features = lightweight_wallet_libpy.AddressFeatures.interactive_and_one_sided()
+    address = wallet.get_dual_address(features, None)
     assert len(address) > 0
     assert wallet.label() == "Persistent Test Wallet"
     assert wallet.network() == "mainnet"
@@ -152,9 +157,10 @@ def test_multiple_wallets():
     assert wallet3.network() == "localnet"
     
     # Generate different addresses
-    addr1 = wallet1.get_dual_address(None)
-    addr2 = wallet2.get_dual_address(None)
-    addr3 = wallet3.get_dual_address(None)
+    features = lightweight_wallet_libpy.AddressFeatures.interactive_and_one_sided()
+    addr1 = wallet1.get_dual_address(features, None)
+    addr2 = wallet2.get_dual_address(features, None)
+    addr3 = wallet3.get_dual_address(features, None)
     
     # All addresses should be different
     assert addr1 != addr2
@@ -247,6 +253,7 @@ def test_data_types():
     assert hasattr(lightweight_wallet_libpy, 'ScanResult')
     assert hasattr(lightweight_wallet_libpy, 'Balance')
     assert hasattr(lightweight_wallet_libpy, 'ScanProgress')
+    assert hasattr(lightweight_wallet_libpy, 'AddressFeatures')
     
     print("✅ Data types tests passed")
 
