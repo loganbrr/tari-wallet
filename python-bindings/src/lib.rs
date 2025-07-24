@@ -11,9 +11,11 @@ mod scanner;
 mod types;
 mod runtime;
 mod errors;
+mod storage;
 
 pub use scanner::{TariScanner, ScanResult, Balance, ScanProgress};
 pub use types::{WalletTransaction, AddressFeatures};
+pub use storage::TariWalletStorage;
 
 /// Python wrapper for the Tari Wallet
 #[pyclass]
@@ -329,6 +331,7 @@ fn lightweight_wallet_libpy(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ScanProgress>()?;
     m.add_class::<WalletTransaction>()?;
     m.add_class::<AddressFeatures>()?;
+    m.add_class::<TariWalletStorage>()?;
     m.add_function(wrap_pyfunction!(generate_new_wallet, m)?)?;
     Ok(())
 }
