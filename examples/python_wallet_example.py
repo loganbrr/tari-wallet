@@ -31,17 +31,39 @@ def main():
     seed_phrase = wallet.export_seed_phrase()
     print(f"   Seed phrase: {seed_phrase[:50]}... ({len(seed_phrase.split())} words)")
     
-    # Generate addresses
-    print("\n4. Generating addresses...")
-    dual_address = wallet.get_dual_address(None)
-    single_address = wallet.get_single_address()
-    print(f"   Dual address: {dual_address[:50]}...")
-    print(f"   Single address: {single_address[:50]}...")
+    # Generate addresses with different features
+    print("\n4. Generating addresses with address features...")
+    
+    # Create different address features
+    interactive_and_one_sided = lightweight_wallet_libpy.AddressFeatures.interactive_and_one_sided()
+    interactive_only = lightweight_wallet_libpy.AddressFeatures.interactive_only()
+    one_sided_only = lightweight_wallet_libpy.AddressFeatures.one_sided_only()
+    
+    print(f"   Address features available:")
+    print(f"     - {interactive_and_one_sided}")
+    print(f"     - {interactive_only}")
+    print(f"     - {one_sided_only}")
+    
+    # Generate dual address (supports both interactive and one-sided payments)
+    dual_address = wallet.get_dual_address(interactive_and_one_sided, None)
+    print(f"   Dual address (interactive + one-sided): {dual_address[:50]}...")
+    
+    # Generate single addresses with different features
+    single_interactive = wallet.get_single_address(interactive_only)
+    single_one_sided = wallet.get_single_address(one_sided_only)
+    print(f"   Single address (interactive only): {single_interactive[:50]}...")
+    print(f"   Single address (one-sided only): {single_one_sided[:50]}...")
     
     # Generate address with payment ID
     payment_id = [1, 2, 3, 4, 5, 6, 7, 8]
-    dual_with_payment = wallet.get_dual_address(payment_id)
-    print(f"   Dual with payment: {dual_with_payment[:50]}...")
+    dual_with_payment = wallet.get_dual_address(interactive_and_one_sided, payment_id)
+    print(f"   Dual with payment ID: {dual_with_payment[:50]}...")
+    
+    # Show that different features produce different addresses
+    print(f"   Different features produce different addresses:")
+    print(f"     - Interactive+One-sided != Interactive-only: {dual_address != single_interactive}")
+    print(f"     - Interactive-only != One-sided-only: {single_interactive != single_one_sided}")
+    print(f"     - With payment ID != without: {dual_address != dual_with_payment}")
     
     # Message signing example
     print("\n5. Message signing example...")
@@ -133,9 +155,22 @@ def main():
     print(f"   Unicode message: {unicode_message}")
     print(f"   Unicode signature valid: {unicode_valid}")
     
+    # Python help() system integration example
+    print("\n10. Python help() system integration...")
+    print("   The updated API provides proper signatures visible in Python help:")
+    print("   - help(wallet.get_dual_address) shows: (features, payment_id=None)")
+    print("   - help(wallet.get_single_address) shows: (features)")
+    print("   - help(lightweight_wallet_libpy.TariScanner) shows constructor signature")
+    print("   Try running help() on these methods in an interactive Python session!")
+    
     print("\n✅ All examples completed successfully!")
     print("\nNote: Blockchain scanning operations use placeholder implementations.")
     print("Real blockchain scanning requires async implementation to be completed.")
+    print("\nAPI Changes Summary:")
+    print("- get_dual_address now requires AddressFeatures parameter")
+    print("- get_single_address now requires AddressFeatures parameter") 
+    print("- AddressFeatures provides type-safe feature selection")
+    print("- Constructor documentation improved with PyO3 signatures")
 
 
 if __name__ == "__main__":
