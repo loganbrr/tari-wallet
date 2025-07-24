@@ -12,10 +12,14 @@ mod types;
 mod runtime;
 mod errors;
 mod storage;
+mod utxo;
+mod transaction;
 
 pub use scanner::{TariScanner, ScanResult, Balance, ScanProgress};
 pub use types::{WalletTransaction, AddressFeatures};
 pub use storage::TariWalletStorage;
+pub use utxo::{TariUTXOManager, UTXOInfo, UTXOFilter, UTXOList};
+pub use transaction::{TariTransactionInput, TariTransactionOutput, TariTransactionKernel, TariTransactionMetadata};
 
 /// Python wrapper for the Tari Wallet
 #[pyclass]
@@ -332,6 +336,14 @@ fn lightweight_wallet_libpy(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<WalletTransaction>()?;
     m.add_class::<AddressFeatures>()?;
     m.add_class::<TariWalletStorage>()?;
+    m.add_class::<TariUTXOManager>()?;
+    m.add_class::<UTXOInfo>()?;
+    m.add_class::<UTXOFilter>()?;
+    m.add_class::<UTXOList>()?;
+    m.add_class::<TariTransactionInput>()?;
+    m.add_class::<TariTransactionOutput>()?;
+    m.add_class::<TariTransactionKernel>()?;
+    m.add_class::<TariTransactionMetadata>()?;
     m.add_function(wrap_pyfunction!(generate_new_wallet, m)?)?;
     Ok(())
 }
