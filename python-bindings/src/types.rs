@@ -2,6 +2,7 @@
 
 use pyo3::prelude::*;
 use lightweight_wallet_libs::data_structures::wallet_transaction::WalletTransaction as RustWalletTransaction;
+use lightweight_wallet_libs::data_structures::address::TariAddressFeatures as RustTariAddressFeatures;
 
 /// Python wrapper for WalletTransaction
 #[pyclass]
@@ -86,6 +87,71 @@ impl From<RustWalletTransaction> for WalletTransaction {
 
 impl From<WalletTransaction> for RustWalletTransaction {
     fn from(wrapper: WalletTransaction) -> Self {
+        wrapper.inner
+    }
+}
+
+/// Python wrapper for TariAddressFeatures
+#[pyclass]
+#[derive(Clone, Copy)]
+pub struct AddressFeatures {
+    pub(crate) inner: RustTariAddressFeatures,
+}
+
+#[pymethods]
+impl AddressFeatures {
+    /// Create an interactive-only address feature (spend key only)
+    #[staticmethod]
+    fn interactive_only() -> Self {
+        Self {
+            inner: RustTariAddressFeatures::create_interactive_only(),
+        }
+    }
+
+    /// Create a one-sided-only address feature (view key only)
+    #[staticmethod]
+    fn one_sided_only() -> Self {
+        Self {
+            inner: RustTariAddressFeatures::create_one_sided_only(),
+        }
+    }
+
+    /// Create interactive and one-sided address features (both view and spend keys)
+    #[staticmethod]
+    fn interactive_and_one_sided() -> Self {
+        Self {
+            inner: RustTariAddressFeatures::create_interactive_and_one_sided(),
+        }
+    }
+
+    /// String representation
+    fn __repr__(&self) -> String {
+        let features = if self.inner == RustTariAddressFeatures::create_interactive_only() {
+            "interactive_only"
+        } else if self.inner == RustTariAddressFeatures::create_one_sided_only() {
+            "one_sided_only"
+        } else if self.inner == RustTariAddressFeatures::create_interactive_and_one_sided() {
+            "interactive_and_one_sided"
+        } else {
+            "custom"
+        };
+        format!("AddressFeatures({})", features)
+    }
+
+    /// String representation
+    fn __str__(&self) -> String {
+        self.__repr__()
+    }
+}
+
+impl From<RustTariAddressFeatures> for AddressFeatures {
+    fn from(inner: RustTariAddressFeatures) -> Self {
+        Self { inner }
+    }
+}
+
+impl From<AddressFeatures> for RustTariAddressFeatures {
+    fn from(wrapper: AddressFeatures) -> Self {
         wrapper.inner
     }
 }

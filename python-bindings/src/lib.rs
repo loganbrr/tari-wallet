@@ -14,7 +14,7 @@ mod runtime;
 mod errors;
 
 pub use scanner::{TariScanner, ScanResult, Balance, ScanProgress};
-pub use types::WalletTransaction;
+pub use types::{WalletTransaction, AddressFeatures};
 
 /// Python wrapper for the Tari Wallet
 #[pyclass]
@@ -133,24 +133,37 @@ impl TariWallet {
     }
 
     /// Generate a dual address with view and spend keys
-    fn get_dual_address(&self, payment_id: Option<Vec<u8>>) -> PyResult<String> {
+    /// 
+    /// Args:
+    ///     features: AddressFeatures specifying the type of address to generate
+    ///     payment_id: Optional payment ID as bytes
+    /// 
+    /// Returns:
+    ///     str: The address as a hex string
+    #[pyo3(signature = (features, payment_id=None), text_signature = "(features, payment_id=None)")]
+    fn get_dual_address(&self, features: AddressFeatures, payment_id: Option<Vec<u8>>) -> PyResult<String> {
         let wallet = self.inner.lock()
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock wallet: {}", e)))?;
         
-        let features = TariAddressFeatures::create_interactive_and_one_sided();
-        let address = wallet.get_dual_address(features, payment_id)
+        let address = wallet.get_dual_address(features.inner, payment_id)
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to generate dual address: {}", e)))?;
         
         Ok(address.to_hex())
     }
 
     /// Generate a single address with spend key only
-    fn get_single_address(&self) -> PyResult<String> {
+    /// 
+    /// Args:
+    ///     features: AddressFeatures specifying the type of address to generate
+    /// 
+    /// Returns:
+    ///     str: The address as a hex string
+    #[pyo3(signature = (features), text_signature = "(features)")]
+    fn get_single_address(&self, features: AddressFeatures) -> PyResult<String> {
         let wallet = self.inner.lock()
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock wallet: {}", e)))?;
         
-        let features = TariAddressFeatures::create_interactive_only();
-        let address = wallet.get_single_address(features)
+        let address = wallet.get_single_address(features.inner)
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to generate single address: {}", e)))?;
         
         Ok(address.to_hex())
@@ -316,6 +329,7 @@ fn lightweight_wallet_libpy(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Balance>()?;
     m.add_class::<ScanProgress>()?;
     m.add_class::<WalletTransaction>()?;
+    m.add_class::<AddressFeatures>()?;
     m.add_function(wrap_pyfunction!(generate_new_wallet, m)?)?;
     Ok(())
 }
