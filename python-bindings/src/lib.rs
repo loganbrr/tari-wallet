@@ -3,7 +3,6 @@ use pyo3::exceptions::PyRuntimeError;
 use pyo3::types::PyDict;
 use std::sync::{Arc, Mutex};
 use lightweight_wallet_libs::wallet::Wallet;
-use lightweight_wallet_libs::data_structures::address::TariAddressFeatures;
 use lightweight_wallet_libs::crypto::signing::{sign_message_with_tari_wallet, verify_message_from_hex, derive_tari_signing_key};
 use lightweight_wallet_libs::crypto::{RistrettoPublicKey, PublicKey};
 use tari_utilities::hex::Hex;

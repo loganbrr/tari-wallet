@@ -98,18 +98,28 @@ def main():
     scanner = lightweight_wallet_libpy.TariScanner("http://127.0.0.1:18142", wallet)
     print(f"   Scanner created for base node: http://127.0.0.1:18142")
     
-    # Get tip height (placeholder)
-    tip_height = scanner.get_tip_height()
-    print(f"   Tip height: {tip_height}")
+    print("   Note: Scanner requires a running Tari base node on localhost:18142")
     
-    # Scan some blocks (placeholder)
-    print("   Scanning blocks 1000-1010...")
-    scan_result = scanner.scan_blocks(1000, 1010)
-    print(f"   {scan_result}")
-    
-    # Get balance (placeholder)
-    balance = scanner.get_balance()
-    print(f"   {balance}")
+    try:
+        # Get tip height
+        tip_height = scanner.get_tip_height()
+        print(f"   Tip height: {tip_height}")
+        
+        # Scan some blocks
+        print("   Scanning blocks 1000-1010...")
+        scan_result = scanner.scan_blocks(1000, 1010)
+        print(f"   {scan_result}")
+        
+        # Get balance
+        balance = scanner.get_balance()
+        print(f"   {balance}")
+        
+    except Exception as e:
+        if "connection" in str(e).lower() or "failed to connect" in str(e).lower():
+            print(f"   ⚠️  Connection failed (expected if no node running): {str(e)[:80]}...")
+            print("   Scanner API is working but requires a running Tari base node")
+        else:
+            raise
     
     # Multiple wallets example
     print("\n7. Multiple wallets example...")
