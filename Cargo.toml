@@ -56,6 +56,7 @@ rayon = { version = "1.8", optional = true }
 
 # === Async & Concurrency ===
 async-trait = { version = "0.1", optional = true }
+futures = { version = "0.3", optional = true }
 
 # === Logging & Tracing ===
 tracing = { version = "0.1", optional = true }
@@ -114,7 +115,7 @@ default = ["http"]
 grpc = ["rayon", "tonic", "prost", "async-trait", "tokio", "tracing", "tracing-subscriber"]
 http = ["async-trait", "tracing", "reqwest", "tokio", "web-sys", "js-sys", "serde-wasm-bindgen", "wasm-bindgen-futures"]
 wasm = ["web-sys", "js-sys", "serde-wasm-bindgen", "wasm-bindgen-futures"]
-storage = ["rusqlite", "tokio-rusqlite", "async-trait", "tokio"]
+storage = ["rusqlite", "tokio-rusqlite", "async-trait", "tokio", "futures"]
 grpc-storage = ["grpc", "storage"]
 http-storage = ["http", "storage"]
 

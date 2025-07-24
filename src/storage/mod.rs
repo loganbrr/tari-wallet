@@ -7,6 +7,8 @@
 
 pub mod sqlite;
 pub mod storage_trait;
+pub mod thread_safe;
 
 pub use sqlite::*;
 pub use storage_trait::*;
+pub use thread_safe::*;

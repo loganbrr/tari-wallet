@@ -259,4 +259,4 @@ mod integration_tests {
 - Prefer `&str` over `String` in function signatures
 - Use `Vec::with_capacity()` when size is known
 
-This enhanced AGENT.md provides comprehensive guidance for navigating the Tari Lightweight Wallet codebase efficiently while maintaining security and performance standards.Y
+This enhanced AGENT.md provides comprehensive guidance for navigating the Tari Lightweight Wallet codebase efficiently while maintaining security and performance standards.
