@@ -5,12 +5,12 @@
 //! existing filtering capabilities.
 
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList};
+use pyo3::types::PyList;
 use std::sync::{Arc, Mutex};
 
 use lightweight_wallet_libs::storage::{
     WalletStorage,
-    storage_trait::{StoredOutput, OutputFilter, OutputStatus}
+    storage_trait::{OutputFilter, OutputStatus}
 };
 use crate::runtime::execute_async;
 
@@ -103,7 +103,7 @@ impl TariUTXOManager {
     /// 
     /// Args:
     ///     storage: TariWalletStorage instance
-    fn set_storage(&self, storage: &crate::TariWalletStorage) -> PyResult<()> {
+    fn set_storage(&self, _storage: &crate::TariWalletStorage) -> PyResult<()> {
         // This is a placeholder - in practice we'd need to extract the storage
         // from TariWalletStorage, but for now this provides the interface
         Ok(())
@@ -354,40 +354,40 @@ impl UTXOFilter {
     }
 
     /// Set wallet ID filter
-    fn with_wallet_id(&mut self, wallet_id: u32) -> &mut Self {
+    fn with_wallet_id(&mut self, wallet_id: u32) -> Self {
         self.wallet_id = Some(wallet_id);
-        self
+        self.clone()
     }
 
     /// Set value range filter
-    fn with_value_range(&mut self, min_value: u64, max_value: u64) -> &mut Self {
+    fn with_value_range(&mut self, min_value: u64, max_value: u64) -> Self {
         self.min_value = Some(min_value);
         self.max_value = Some(max_value);
-        self
+        self.clone()
     }
 
     /// Set status filter (0=Unspent, 1=Spent, 2=Locked, 3=Frozen)
-    fn with_status(&mut self, status: u32) -> &mut Self {
+    fn with_status(&mut self, status: u32) -> Self {
         self.status = Some(status);
-        self
+        self.clone()
     }
 
     /// Filter for outputs spendable at given block height
-    fn spendable_at(&mut self, block_height: u64) -> &mut Self {
+    fn spendable_at(&mut self, block_height: u64) -> Self {
         self.spendable_at_height = Some(block_height);
-        self
+        self.clone()
     }
 
     /// Set pagination limit
-    fn with_limit(&mut self, limit: usize) -> &mut Self {
+    fn with_limit(&mut self, limit: usize) -> Self {
         self.limit = Some(limit);
-        self
+        self.clone()
     }
 
     /// Set pagination offset
-    fn with_offset(&mut self, offset: usize) -> &mut Self {
+    fn with_offset(&mut self, offset: usize) -> Self {
         self.offset = Some(offset);
-        self
+        self.clone()
     }
 
     /// String representation

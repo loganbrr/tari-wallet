@@ -7,10 +7,9 @@
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyBytes};
 
-use lightweight_wallet_libs::data_structures::{
-    transaction::{TransactionInput, TransactionOutput, TransactionKernel},
-    types::{CompressedCommitment, PrivateKey, PublicKey}
-};
+// Note: Transaction structures are currently used as reference types only
+// The actual transaction data structures from the main crate are not imported
+// as this module provides Python-compatible wrappers
 
 /// Python wrapper for TransactionInput
 #[pyclass]

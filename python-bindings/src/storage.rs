@@ -108,25 +108,30 @@ impl TariWalletStorage {
         let storage_arc = Arc::clone(&self.inner);
         
         // Extract data from dictionary
-        let name = wallet_data.get_item("name")
-            .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: name"))?
-            .extract::<String>()?;
+        let name = match wallet_data.get_item("name")? {
+            Some(v) => v.extract::<String>()?,
+            None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: name")),
+        };
         
-        let seed_phrase = wallet_data.get_item("seed_phrase")
-            .map(|v| v.extract::<String>())
-            .transpose()?;
+        let seed_phrase = match wallet_data.get_item("seed_phrase")? {
+            Some(v) => Some(v.extract::<String>()?),
+            None => None,
+        };
         
-        let view_key_hex = wallet_data.get_item("view_key_hex")
-            .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: view_key_hex"))?
-            .extract::<String>()?;
+        let view_key_hex = match wallet_data.get_item("view_key_hex")? {
+            Some(v) => v.extract::<String>()?,
+            None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: view_key_hex")),
+        };
         
-        let spend_key_hex = wallet_data.get_item("spend_key_hex")
-            .map(|v| v.extract::<String>())
-            .transpose()?;
+        let spend_key_hex = match wallet_data.get_item("spend_key_hex")? {
+            Some(v) => Some(v.extract::<String>()?),
+            None => None,
+        };
         
-        let birthday_block = wallet_data.get_item("birthday_block")
-            .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: birthday_block"))?
-            .extract::<u64>()?;
+        let birthday_block = match wallet_data.get_item("birthday_block")? {
+            Some(v) => v.extract::<u64>()?,
+            None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: birthday_block")),
+        };
 
         execute_async(async move {
             let storage_guard = storage_arc.lock()
