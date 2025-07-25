@@ -6,57 +6,33 @@
 use pyo3::prelude::*;
 use pyo3::exceptions::{PyValueError, PyRuntimeError};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
 
 use lightweight_wallet_libs::key_management::stealth_address::StealthAddressService;
 use lightweight_wallet_libs::data_structures::types::{PrivateKey, CompressedPublicKey};
 use crate::stealth_types::{StealthAddressInfo, StealthScanResult};
 
-/// Internal stealth address service state
-#[derive(Debug)]
-struct StealthAddressState {
-    service: StealthAddressService,
-    default_chunk_size: usize,
-}
-
-impl StealthAddressState {
-    fn new() -> Self {
-        Self {
-            service: StealthAddressService::new(),
-            default_chunk_size: 1000, // Default chunk size for batch processing
-        }
-    }
-}
+/// Fixed chunk size for memory-efficient batch processing
+const FIXED_CHUNK_SIZE: usize = 1000;
 
 /// Python wrapper for stealth address operations
 /// 
-/// Provides batch processing for stealth address generation, scanning, and key recovery
-/// with memory-efficient chunked processing and progress reporting.
+/// Provides core stealth address functionality that mirrors the Rust StealthAddressService.
 #[pyclass]
 #[derive(Clone)]
 pub struct TariStealthAddress {
-    inner: Arc<Mutex<StealthAddressState>>,
+    inner: Arc<Mutex<StealthAddressService>>,
 }
 
 #[pymethods]
 impl TariStealthAddress {
     /// Create a new stealth address service
     /// 
-    /// Args:
-    ///     chunk_size: Optional chunk size for batch processing (default: 1000)
-    /// 
     /// Returns:
     ///     TariStealthAddress: New stealth address service instance
     #[new]
-    #[pyo3(signature = (chunk_size=None))]
-    pub fn new(chunk_size: Option<usize>) -> Self {
-        let mut state = StealthAddressState::new();
-        if let Some(size) = chunk_size {
-            state.default_chunk_size = size;
-        }
-        
+    pub fn new() -> Self {
         Self {
-            inner: Arc::new(Mutex::new(state)),
+            inner: Arc::new(Mutex::new(StealthAddressService::new())),
         }
     }
 
@@ -78,7 +54,7 @@ impl TariStealthAddress {
         spend_key_hex: &str,
         sender_private_key_hex: &str,
     ) -> PyResult<StealthAddressInfo> {
-        let state = self.inner.lock()
+        let service = self.inner.lock()
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock stealth service: {}", e)))?;
 
         // Decode view key
@@ -112,7 +88,7 @@ impl TariStealthAddress {
         let sender_private_key = PrivateKey::new(sender_key_array);
 
         // Generate stealth address
-        let stealth_address = state.service.generate_stealth_address(
+        let stealth_address = service.generate_stealth_address(
             &view_key,
             &spend_public_key,
             &sender_private_key,
@@ -145,7 +121,7 @@ impl TariStealthAddress {
         sender_offset_public_key_hex: &str,
         script_public_key_hex: &str,
     ) -> PyResult<Option<String>> {
-        let state = self.inner.lock()
+        let service = self.inner.lock()
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock stealth service: {}", e)))?;
 
         // Decode view key
@@ -179,7 +155,7 @@ impl TariStealthAddress {
         let script_public_key = CompressedPublicKey::new(script_key_array);
 
         // Try to recover the stealth key
-        let recovered_key = state.service.try_stealth_address_key_recovery(
+        let recovered_key = service.try_stealth_address_key_recovery(
             &view_key,
             &sender_offset_public_key,
             &script_public_key,
@@ -193,32 +169,26 @@ impl TariStealthAddress {
     /// Args:
     ///     view_key_hex: View private key as hex string
     ///     outputs: List of output data dictionaries with required fields
-    ///     chunk_size: Optional chunk size for processing (uses default if not specified)
     /// 
     /// Returns:
-    ///     StealthScanResult: Scanning results with found addresses and statistics
+    ///     StealthScanResult: Scanning results with found addresses
     /// 
     /// Example:
     ///     outputs = [{"sender_offset": "abc...", "script_key": "def..."}]
     ///     result = stealth.scan_for_outputs(view_key, outputs)
-    #[pyo3(signature = (view_key_hex, outputs, chunk_size=None))]
-    pub fn scan_for_outputs(
+    fn scan_for_outputs(
         &self,
         view_key_hex: &str,
         outputs: Vec<PyObject>,
-        chunk_size: Option<usize>,
     ) -> PyResult<StealthScanResult> {
-        let state = self.inner.lock()
+        let service = self.inner.lock()
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock stealth service: {}", e)))?;
 
-        let processing_chunk_size = chunk_size.unwrap_or(state.default_chunk_size);
         let total_outputs = outputs.len();
         
         if total_outputs == 0 {
-            return Ok(StealthScanResult::new(vec![], 0, None, None, None));
+            return Ok(StealthScanResult::new(vec![], 0));
         }
-
-        let start_time = Instant::now();
 
         // Decode view key once
         let view_key_bytes = hex::decode(view_key_hex)
@@ -234,7 +204,7 @@ impl TariStealthAddress {
         let mut processed_count = 0;
 
         // Process outputs in chunks for memory efficiency
-        for chunk in outputs.chunks(processing_chunk_size) {
+        for chunk in outputs.chunks(FIXED_CHUNK_SIZE) {
             for output in chunk {
                 processed_count += 1;
 
@@ -276,102 +246,13 @@ impl TariStealthAddress {
             }
         }
 
-        let duration = start_time.elapsed();
-        let duration_ms = duration.as_millis() as u64;
-
         Ok(StealthScanResult::new(
             found_addresses,
             processed_count,
-            None, // Start height not available
-            None, // End height not available
-            Some(duration_ms),
         ))
     }
 
-    /// Generate multiple stealth addresses in batch
-    /// 
-    /// Args:
-    ///     view_key_hex: View private key as hex string
-    ///     spend_key_hex: Spend public key as hex string
-    ///     sender_keys: List of sender private keys as hex strings
-    ///     chunk_size: Optional chunk size for processing
-    /// 
-    /// Returns:
-    ///     list: List of StealthAddressInfo objects
-    /// 
-    /// Example:
-    ///     sender_keys = ["abc...", "def...", "123..."]
-    ///     addresses = stealth.generate_batch_addresses(view_key, spend_key, sender_keys)
-    #[pyo3(signature = (view_key_hex, spend_key_hex, sender_keys, chunk_size=None))]
-    fn generate_batch_addresses(
-        &self,
-        view_key_hex: &str,
-        spend_key_hex: &str,
-        sender_keys: Vec<String>,
-        chunk_size: Option<usize>,
-    ) -> PyResult<Vec<StealthAddressInfo>> {
-        let state = self.inner.lock()
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock stealth service: {}", e)))?;
 
-        let processing_chunk_size = chunk_size.unwrap_or(state.default_chunk_size);
-        let mut addresses = Vec::new();
-
-        // Process sender keys in chunks
-        for chunk in sender_keys.chunks(processing_chunk_size) {
-            for sender_key_hex in chunk {
-                let address = self.create_stealth_address(
-                    view_key_hex,
-                    spend_key_hex,
-                    sender_key_hex,
-                )?;
-                addresses.push(address);
-            }
-        }
-
-        Ok(addresses)
-    }
-
-    /// Set the default chunk size for batch operations
-    /// 
-    /// Args:
-    ///     chunk_size: New default chunk size
-    /// 
-    /// Example:
-    ///     stealth.set_chunk_size(500)
-    fn set_chunk_size(&self, chunk_size: usize) -> PyResult<()> {
-        let mut state = self.inner.lock()
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock stealth service: {}", e)))?;
-        
-        if chunk_size == 0 {
-            return Err(PyValueError::new_err("Chunk size must be greater than 0"));
-        }
-        
-        state.default_chunk_size = chunk_size;
-        Ok(())
-    }
-
-    /// Get the current default chunk size
-    /// 
-    /// Returns:
-    ///     int: Current default chunk size
-    #[getter]
-    fn chunk_size(&self) -> PyResult<usize> {
-        let state = self.inner.lock()
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock stealth service: {}", e)))?;
-        
-        Ok(state.default_chunk_size)
-    }
-
-    /// Check if a stealth address is valid
-    /// 
-    /// Args:
-    ///     address: StealthAddressInfo to validate
-    /// 
-    /// Returns:
-    ///     bool: True if the address is valid
-    fn validate_stealth_address(&self, address: &StealthAddressInfo) -> bool {
-        address.is_valid()
-    }
 
     /// Generate shared secret between two keys
     /// 
@@ -385,7 +266,7 @@ impl TariStealthAddress {
     /// Example:
     ///     secret = stealth.generate_shared_secret(private_key, public_key)
     fn generate_shared_secret(&self, private_key_hex: &str, public_key_hex: &str) -> PyResult<String> {
-        let state = self.inner.lock()
+        let service = self.inner.lock()
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock stealth service: {}", e)))?;
 
         // Decode private key
@@ -408,7 +289,7 @@ impl TariStealthAddress {
         public_key_array.copy_from_slice(&public_key_bytes);
         let public_key = CompressedPublicKey::new(public_key_array);
 
-        let shared_secret = state.service.generate_shared_secret(&private_key, &public_key)
+        let shared_secret = service.generate_shared_secret(&private_key, &public_key)
             .map_err(|e| PyRuntimeError::new_err(format!("Shared secret generation failed: {}", e)))?;
 
         Ok(hex::encode(shared_secret))
@@ -416,8 +297,7 @@ impl TariStealthAddress {
 
     /// String representation
     fn __repr__(&self) -> String {
-        let chunk_size = self.chunk_size().unwrap_or(0);
-        format!("TariStealthAddress(chunk_size={})", chunk_size)
+        "TariStealthAddress()".to_string()
     }
 
     /// String representation
@@ -436,13 +316,13 @@ mod tests {
 
     #[test]
     fn test_stealth_address_creation() {
-        let stealth = TariStealthAddress::new(Some(500));
-        assert_eq!(stealth.chunk_size().unwrap(), 500);
+        let stealth = TariStealthAddress::new();
+        assert_eq!(stealth.__repr__(), "TariStealthAddress()");
     }
 
     #[test]
     fn test_stealth_address_generation() {
-        let stealth = TariStealthAddress::new(None);
+        let stealth = TariStealthAddress::new();
         let view_key = generate_test_key();
         let spend_key = generate_test_key();
         let sender_key = generate_test_key();
@@ -451,12 +331,13 @@ mod tests {
         assert!(result.is_ok());
         
         let address = result.unwrap();
-        assert!(address.is_valid());
+        assert!(!address.view_public_key.is_empty());
+        assert!(!address.stealth_spending_key.is_empty());
     }
 
     #[test]
     fn test_shared_secret_generation() {
-        let stealth = TariStealthAddress::new(None);
+        let stealth = TariStealthAddress::new();
         let private_key = generate_test_key();
         let public_key = generate_test_key();
 
@@ -465,35 +346,5 @@ mod tests {
         
         let secret = result.unwrap();
         assert!(!secret.is_empty());
-    }
-
-    #[test]
-    fn test_chunk_size_setting() {
-        let stealth = TariStealthAddress::new(None);
-        assert_eq!(stealth.chunk_size().unwrap(), 1000); // Default
-
-        stealth.set_chunk_size(2000).unwrap();
-        assert_eq!(stealth.chunk_size().unwrap(), 2000);
-
-        // Test invalid chunk size
-        assert!(stealth.set_chunk_size(0).is_err());
-    }
-
-    #[test]
-    fn test_batch_address_generation() {
-        let stealth = TariStealthAddress::new(Some(2)); // Small chunk size for testing
-        let view_key = generate_test_key();
-        let spend_key = generate_test_key();
-        let sender_keys = vec![generate_test_key(), generate_test_key(), generate_test_key()];
-
-        let result = stealth.generate_batch_addresses(&view_key, &spend_key, sender_keys, None);
-        assert!(result.is_ok());
-        
-        let addresses = result.unwrap();
-        assert_eq!(addresses.len(), 3);
-        
-        for address in addresses {
-            assert!(address.is_valid());
-        }
     }
 }
