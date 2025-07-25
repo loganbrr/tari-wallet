@@ -22,6 +22,7 @@ use lightweight_wallet_libs::key_management::{
 use lightweight_wallet_libs::data_structures::types::{PrivateKey, CompressedPublicKey};
 use lightweight_wallet_libs::crypto::{RistrettoSecretKey, SecretKey};
 use crate::key_derivation::KeyDerivationPath;
+use crate::stealth_types::StealthAddressInfo;
 
 /// Internal key manager state for secure operations
 #[derive(Debug)]
@@ -352,6 +353,154 @@ impl TariKeyManager {
     /// Get string representation
     fn __str__(&self) -> String {
         self.__repr__()
+    }
+
+    /// Create a stealth address using derived keys
+    /// 
+    /// Args:
+    ///     sender_private_key_hex: Sender's private key as hex string
+    /// 
+    /// Returns:
+    ///     StealthAddressInfo: Generated stealth address using wallet's view and spend keys
+    /// 
+    /// Example:
+    ///     stealth_addr = manager.create_stealth_address(sender_key)
+    fn create_stealth_address(&self, sender_private_key_hex: &str) -> PyResult<StealthAddressInfo> {
+        let state = self.inner.lock()
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock key manager: {}", e)))?;
+
+        let entropy = state.entropy.ok_or_else(|| {
+            PyRuntimeError::new_err("No entropy set. Use set_entropy() or from_wallet() first.")
+        })?;
+
+        // Derive view and spend keys from entropy
+        let (view_key, spend_key) = derive_view_and_spend_keys_from_entropy(&entropy)
+            .map_err(|e| PyRuntimeError::new_err(format!("Key derivation failed: {}", e)))?;
+
+        // Convert spend key to public key
+        let spend_public_key = CompressedPublicKey::from_private_key(&PrivateKey::from_canonical_bytes(spend_key.as_bytes())
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to convert spend key: {}", e)))?);
+
+        // Decode sender private key
+        let sender_key_bytes = hex::decode(sender_private_key_hex)
+            .map_err(|e| PyValueError::new_err(format!("Invalid sender key hex: {}", e)))?;
+        if sender_key_bytes.len() != 32 {
+            return Err(PyValueError::new_err("Sender key must be exactly 32 bytes"));
+        }
+        let mut sender_key_array = [0u8; 32];
+        sender_key_array.copy_from_slice(&sender_key_bytes);
+        let sender_private_key = PrivateKey::new(sender_key_array);
+
+        // Generate stealth address
+        let stealth_address = state.stealth_service.generate_stealth_address(
+            &PrivateKey::from_canonical_bytes(view_key.as_bytes())
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to convert view key: {}", e)))?,
+            &spend_public_key,
+            &sender_private_key,
+        ).map_err(|e| PyRuntimeError::new_err(format!("Stealth address generation failed: {}", e)))?;
+
+        // Convert to Python-friendly format
+        Ok(StealthAddressInfo::new(
+            hex::encode(stealth_address.view_public_key().as_bytes()),
+            hex::encode(stealth_address.spend_public_key().as_bytes()),
+            hex::encode(stealth_address.stealth_spending_key().as_bytes()),
+            hex::encode(stealth_address.sender_offset_public_key().as_bytes()),
+        ))
+    }
+
+    /// Recover stealth address key using wallet's view key
+    /// 
+    /// Args:
+    ///     sender_offset_public_key_hex: Sender offset public key as hex string
+    ///     script_public_key_hex: Script public key as hex string
+    /// 
+    /// Returns:
+    ///     str: Recovered stealth spending key as hex string, or None if recovery failed
+    /// 
+    /// Example:
+    ///     key = manager.recover_stealth_key(sender_offset, script_key)
+    fn recover_stealth_key(
+        &self,
+        sender_offset_public_key_hex: &str,
+        script_public_key_hex: &str,
+    ) -> PyResult<Option<String>> {
+        let state = self.inner.lock()
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock key manager: {}", e)))?;
+
+        let entropy = state.entropy.ok_or_else(|| {
+            PyRuntimeError::new_err("No entropy set. Use set_entropy() or from_wallet() first.")
+        })?;
+
+        // Derive view key from entropy
+        let (view_key, _) = derive_view_and_spend_keys_from_entropy(&entropy)
+            .map_err(|e| PyRuntimeError::new_err(format!("Key derivation failed: {}", e)))?;
+
+        // Decode sender offset public key
+        let sender_offset_bytes = hex::decode(sender_offset_public_key_hex)
+            .map_err(|e| PyValueError::new_err(format!("Invalid sender offset key hex: {}", e)))?;
+        if sender_offset_bytes.len() != 32 {
+            return Err(PyValueError::new_err("Sender offset key must be exactly 32 bytes"));
+        }
+        let mut sender_offset_array = [0u8; 32];
+        sender_offset_array.copy_from_slice(&sender_offset_bytes);
+        let sender_offset_public_key = CompressedPublicKey::new(sender_offset_array);
+
+        // Decode script public key
+        let script_key_bytes = hex::decode(script_public_key_hex)
+            .map_err(|e| PyValueError::new_err(format!("Invalid script key hex: {}", e)))?;
+        if script_key_bytes.len() != 32 {
+            return Err(PyValueError::new_err("Script key must be exactly 32 bytes"));
+        }
+        let mut script_key_array = [0u8; 32];
+        script_key_array.copy_from_slice(&script_key_bytes);
+        let script_public_key = CompressedPublicKey::new(script_key_array);
+
+        // Try to recover the stealth key
+        let view_private_key = PrivateKey::from_canonical_bytes(view_key.as_bytes())
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to convert view key: {}", e)))?;
+
+        let recovered_key = state.stealth_service.try_stealth_address_key_recovery(
+            &view_private_key,
+            &sender_offset_public_key,
+            &script_public_key,
+        ).map_err(|e| PyRuntimeError::new_err(format!("Key recovery failed: {}", e)))?;
+
+        Ok(recovered_key.map(|key| hex::encode(key.as_bytes())))
+    }
+
+    /// Get the wallet's public view and spend keys
+    /// 
+    /// Returns:
+    ///     dict: Dictionary with 'view_public_key' and 'spend_public_key' as hex strings
+    /// 
+    /// Example:
+    ///     keys = manager.get_public_keys()
+    ///     view_public = keys['view_public_key']
+    ///     spend_public = keys['spend_public_key']
+    fn get_public_keys(&self) -> PyResult<PyObject> {
+        let state = self.inner.lock()
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock key manager: {}", e)))?;
+
+        let entropy = state.entropy.ok_or_else(|| {
+            PyRuntimeError::new_err("No entropy set. Use set_entropy() or from_wallet() first.")
+        })?;
+
+        let (view_key, spend_key) = derive_view_and_spend_keys_from_entropy(&entropy)
+            .map_err(|e| PyRuntimeError::new_err(format!("Key derivation failed: {}", e)))?;
+
+        // Convert to public keys
+        let view_public_key = derive_public_key_from_private(&view_key)
+            .map_err(|e| PyRuntimeError::new_err(format!("View public key derivation failed: {}", e)))?;
+        
+        let spend_public_key = derive_public_key_from_private(&spend_key)
+            .map_err(|e| PyRuntimeError::new_err(format!("Spend public key derivation failed: {}", e)))?;
+
+        Python::with_gil(|py| {
+            let dict = PyDict::new(py);
+            dict.set_item("view_public_key", hex::encode(view_public_key.as_bytes()))?;
+            dict.set_item("spend_public_key", hex::encode(spend_public_key.as_bytes()))?;
+            Ok(dict.into())
+        })
     }
 }
 
