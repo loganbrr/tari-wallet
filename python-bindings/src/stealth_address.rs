@@ -49,7 +49,7 @@ impl TariStealthAddress {
     ///     TariStealthAddress: New stealth address service instance
     #[new]
     #[pyo3(signature = (chunk_size=None))]
-    fn new(chunk_size: Option<usize>) -> Self {
+    pub fn new(chunk_size: Option<usize>) -> Self {
         let mut state = StealthAddressState::new();
         if let Some(size) = chunk_size {
             state.default_chunk_size = size;
@@ -202,7 +202,7 @@ impl TariStealthAddress {
     ///     outputs = [{"sender_offset": "abc...", "script_key": "def..."}]
     ///     result = stealth.scan_for_outputs(view_key, outputs)
     #[pyo3(signature = (view_key_hex, outputs, chunk_size=None))]
-    fn scan_for_outputs(
+    pub fn scan_for_outputs(
         &self,
         view_key_hex: &str,
         outputs: Vec<PyObject>,
