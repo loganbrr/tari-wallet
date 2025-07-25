@@ -165,11 +165,13 @@ def main():
     print(f"   Unicode signature valid: {unicode_valid}")
     
     # Python help() system integration example
-    print("\n10. Python help() system integration...")
+    print("\n11. Python help() system integration...")
     print("   The updated API provides proper signatures visible in Python help:")
     print("   - help(wallet.get_dual_address) shows: (features, payment_id=None)")
     print("   - help(wallet.get_single_address) shows: (features)")
     print("   - help(lightweight_wallet_libpy.TariScanner) shows constructor signature")
+    print("   - help(lightweight_wallet_libpy.TariKeyManager) shows key derivation methods")
+    print("   - help(lightweight_wallet_libpy.TariStealthAddress) shows stealth operations")
     print("   Try running help() on these methods in an interactive Python session!")
     
     # Storage and Balance example
@@ -213,19 +215,96 @@ def main():
     # Clean up storage
     storage.close()
     print("   Storage closed")
+    
+    # Stealth Address example
+    print("\n10. Stealth Address functionality example...")
+    
+    try:
+        # Key management for stealth addresses
+        print("   Creating key manager from wallet...")
+        key_manager = lightweight_wallet_libpy.TariKeyManager.from_wallet(wallet)
+        
+        # Derive view and spend keys
+        keys = key_manager.derive_view_and_spend_keys()
+        print(f"   Derived view key: {keys['view_key'][:16]}...")
+        print(f"   Derived spend key: {keys['spend_key'][:16]}...")
+        
+        # Create stealth address service
+        print("   Creating stealth address service...")
+        stealth_service = lightweight_wallet_libpy.TariStealthAddress()
+        
+        # Generate shared secret (Diffie-Hellman)
+        sender_private_key = "deadbeef" * 8  # Mock sender private key
+        sender_public_key = "cafebabe" * 8   # Mock sender public key
+        shared_secret = stealth_service.generate_shared_secret(sender_private_key, sender_public_key)
+        print(f"   Generated shared secret: {shared_secret[:16]}...")
+        
+        # Create stealth address
+        print("   Creating stealth address...")
+        stealth_addr = stealth_service.create_stealth_address(
+            keys['view_key'],
+            keys['spend_key'], 
+            sender_private_key
+        )
+        
+        print(f"   Stealth address info:")
+        print(f"     View public key: {stealth_addr.view_public_key[:16]}...")
+        print(f"     Spend public key: {stealth_addr.spend_public_key[:16]}...")
+        print(f"     Stealth spending key: {stealth_addr.stealth_spending_key[:16]}...")
+        print(f"     Sender offset key: {stealth_addr.sender_offset_public_key[:16]}...")
+        
+        # Mock output scanning (will return empty results with mock data)
+        print("   Scanning mock outputs...")
+        mock_outputs = [
+            {"sender_offset": "deadbeef" * 8, "script_key": "cafebabe" * 8},
+            {"sender_offset": "12345678" * 8, "script_key": "87654321" * 8}
+        ]
+        
+        scan_result = stealth_service.scan_for_outputs(
+            keys['view_key'],
+            keys['spend_key'],
+            mock_outputs
+        )
+        
+        print(f"   Scan result: {scan_result}")
+        print(f"   Total scanned: {scan_result.total_scanned}")
+        print(f"   Addresses found: {scan_result.addresses_found}")
+        print(f"   Success: {scan_result.is_successful()}")
+        
+        # Key derivation examples
+        print("   Key derivation examples...")
+        derivation_path = lightweight_wallet_libpy.KeyDerivationPath.from_string("m/44'/0'/1")
+        print(f"   Derivation path: {derivation_path}")
+        
+        # Set custom entropy and derive key
+        key_manager.set_entropy("0123456789abcdef" * 2)
+        derived_key = key_manager.derive_key_from_path(derivation_path)
+        print(f"   Derived key from path: {derived_key[:16]}...")
+        
+    except Exception as e:
+        print(f"   Stealth address example failed: {e}")
+        print("   This is expected if stealth address modules are not available")
 
     print("\n✅ All examples completed successfully!")
     print("\nNote: Blockchain scanning operations use placeholder implementations.")
     print("Real blockchain scanning requires async implementation to be completed.")
-    print("\nAPI Changes Summary:")
-    print("- OLD Balance struct removed from scanner")
-    print("- NEW TariBalance class provides Rust-native balance calculation")
-    print("- get_dual_address now requires AddressFeatures parameter")
-    print("- get_single_address now requires AddressFeatures parameter") 
-    print("- AddressFeatures provides type-safe feature selection")
-    print("- Balance calculation now requires storage integration")
-    print("- TariBalance uses actual WalletState.running_balance")
-    print("- Constructor documentation improved with PyO3 signatures")
+    print("\nSimplified API Summary:")
+    print("- Core stealth address functionality through TariStealthAddress")
+    print("- Key derivation via TariKeyManager with hierarchical path support")
+    print("- Stealth address generation, key recovery, and output scanning")
+    print("- Fixed chunking (1000 items) for memory-efficient batch processing")
+    print("- Removed Python-specific convenience methods for API purity")
+    print("- Direct mapping to Rust core functionality for security")
+    print("- get_dual_address/get_single_address require AddressFeatures parameter")
+    print("- TariBalance provides Rust-native balance calculation with storage")
+    print("- PyO3 help() integration shows proper method signatures")
+    print("\nStealth Address Features:")
+    print("- create_stealth_address(): Generate stealth addresses from keys")
+    print("- recover_stealth_key(): Attempt key recovery from outputs")
+    print("- scan_for_outputs(): Batch scan outputs with fixed chunking")
+    print("- generate_shared_secret(): Diffie-Hellman key agreement")
+    print("- Memory-efficient processing without configurable chunk sizes")
+    print("- Error handling for invalid inputs and mock data scenarios")
 
 
 def chunked_validation_example():
