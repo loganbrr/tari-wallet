@@ -22,6 +22,42 @@ use lightweight_wallet_libs::data_structures::{
 use lightweight_wallet_libs::crypto::signing::verify_message_from_hex;
 use crate::errors::convert_to_pyerr;
 
+// ========== Chunk Configuration ==========
+
+/// Configuration for chunked batch processing
+#[derive(Debug, Clone)]
+pub struct ChunkConfig {
+    pub chunk_size: usize,
+    #[allow(dead_code)]  // Reserved for future memory limiting feature
+    pub max_memory_mb: Option<usize>,
+}
+
+impl Default for ChunkConfig {
+    fn default() -> Self {
+        Self {
+            chunk_size: 1000,  // Default chunk size balances memory and performance
+            max_memory_mb: None,  // No memory limit by default
+        }
+    }
+}
+
+impl ChunkConfig {
+    pub fn new(chunk_size: usize) -> Self {
+        Self {
+            chunk_size,
+            max_memory_mb: None,
+        }
+    }
+
+    #[allow(dead_code)]  // Reserved for future memory limiting feature
+    pub fn with_memory_limit(chunk_size: usize, max_memory_mb: usize) -> Self {
+        Self {
+            chunk_size,
+            max_memory_mb: Some(max_memory_mb),
+        }
+    }
+}
+
 // ========== Validation Result Structures ==========
 
 /// Python-accessible validation result containing success status and optional details
@@ -222,14 +258,17 @@ impl TariRangeProofValidator {
     /// Args:
     ///     proof_commitment_pairs: List of (proof_hex, commitment_hex) tuples
     ///     minimum_values: Optional list of minimum values (must match pairs length)
+    ///     chunk_size: Optional chunk size for memory management (default: 1000)
     /// 
     /// Returns:
     ///     BatchValidationResult: Results for all validations
+    #[pyo3(signature = (proof_commitment_pairs, minimum_values=None, chunk_size=None))]
     fn batch_validate_range_proofs(
         &self,
         py: Python<'_>,
         proof_commitment_pairs: &Bound<'_, PyList>,
         minimum_values: Option<&Bound<'_, PyList>>,
+        chunk_size: Option<usize>,
     ) -> PyResult<BatchValidationResult> {
         let mut pairs = Vec::new();
         for item in proof_commitment_pairs.iter() {
@@ -247,19 +286,45 @@ impl TariRangeProofValidator {
             None
         };
 
-        // Release GIL for CPU-intensive batch processing
+        let config = ChunkConfig::new(chunk_size.unwrap_or(1000));
+        
+        // Process in chunks for memory efficiency
         let results = py.allow_threads(|| {
-            pairs
-                .into_iter()
-                .enumerate()
-                .map(|(i, (proof_hex, commitment_hex))| {
-                    let min_val = min_values.as_ref().and_then(|v| v.get(i)).copied();
-                    self.validate_range_proof_detailed(&proof_hex, &commitment_hex, min_val)
-                })
-                .collect::<Result<Vec<_>, _>>()
+            self.process_range_proofs_in_chunks(pairs, min_values, &config)
         })?;
 
         Ok(BatchValidationResult::new(results))
+    }
+}
+
+impl TariRangeProofValidator {
+    /// Internal method to process range proofs in chunks
+    fn process_range_proofs_in_chunks(
+        &self,
+        pairs: Vec<(String, String)>,
+        min_values: Option<Vec<u64>>,
+        config: &ChunkConfig,
+    ) -> PyResult<Vec<ValidationResult>> {
+        let mut all_results = Vec::new();
+        
+        for (chunk_idx, chunk) in pairs.chunks(config.chunk_size).enumerate() {
+            let chunk_results: Result<Vec<ValidationResult>, PyErr> = chunk
+                .iter()
+                .enumerate()
+                .map(|(idx, (proof_hex, commitment_hex))| {
+                    let global_idx = chunk_idx * config.chunk_size + idx;
+                    let min_val = min_values.as_ref().and_then(|v| v.get(global_idx)).copied();
+                    self.validate_range_proof_detailed(proof_hex, commitment_hex, min_val)
+                })
+                .collect();
+            
+            match chunk_results {
+                Ok(mut results) => all_results.append(&mut results),
+                Err(e) => return Err(e),
+            }
+        }
+        
+        Ok(all_results)
     }
 }
 
@@ -319,28 +384,55 @@ impl TariCommitmentValidator {
     /// 
     /// Args:
     ///     commitment_hexes: List of hexadecimal-encoded commitments
+    ///     chunk_size: Optional chunk size for memory management (default: 1000)
     /// 
     /// Returns:
     ///     BatchValidationResult: Results for all validations
+    #[pyo3(signature = (commitment_hexes, chunk_size=None))]
     fn batch_validate_commitments(
         &self,
         py: Python<'_>,
         commitment_hexes: &Bound<'_, PyList>,
+        chunk_size: Option<usize>,
     ) -> PyResult<BatchValidationResult> {
         let mut hexes = Vec::new();
         for item in commitment_hexes.iter() {
             hexes.push(item.extract::<String>()?);
         }
 
-        // Release GIL for CPU-intensive batch processing
+        let config = ChunkConfig::new(chunk_size.unwrap_or(1000));
+
+        // Process in chunks for memory efficiency
         let results = py.allow_threads(|| {
-            hexes
-                .into_iter()
-                .map(|hex| self.validate_commitment_detailed(&hex))
-                .collect::<Result<Vec<_>, _>>()
+            self.process_commitments_in_chunks(hexes, &config)
         })?;
 
         Ok(BatchValidationResult::new(results))
+    }
+}
+
+impl TariCommitmentValidator {
+    /// Internal method to process commitments in chunks
+    fn process_commitments_in_chunks(
+        &self,
+        hexes: Vec<String>,
+        config: &ChunkConfig,
+    ) -> PyResult<Vec<ValidationResult>> {
+        let mut all_results = Vec::new();
+        
+        for chunk in hexes.chunks(config.chunk_size) {
+            let chunk_results: Result<Vec<ValidationResult>, PyErr> = chunk
+                .iter()
+                .map(|hex| self.validate_commitment_detailed(hex))
+                .collect();
+            
+            match chunk_results {
+                Ok(mut results) => all_results.append(&mut results),
+                Err(e) => return Err(e),
+            }
+        }
+        
+        Ok(all_results)
     }
 }
 
@@ -421,13 +513,16 @@ impl TariSignatureValidator {
     /// 
     /// Args:
     ///     signature_data: List of (signature_hex, nonce_hex, message, public_key_hex) tuples
+    ///     chunk_size: Optional chunk size for memory management (default: 1000)
     /// 
     /// Returns:
     ///     BatchValidationResult: Results for all validations
+    #[pyo3(signature = (signature_data, chunk_size=None))]
     fn batch_validate_signatures(
         &self,
         py: Python<'_>,
         signature_data: &Bound<'_, PyList>,
+        chunk_size: Option<usize>,
     ) -> PyResult<BatchValidationResult> {
         let mut data = Vec::new();
         for item in signature_data.iter() {
@@ -435,16 +530,41 @@ impl TariSignatureValidator {
             data.push(tuple);
         }
 
-        // Release GIL for CPU-intensive batch processing
+        let config = ChunkConfig::new(chunk_size.unwrap_or(1000));
+
+        // Process in chunks for memory efficiency
         let results = py.allow_threads(|| {
-            data.into_iter()
-                .map(|(sig_hex, nonce_hex, message, pubkey_hex)| {
-                    self.validate_signature_detailed(&sig_hex, &nonce_hex, &message, &pubkey_hex)
-                })
-                .collect::<Result<Vec<_>, _>>()
+            self.process_signatures_in_chunks(data, &config)
         })?;
 
         Ok(BatchValidationResult::new(results))
+    }
+}
+
+impl TariSignatureValidator {
+    /// Internal method to process signatures in chunks
+    fn process_signatures_in_chunks(
+        &self,
+        data: Vec<(String, String, String, String)>,
+        config: &ChunkConfig,
+    ) -> PyResult<Vec<ValidationResult>> {
+        let mut all_results = Vec::new();
+        
+        for chunk in data.chunks(config.chunk_size) {
+            let chunk_results: Result<Vec<ValidationResult>, PyErr> = chunk
+                .iter()
+                .map(|(sig_hex, nonce_hex, message, pubkey_hex)| {
+                    self.validate_signature_detailed(sig_hex, nonce_hex, message, pubkey_hex)
+                })
+                .collect();
+            
+            match chunk_results {
+                Ok(mut results) => all_results.append(&mut results),
+                Err(e) => return Err(e),
+            }
+        }
+        
+        Ok(all_results)
     }
 }
 
@@ -511,27 +631,54 @@ impl TariEncryptedDataValidator {
     /// 
     /// Args:
     ///     encrypted_data_hexes: List of hexadecimal-encoded encrypted data
+    ///     chunk_size: Optional chunk size for memory management (default: 1000)
     /// 
     /// Returns:
     ///     BatchValidationResult: Results for all validations
+    #[pyo3(signature = (encrypted_data_hexes, chunk_size=None))]
     fn batch_validate_encrypted_data(
         &self,
         py: Python<'_>,
         encrypted_data_hexes: &Bound<'_, PyList>,
+        chunk_size: Option<usize>,
     ) -> PyResult<BatchValidationResult> {
         let mut hexes = Vec::new();
         for item in encrypted_data_hexes.iter() {
             hexes.push(item.extract::<String>()?);
         }
 
-        // Release GIL for CPU-intensive batch processing
+        let config = ChunkConfig::new(chunk_size.unwrap_or(1000));
+
+        // Process in chunks for memory efficiency
         let results = py.allow_threads(|| {
-            hexes
-                .into_iter()
-                .map(|hex| self.validate_encrypted_data_detailed(&hex))
-                .collect::<Result<Vec<_>, _>>()
+            self.process_encrypted_data_in_chunks(hexes, &config)
         })?;
 
         Ok(BatchValidationResult::new(results))
+    }
+}
+
+impl TariEncryptedDataValidator {
+    /// Internal method to process encrypted data in chunks
+    fn process_encrypted_data_in_chunks(
+        &self,
+        hexes: Vec<String>,
+        config: &ChunkConfig,
+    ) -> PyResult<Vec<ValidationResult>> {
+        let mut all_results = Vec::new();
+        
+        for chunk in hexes.chunks(config.chunk_size) {
+            let chunk_results: Result<Vec<ValidationResult>, PyErr> = chunk
+                .iter()
+                .map(|hex| self.validate_encrypted_data_detailed(hex))
+                .collect();
+            
+            match chunk_results {
+                Ok(mut results) => all_results.append(&mut results),
+                Err(e) => return Err(e),
+            }
+        }
+        
+        Ok(all_results)
     }
 }
