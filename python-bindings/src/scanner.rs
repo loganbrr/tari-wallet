@@ -177,52 +177,59 @@ impl TariScanner {
     /// Args:
     ///     start_height: Starting block height for scanning
     ///     end_height: Ending block height for scanning  
-    ///     chunk_size: Optional chunk size for processing (default: 1000)
     /// 
     /// Returns:
-    ///     StealthScanResult: Scanning results with found stealth addresses and statistics
+    ///     StealthScanResult: Scanning results with found stealth addresses
     /// 
     /// Example:
     ///     result = scanner.scan_for_stealth_addresses(1000, 2000)
-    #[pyo3(signature = (start_height, end_height, chunk_size=None))]
     fn scan_for_stealth_addresses(
         &self,
         start_height: u64,
         end_height: u64,
-        chunk_size: Option<usize>,
     ) -> PyResult<StealthScanResult> {
-        // Get wallet view key for stealth address scanning
-        let wallet_guard = self.wallet.lock()
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to lock wallet: {}", e)))?;
-            
-        let master_key_bytes = wallet_guard.master_key_bytes();
-        let mut entropy = [0u8; 16];
-        entropy.copy_from_slice(&master_key_bytes[0..16]);
-        drop(wallet_guard);
-
-        // Derive view key from entropy
-        let (view_key, _) = lightweight_wallet_libs::key_management::key_derivation::derive_view_and_spend_keys_from_entropy(&entropy)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("View key derivation failed: {}", e)))?;
-
-        let view_key_hex = hex::encode(view_key.as_bytes());
-
-        // For now, create placeholder outputs for demonstration
-        // In a real implementation, this would scan actual blockchain blocks
-        let mut outputs = Vec::new();
-        let output_count = (end_height - start_height + 1) as usize;
+        let base_url = self.base_url.clone();
+        let wallet = self.wallet.clone();
         
-        for _i in 0..output_count {
-            Python::with_gil(|py| {
-                let output_dict = pyo3::types::PyDict::new(py);
-                output_dict.set_item("sender_offset", hex::encode(&[0u8; 32])).unwrap(); // Placeholder
-                output_dict.set_item("script_key", hex::encode(&[0u8; 32])).unwrap(); // Placeholder
-                outputs.push(output_dict.into());
-            });
-        }
+        execute_async(async move {
+            // Get wallet view key for stealth address scanning
+            let wallet_guard = wallet.lock()
+                .map_err(|e| LightweightWalletError::ConversionError(format!("Failed to lock wallet: {}", e)))?;
+                
+            let master_key_bytes = wallet_guard.master_key_bytes();
+            let mut entropy = [0u8; 16];
+            entropy.copy_from_slice(&master_key_bytes[0..16]);
+            drop(wallet_guard);
 
-        // Use TariStealthAddress to scan the outputs
-        let stealth_scanner = TariStealthAddress::new(chunk_size);
-        stealth_scanner.scan_for_outputs(&view_key_hex, outputs, chunk_size)
+            // Derive view key from entropy
+            let (view_key, _) = lightweight_wallet_libs::key_management::key_derivation::derive_view_and_spend_keys_from_entropy(&entropy)?;
+            let view_key_hex = hex::encode(view_key.as_bytes());
+
+            // Get blockchain scanner
+            let scanner_arc = get_or_create_scanner(&base_url).await?;
+            let mut scanner = scanner_arc.lock()
+                .map_err(|_| LightweightWalletError::ConversionError("Failed to lock scanner".into()))?;
+
+            // Collect outputs from actual blockchain blocks
+            let mut outputs = Vec::new();
+            for height in start_height..=end_height {
+                if let Some(block_info) = scanner.get_block_by_height(height).await? {
+                    for output in block_info.outputs {
+                        // Extract required fields for stealth address scanning
+                        Python::with_gil(|py| {
+                            let output_dict = pyo3::types::PyDict::new(py);
+                            output_dict.set_item("sender_offset", hex::encode(output.sender_offset_public_key.as_bytes())).unwrap();
+                            output_dict.set_item("script_key", hex::encode(output.script_public_key.as_bytes())).unwrap();
+                            outputs.push(output_dict.into());
+                        });
+                    }
+                }
+            }
+
+            // Use TariStealthAddress to scan the real outputs
+            let stealth_scanner = TariStealthAddress::new();
+            Ok(stealth_scanner.scan_for_outputs(&view_key_hex, outputs)?)
+        })
     }
 
     /// Scan specific outputs for stealth addresses
