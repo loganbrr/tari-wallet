@@ -15,6 +15,7 @@ mod storage;
 mod utxo;
 mod transaction;
 mod balance;
+mod validation;
 
 pub use scanner::{TariScanner, ScanResult, ScanProgress};
 pub use balance::TariBalance;
@@ -22,6 +23,10 @@ pub use types::{WalletTransaction, AddressFeatures};
 pub use storage::TariWalletStorage;
 pub use utxo::{TariUTXOManager, UTXOInfo, UTXOFilter, UTXOList};
 pub use transaction::{TariTransactionInput, TariTransactionOutput, TariTransactionKernel, TariTransactionMetadata};
+pub use validation::{
+    TariRangeProofValidator, TariCommitmentValidator, TariSignatureValidator, 
+    TariEncryptedDataValidator, ValidationResult, BatchValidationResult
+};
 
 /// Python wrapper for the Tari Wallet
 #[pyclass]
@@ -346,6 +351,13 @@ fn lightweight_wallet_libpy(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<TariTransactionOutput>()?;
     m.add_class::<TariTransactionKernel>()?;
     m.add_class::<TariTransactionMetadata>()?;
+    // Validation classes
+    m.add_class::<TariRangeProofValidator>()?;
+    m.add_class::<TariCommitmentValidator>()?;
+    m.add_class::<TariSignatureValidator>()?;
+    m.add_class::<TariEncryptedDataValidator>()?;
+    m.add_class::<ValidationResult>()?;
+    m.add_class::<BatchValidationResult>()?;
     m.add_function(wrap_pyfunction!(generate_new_wallet, m)?)?;
     Ok(())
 }
