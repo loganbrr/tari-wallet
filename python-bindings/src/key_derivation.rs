@@ -69,7 +69,7 @@ impl KeyDerivationPath {
     /// Example:
     ///     path = KeyDerivationPath.from_string("m/44'/0'/1")
     #[staticmethod]
-    fn from_string(path_str: &str) -> PyResult<Self> {
+    pub fn from_string(path_str: &str) -> PyResult<Self> {
         KeyDerivationPath::from_str(path_str)
             .map_err(|e| PyValueError::new_err(format!("Invalid path string: {}", e)))
     }
@@ -79,7 +79,7 @@ impl KeyDerivationPath {
     /// Returns:
     ///     List[int]: Path component values
     #[getter]
-    fn components(&self) -> Vec<u32> {
+    pub fn components(&self) -> Vec<u32> {
         self.components.clone()
     }
 

@@ -17,6 +17,7 @@ mod transaction;
 mod balance;
 mod validation;
 mod key_derivation;
+mod key_manager;
 
 pub use scanner::{TariScanner, ScanResult, ScanProgress};
 pub use balance::TariBalance;
@@ -29,6 +30,7 @@ pub use validation::{
     TariEncryptedDataValidator, ValidationResult, BatchValidationResult
 };
 pub use key_derivation::KeyDerivationPath;
+pub use key_manager::TariKeyManager;
 
 /// Python wrapper for the Tari Wallet
 #[pyclass]
@@ -355,6 +357,7 @@ fn lightweight_wallet_libpy(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<TariTransactionMetadata>()?;
     // Key derivation
     m.add_class::<KeyDerivationPath>()?;
+    m.add_class::<TariKeyManager>()?;
     // Validation classes
     m.add_class::<TariRangeProofValidator>()?;
     m.add_class::<TariCommitmentValidator>()?;
