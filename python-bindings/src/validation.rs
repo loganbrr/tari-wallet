@@ -5,26 +5,22 @@
 //! encrypted data following PyO3 best practices.
 
 use pyo3::prelude::*;
-use pyo3::exceptions::{PyValueError, PyRuntimeError};
-use pyo3::types::PyList;
+use pyo3::exceptions::PyValueError;
+use pyo3::types::{PyList, PyTuple};
 use std::sync::{Arc, Mutex};
 use lightweight_wallet_libs::validation::{
     LightweightCommitmentValidator,
     LightweightMinimumValuePromiseValidator,
     MinimumValuePromiseValidationOptions,
-    MinimumValuePromiseValidationResult,
     LightweightEncryptedDataValidator,
-    EncryptedDataValidationResult,
 };
 use lightweight_wallet_libs::data_structures::{
-    types::{CompressedCommitment, MicroMinotari, PrivateKey},
+    types::{CompressedCommitment, MicroMinotari},
     encrypted_data::EncryptedData,
     wallet_output::{LightweightRangeProof, LightweightRangeProofType},
 };
-use lightweight_wallet_libs::crypto::signing::{verify_message_from_hex};
-use lightweight_wallet_libs::errors::LightweightWalletError;
-use crate::errors::{convert_to_pyerr, WalletValidationError};
-use crate::runtime::execute_async;
+use lightweight_wallet_libs::crypto::signing::verify_message_from_hex;
+use crate::errors::convert_to_pyerr;
 
 // ========== Validation Result Structures ==========
 
@@ -177,17 +173,17 @@ impl TariRangeProofValidator {
         
         // Create a lightweight range proof structure
         let range_proof = LightweightRangeProof {
-            proof_type: LightweightRangeProofType::BulletProofPlus,
-            proof_bytes,
+            bytes: proof_bytes,
         };
 
         let validator = self.inner.lock().unwrap();
         let options = MinimumValuePromiseValidationOptions::default();
+        let minimum_value = MicroMinotari::new(minimum_value_promise);
         
         match validator.validate_minimum_value_promise(
-            minimum_value_promise,
-            &commitment,
-            &range_proof,
+            minimum_value,
+            Some(&range_proof),
+            &LightweightRangeProofType::BulletProofPlus,
             &options,
         ) {
             Ok(_) => Ok(true),
@@ -233,19 +229,21 @@ impl TariRangeProofValidator {
     fn batch_validate_range_proofs(
         &self,
         py: Python<'_>,
-        proof_commitment_pairs: &PyList,
-        minimum_values: Option<&PyList>,
+        proof_commitment_pairs: &Bound<'_, PyList>,
+        minimum_values: Option<&Bound<'_, PyList>>,
     ) -> PyResult<BatchValidationResult> {
-        let pairs: Vec<(String, String)> = proof_commitment_pairs
-            .iter()
-            .map(|item| {
-                let tuple = item.extract::<(String, String)>()?;
-                Ok(tuple)
-            })
-            .collect::<PyResult<Vec<_>>>()?;
+        let mut pairs = Vec::new();
+        for item in proof_commitment_pairs.iter() {
+            let tuple: (String, String) = item.extract()?;
+            pairs.push(tuple);
+        }
 
         let min_values: Option<Vec<u64>> = if let Some(values) = minimum_values {
-            Some(values.iter().map(|v| v.extract::<u64>()).collect::<PyResult<Vec<_>>>()?)
+            let mut vals = Vec::new();
+            for v in values.iter() {
+                vals.push(v.extract::<u64>()?);
+            }
+            Some(vals)
         } else {
             None
         };
@@ -328,12 +326,12 @@ impl TariCommitmentValidator {
     fn batch_validate_commitments(
         &self,
         py: Python<'_>,
-        commitment_hexes: &PyList,
+        commitment_hexes: &Bound<'_, PyList>,
     ) -> PyResult<BatchValidationResult> {
-        let hexes: Vec<String> = commitment_hexes
-            .iter()
-            .map(|item| item.extract::<String>())
-            .collect::<PyResult<Vec<_>>>()?;
+        let mut hexes = Vec::new();
+        for item in commitment_hexes.iter() {
+            hexes.push(item.extract::<String>()?);
+        }
 
         // Release GIL for CPU-intensive batch processing
         let results = py.allow_threads(|| {
@@ -363,7 +361,8 @@ impl TariSignatureValidator {
     /// Validate a message signature
     /// 
     /// Args:
-    ///     signature_hex: Hexadecimal-encoded signature
+    ///     signature_hex: Hexadecimal-encoded signature scalar
+    ///     nonce_hex: Hexadecimal-encoded public nonce
     ///     message: Original message that was signed
     ///     public_key_hex: Hexadecimal-encoded public key
     /// 
@@ -376,19 +375,27 @@ impl TariSignatureValidator {
     fn validate_signature(
         &self,
         signature_hex: &str,
+        nonce_hex: &str,
         message: &str,
         public_key_hex: &str,
     ) -> PyResult<bool> {
-        match verify_message_from_hex(signature_hex, message, public_key_hex) {
+        use lightweight_wallet_libs::crypto::{RistrettoPublicKey, PublicKey};
+        use tari_utilities::hex::Hex;
+        
+        let public_key = RistrettoPublicKey::from_hex(public_key_hex)
+            .map_err(|e| PyValueError::new_err(format!("Invalid public key hex: {}", e)))?;
+        
+        match verify_message_from_hex(&public_key, message, signature_hex, nonce_hex) {
             Ok(is_valid) => Ok(is_valid),
-            Err(e) => Err(convert_to_pyerr(e.into())),
+            Err(e) => Err(convert_to_pyerr(e)),
         }
     }
 
     /// Validate signature with detailed results
     /// 
     /// Args:
-    ///     signature_hex: Hexadecimal-encoded signature
+    ///     signature_hex: Hexadecimal-encoded signature scalar
+    ///     nonce_hex: Hexadecimal-encoded public nonce
     ///     message: Original message that was signed
     ///     public_key_hex: Hexadecimal-encoded public key
     /// 
@@ -397,10 +404,11 @@ impl TariSignatureValidator {
     fn validate_signature_detailed(
         &self,
         signature_hex: &str,
+        nonce_hex: &str,
         message: &str,
         public_key_hex: &str,
     ) -> PyResult<ValidationResult> {
-        match self.validate_signature(signature_hex, message, public_key_hex) {
+        match self.validate_signature(signature_hex, nonce_hex, message, public_key_hex) {
             Ok(true) => Ok(ValidationResult::new(true, 0, None)),
             Ok(false) => Ok(ValidationResult::new(false, 1, Some("Signature verification failed".to_string()))),
             Err(e) => {
@@ -413,25 +421,26 @@ impl TariSignatureValidator {
     /// Batch validate multiple signatures
     /// 
     /// Args:
-    ///     signature_data: List of (signature_hex, message, public_key_hex) tuples
+    ///     signature_data: List of (signature_hex, nonce_hex, message, public_key_hex) tuples
     /// 
     /// Returns:
     ///     BatchValidationResult: Results for all validations
     fn batch_validate_signatures(
         &self,
         py: Python<'_>,
-        signature_data: &PyList,
+        signature_data: &Bound<'_, PyList>,
     ) -> PyResult<BatchValidationResult> {
-        let data: Vec<(String, String, String)> = signature_data
-            .iter()
-            .map(|item| item.extract::<(String, String, String)>())
-            .collect::<PyResult<Vec<_>>>()?;
+        let mut data = Vec::new();
+        for item in signature_data.iter() {
+            let tuple: (String, String, String, String) = item.extract()?;
+            data.push(tuple);
+        }
 
         // Release GIL for CPU-intensive batch processing
         let results = py.allow_threads(|| {
             data.into_iter()
-                .map(|(sig_hex, message, pubkey_hex)| {
-                    self.validate_signature_detailed(&sig_hex, &message, &pubkey_hex)
+                .map(|(sig_hex, nonce_hex, message, pubkey_hex)| {
+                    self.validate_signature_detailed(&sig_hex, &nonce_hex, &message, &pubkey_hex)
                 })
                 .collect::<Result<Vec<_>, _>>()
         })?;
@@ -509,12 +518,12 @@ impl TariEncryptedDataValidator {
     fn batch_validate_encrypted_data(
         &self,
         py: Python<'_>,
-        encrypted_data_hexes: &PyList,
+        encrypted_data_hexes: &Bound<'_, PyList>,
     ) -> PyResult<BatchValidationResult> {
-        let hexes: Vec<String> = encrypted_data_hexes
-            .iter()
-            .map(|item| item.extract::<String>())
-            .collect::<PyResult<Vec<_>>>()?;
+        let mut hexes = Vec::new();
+        for item in encrypted_data_hexes.iter() {
+            hexes.push(item.extract::<String>()?);
+        }
 
         // Release GIL for CPU-intensive batch processing
         let results = py.allow_threads(|| {
