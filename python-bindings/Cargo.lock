@@ -1341,6 +1341,7 @@ dependencies = [
 name = "lightweight_wallet_libpy"
 version = "0.1.0"
 dependencies = [
+ "blake2b_simd",
  "hex",
  "lightweight_wallet_libs",
  "once_cell",
