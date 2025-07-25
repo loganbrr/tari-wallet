@@ -180,11 +180,13 @@ def main():
     storage = lightweight_wallet_libpy.TariWalletStorage("example_wallet.db")
     storage.initialize()
     
-    # Save a wallet to storage
+    # Save a wallet to storage  
     print("   Saving wallet to storage...")
     wallet_dict = {
         "name": "Example Wallet",
         "seed_phrase": seed_phrase,
+        "view_key_hex": "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+        "spend_key_hex": "fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321",
         "birthday_block": 100000,
         "scan_from_block": 100000
     }

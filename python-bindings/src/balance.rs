@@ -2,7 +2,7 @@
 
 use pyo3::prelude::*;
 use std::sync::{Arc, Mutex};
-use lightweight_wallet_libs::data_structures::wallet_transaction::WalletState;
+
 use lightweight_wallet_libs::storage::{WalletStorage, sqlite::SqliteStorage};
 use lightweight_wallet_libs::errors::LightweightWalletError;
 use crate::runtime::execute_async;
@@ -24,11 +24,12 @@ impl TariBalance {
     /// Create a new balance wrapper from storage and wallet ID
     #[new]
     #[pyo3(signature = (storage, wallet_id), text_signature = "(storage, wallet_id)")]
-    fn new(storage: &crate::storage::TariWalletStorage, wallet_id: u32) -> PyResult<Self> {
+    pub fn new(storage: &crate::storage::TariWalletStorage, wallet_id: u32) -> PyResult<Self> {
         // Load wallet state to get current running balance
-        let storage_ref = storage.get_shared_storage();
+        let storage_ref = storage.get_shared_storage()?;
+        let storage_ref_clone = Arc::clone(&storage_ref);
         let running_balance = execute_async(async move {
-            let storage_guard = storage_ref.lock()
+            let storage_guard = storage_ref_clone.lock()
                 .map_err(|_| LightweightWalletError::ConversionError("Failed to lock storage".into()))?;
             
             let storage_impl = storage_guard.as_ref()
@@ -40,7 +41,7 @@ impl TariBalance {
         
         Ok(TariBalance {
             running_balance,
-            storage: storage.get_shared_storage(),
+            storage: storage_ref,
             wallet_id,
         })
     }

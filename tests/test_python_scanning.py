@@ -137,6 +137,8 @@ def test_balance_repr():
     wallet_dict = {
         "name": "Test Wallet",
         "seed_phrase": wallet.export_seed_phrase(),
+        "view_key_hex": "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+        "spend_key_hex": "fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321",
         "birthday_block": 0,
         "scan_from_block": 0
     }
