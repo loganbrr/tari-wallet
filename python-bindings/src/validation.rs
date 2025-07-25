@@ -6,7 +6,7 @@
 
 use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
-use pyo3::types::{PyList, PyTuple};
+use pyo3::types::PyList;
 use std::sync::{Arc, Mutex};
 use lightweight_wallet_libs::validation::{
     LightweightCommitmentValidator,
@@ -166,9 +166,8 @@ impl TariRangeProofValidator {
         minimum_value: Option<u64>,
     ) -> PyResult<bool> {
         let proof_bytes = hex_to_bytes(proof_hex)?;
-        let commitment_bytes = hex_to_commitment_bytes(commitment_hex)?;
+        let _commitment_bytes = hex_to_commitment_bytes(commitment_hex)?;
         
-        let commitment = CompressedCommitment::new(commitment_bytes);
         let minimum_value_promise = minimum_value.unwrap_or(0);
         
         // Create a lightweight range proof structure
@@ -379,7 +378,7 @@ impl TariSignatureValidator {
         message: &str,
         public_key_hex: &str,
     ) -> PyResult<bool> {
-        use lightweight_wallet_libs::crypto::{RistrettoPublicKey, PublicKey};
+        use lightweight_wallet_libs::crypto::RistrettoPublicKey;
         use tari_utilities::hex::Hex;
         
         let public_key = RistrettoPublicKey::from_hex(public_key_hex)

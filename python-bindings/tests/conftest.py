@@ -175,6 +175,49 @@ def wallet_context():
     return TestWalletContext
 
 
+# ========== Validation API Fixtures ==========
+
+@pytest.fixture
+def valid_commitment_hex():
+    """Provide a valid commitment hex string for testing."""
+    return "08" + "1234567890abcdef" * 3 + "1234567890abcdef"
+
+@pytest.fixture
+def invalid_commitment_hex():
+    """Provide an invalid commitment hex string for testing."""
+    return "01" + "1234567890abcdef" * 3 + "1234567890abcdef"  # Invalid prefix
+
+@pytest.fixture
+def sample_range_proof_hex():
+    """Provide a sample range proof hex string for testing."""
+    return "deadbeef" * 64  # 256 bytes of mock proof data
+
+@pytest.fixture
+def sample_signature_components():
+    """Provide sample signature components for testing."""
+    return {
+        'signature_hex': "deadbeef" * 8,  # 32 bytes
+        'nonce_hex': "cafebabe" * 8,     # 32 bytes
+        'message': "Hello, Tari from validation test!",
+        'public_key_hex': "12345678" * 8  # 32 bytes
+    }
+
+@pytest.fixture
+def sample_encrypted_data_hex():
+    """Provide sample encrypted data hex for testing."""
+    return "deadbeef" * 32  # 256 bytes of mock encrypted data
+
+@pytest.fixture
+def validation_test_batch_size():
+    """Provide consistent batch size for performance testing."""
+    return 50
+
+@pytest.fixture
+def large_validation_batch_size():
+    """Provide large batch size for stress testing."""
+    return 1000
+
+
 # Performance test helpers
 @pytest.fixture
 def performance_threshold_seconds():
