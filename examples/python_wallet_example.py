@@ -228,5 +228,115 @@ def main():
     print("- Constructor documentation improved with PyO3 signatures")
 
 
+def chunked_validation_example():
+    """
+    Demonstrate chunked batch validation for memory-efficient processing
+    of large datasets.
+    """
+    print("\n=== Chunked Validation Example ===\n")
+    
+    try:
+        # Import validation classes
+        from lightweight_wallet_libpy import (
+            TariCommitmentValidator, 
+            TariRangeProofValidator,
+            TariSignatureValidator,
+            TariEncryptedDataValidator
+        )
+        
+        print("1. Memory-efficient commitment validation...")
+        validator = TariCommitmentValidator()
+        
+        # Generator for memory-efficient data generation
+        def generate_commitment_chunks(total_count, chunk_size=1000):
+            """Generate commitment data in chunks to demonstrate memory efficiency."""
+            for start in range(0, total_count, chunk_size):
+                end = min(start + chunk_size, total_count)
+                chunk = [f"08{'12' * 31}" for _ in range(end - start)]  # Mock commitments
+                yield chunk, end - start
+        
+        # Process large dataset in chunks
+        total_processed = 0
+        total_items = 5000
+        
+        print(f"   Processing {total_items} commitments in chunks...")
+        
+        for chunk_data, chunk_size in generate_commitment_chunks(total_items, chunk_size=500):
+            try:
+                # Use chunked validation with custom chunk size for memory management
+                result = validator.batch_validate_commitments(chunk_data, chunk_size=100)
+                total_processed += result.total_count
+                print(f"   Processed chunk: {result.total_count} items (Total: {total_processed})")
+            except Exception as e:
+                print(f"   Chunk validation failed (expected for mock data): {e}")
+                total_processed += chunk_size  # Count as processed for demo
+        
+        print(f"   Total processed: {total_processed} items")
+        
+        print("\n2. Range proof validation with chunking...")
+        range_validator = TariRangeProofValidator()
+        
+        # Generate mock range proof data
+        proof_commitment_pairs = [
+            ("deadbeef" * 64, "08" + "12" * 31) for _ in range(1000)
+        ]
+        minimum_values = [1000] * 1000
+        
+        try:
+            # Use small chunks for memory efficiency
+            result = range_validator.batch_validate_range_proofs(
+                proof_commitment_pairs[:100],  # Use smaller dataset for demo
+                minimum_values[:100],
+                chunk_size=25  # Very small chunks
+            )
+            print(f"   Range proofs processed: {result.total_count}")
+        except Exception as e:
+            print(f"   Range proof validation failed (expected for mock data): {e}")
+        
+        print("\n3. Signature validation with chunking...")
+        sig_validator = TariSignatureValidator()
+        
+        # Generate mock signature data
+        signature_data = [
+            ("deadbeef" * 8, "cafebabe" * 8, f"Message {i}", "12345678" * 8)
+            for i in range(200)
+        ]
+        
+        try:
+            # Process with custom chunk size
+            result = sig_validator.batch_validate_signatures(signature_data, chunk_size=50)
+            print(f"   Signatures processed: {result.total_count}")
+        except Exception as e:
+            print(f"   Signature validation failed (expected for mock data): {e}")
+        
+        print("\n4. Encrypted data validation with chunking...")
+        enc_validator = TariEncryptedDataValidator()
+        
+        # Generate mock encrypted data
+        encrypted_data = [f"deadbeef{'12' * 31}" for _ in range(300)]
+        
+        try:
+            # Process with chunking
+            result = enc_validator.batch_validate_encrypted_data(encrypted_data, chunk_size=75)
+            print(f"   Encrypted data items processed: {result.total_count}")
+        except Exception as e:
+            print(f"   Encrypted data validation failed (expected for mock data): {e}")
+        
+        print("\n=== Chunked Validation Best Practices ===")
+        print("- Use generators to avoid loading large datasets into memory")
+        print("- Configure chunk sizes based on available memory (default: 1000)")
+        print("- Smaller chunks reduce memory usage but may increase overhead")
+        print("- Process chunks sequentially for predictable memory usage")
+        print("- Monitor memory usage and adjust chunk sizes accordingly")
+        print("- Use chunked validation for datasets > 10,000 items")
+        
+    except ImportError as e:
+        print(f"Validation modules not available: {e}")
+        print("Make sure the wallet library is built with validation support")
+
+
 if __name__ == "__main__":
     main()
+    
+    # Uncomment to run chunked validation example
+    # chunked_validation_example()
