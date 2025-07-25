@@ -19,6 +19,7 @@ mod validation;
 mod key_derivation;
 mod key_manager;
 mod stealth_types;
+mod stealth_address;
 
 pub use scanner::{TariScanner, ScanResult, ScanProgress};
 pub use balance::TariBalance;
@@ -33,6 +34,7 @@ pub use validation::{
 pub use key_derivation::KeyDerivationPath;
 pub use key_manager::TariKeyManager;
 pub use stealth_types::{StealthAddressInfo, StealthScanResult, StealthScanResultIterator};
+pub use stealth_address::TariStealthAddress;
 
 /// Python wrapper for the Tari Wallet
 #[pyclass]
@@ -364,6 +366,7 @@ fn lightweight_wallet_libpy(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<StealthAddressInfo>()?;
     m.add_class::<StealthScanResult>()?;
     m.add_class::<StealthScanResultIterator>()?;
+    m.add_class::<TariStealthAddress>()?;
     // Validation classes
     m.add_class::<TariRangeProofValidator>()?;
     m.add_class::<TariCommitmentValidator>()?;

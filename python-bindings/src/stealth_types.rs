@@ -42,7 +42,7 @@ impl StealthAddressInfo {
     /// Returns:
     ///     StealthAddressInfo: New stealth address info instance
     #[new]
-    fn new(
+    pub fn new(
         view_public_key: String,
         spend_public_key: String,
         stealth_spending_key: String,
@@ -60,7 +60,7 @@ impl StealthAddressInfo {
     /// 
     /// Returns:
     ///     bool: True if all keys are valid hex
-    fn is_valid(&self) -> bool {
+    pub fn is_valid(&self) -> bool {
         self.view_public_key.len() == 64 &&
         self.spend_public_key.len() == 64 &&
         self.stealth_spending_key.len() == 64 &&
@@ -194,7 +194,7 @@ impl StealthScanResult {
     ///     StealthScanResult: New scan result instance
     #[new]
     #[pyo3(signature = (addresses, total_scanned, start_height=None, end_height=None, duration_ms=None))]
-    fn new(
+    pub fn new(
         addresses: Vec<StealthAddressInfo>,
         total_scanned: usize,
         start_height: Option<u64>,
