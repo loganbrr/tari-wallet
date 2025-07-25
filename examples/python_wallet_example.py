@@ -414,8 +414,102 @@ def chunked_validation_example():
         print("Make sure the wallet library is built with validation support")
 
 
+def enhanced_utxo_validation_example():
+    """
+    Demonstrate enhanced UTXO validation capabilities with ownership detection,
+    script pattern filtering, and batch processing.
+    """
+    print("\n=== Enhanced UTXO Validation Example ===")
+    
+    try:
+        # Import enhanced validation classes
+        from lightweight_wallet_libpy import (
+            TariUTXOValidator, UTXOValidationConfig, TariUTXOBatchValidator,
+            UTXOFilter, PyScriptPattern
+        )
+        
+        print("\n1. Creating UTXO validator configuration...")
+        
+        # Create validation configuration
+        config = UTXOValidationConfig(
+            validate_ownership=True,
+            extract_values=True,
+            extract_payment_ids=True,
+            validate_range_proofs=True
+        )
+        print(f"   Configuration: {config}")
+        
+        # Mock wallet keys for demonstration
+        view_key = "a" * 64  # 32 bytes as hex
+        spend_key = "b" * 64  # 32 bytes as hex
+        
+        print("\n2. Creating UTXO validator...")
+        validator = TariUTXOValidator(view_key, spend_key, config)
+        print(f"   Validator: {validator}")
+        
+        print("\n3. Enhanced UTXO filtering with validation integration...")
+        
+        # Create enhanced filter with multiple criteria
+        enhanced_filter = (UTXOFilter()
+                          .with_wallet_id(1)
+                          .with_value_range(1000000, 10000000)  # 1-10 Tari
+                          .by_ownership(True)
+                          .by_maturity_at_height(100000)
+                          .by_script_pattern(PyScriptPattern.Standard())
+                          .validate_before_filter(True)
+                          .set_validator(validator)
+                          .with_limit(50))
+        
+        print(f"   Enhanced filter: {enhanced_filter}")
+        
+        print("\n4. Script pattern filtering options...")
+        patterns = [
+            PyScriptPattern.Standard(),
+            PyScriptPattern.UnrecognizedOneSided(),
+            PyScriptPattern.UnrecognizedStealth(),
+            PyScriptPattern.Unknown()
+        ]
+        
+        for pattern in patterns:
+            filter_for_pattern = UTXOFilter().by_script_pattern(pattern)
+            print(f"   - {pattern}: Filter configured")
+        
+        print("\n5. Batch validation setup...")
+        batch_validator = TariUTXOBatchValidator(chunk_size=1000)
+        print(f"   Batch validator chunk size: {batch_validator.chunk_size}")
+        
+        # Mock UTXO data for demonstration
+        mock_utxos = [
+            {
+                "commitment": "a" * 64,
+                "range_proof": "b" * 128,
+                "encrypted_data": "c" * 256,
+            }
+        ]
+        
+        print("\n6. Single UTXO validation (mock data)...")
+        try:
+            result = validator.validate_utxo(mock_utxos[0])
+            print(f"   Validation result: {result}")
+        except Exception as e:
+            print(f"   Expected validation failure with mock data: {type(e).__name__}")
+        
+        print("\n✓ Enhanced UTXO validation features demonstrated")
+        print("\nKey features:")
+        print("- Enhanced filtering with ownership validation")
+        print("- Script pattern filtering for output types")
+        print("- Maturity-based filtering for spendable outputs")
+        print("- Batch validation with memory-efficient chunking")
+        print("- Integration with existing storage and UTXO management")
+        
+    except ImportError as e:
+        print(f"Enhanced validation modules not available: {e}")
+        print("Make sure the wallet library is built with enhanced UTXO validation support")
+
+
 if __name__ == "__main__":
     main()
     
-    # Uncomment to run chunked validation example
+    # Uncomment to run validation examples
     # chunked_validation_example()
+    # enhanced_utxo_validation_example()

@@ -1485,7 +1485,7 @@ impl TariWalletStorage {
                 ..Default::default()
             };
 
-            let outputs = storage.get_outputs(filter).await
+            let outputs = storage.get_outputs(Some(filter)).await
                 .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("Failed to get outputs: {}", e)))?;
 
             drop(storage_guard);
@@ -1592,7 +1592,7 @@ impl TariWalletStorage {
                 }
             }
 
-            let outputs = storage.get_outputs(filter).await
+            let outputs = storage.get_outputs(Some(filter)).await
                 .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("Failed to get outputs: {}", e)))?;
 
             drop(storage_guard);
