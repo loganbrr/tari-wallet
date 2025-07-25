@@ -1,3 +1,92 @@
+//! Tari Lightweight Wallet Python Bindings
+//!
+//! This module provides PyO3-based Python bindings for the Tari Lightweight Wallet Libraries.
+//! The bindings offer 1:1 API parity with the Rust core implementation, providing secure
+//! and performant access to Tari wallet functionality from Python.
+//!
+//! # Security Design
+//!
+//! These bindings follow a security-first approach:
+//! - **API Purity**: Direct mapping to Rust core functionality without Python-specific conveniences
+//! - **Memory Safety**: Zeroization of sensitive data and secure memory handling
+//! - **No Mock Data**: All cryptographic operations use real implementations
+//! - **Fixed Chunking**: Memory-efficient batch processing with fixed chunk sizes
+//!
+//! # Core Components
+//!
+//! ## Wallet Operations
+//! - [`TariWallet`]: Core wallet functionality with seed phrase management
+//! - [`TariScanner`]: Blockchain scanning for UTXO discovery
+//! - [`TariBalance`]: Rust-native balance calculation with storage integration
+//!
+//! ## Storage System  
+//! - [`TariWalletStorage`]: SQLite-based persistent storage backend
+//! - [`TariUTXOManager`]: UTXO management with filtering and balance calculation
+//! - Transaction data structures for comprehensive transaction analysis
+//!
+//! ## Stealth Address Operations
+//! - [`TariStealthAddress`]: Core stealth address functionality
+//! - [`TariKeyManager`]: Hierarchical key derivation and stealth operations  
+//! - [`KeyDerivationPath`]: BIP32-style key derivation paths
+//! - [`StealthAddressInfo`] and [`StealthScanResult`]: Data structures for stealth operations
+//!
+//! ## Cryptographic Validation
+//! - [`TariRangeProofValidator`]: BulletProofPlus validation with chunked processing
+//! - [`TariCommitmentValidator`]: Pedersen commitment validation
+//! - [`TariSignatureValidator`]: Schnorr signature verification
+//! - [`TariEncryptedDataValidator`]: Encrypted data integrity checking
+//!
+//! # API Design Principles
+//!
+//! ## Simplified API (Security-Focused)
+//! The bindings implement a simplified API that removes Python-specific convenience methods
+//! in favor of direct core functionality mapping:
+//!
+//! - **Removed**: Timing measurements, statistics, unique IDs, validation helpers
+//! - **Removed**: Configurable chunk sizes, Python-specific data transforms
+//! - **Retained**: Core cryptographic operations, essential data structures
+//!
+//! ## Memory Efficiency
+//! - Fixed chunking (1000 items) for large dataset processing
+//! - Streaming result aggregation to prevent memory accumulation
+//! - Generator pattern support for memory-efficient iteration
+//!
+//! ## Error Handling
+//! - Comprehensive error hierarchy with proper Python exception mapping
+//! - Error source chain preservation across Rust-Python boundary
+//! - Context-rich error messages for debugging
+//!
+//! # Usage Examples
+//!
+//! ```python
+//! import lightweight_wallet_libpy as wallet_lib
+//!
+//! # Create wallet
+//! wallet = wallet_lib.TariWallet.generate_new_with_seed_phrase()
+//! 
+//! # Generate addresses with features
+//! features = wallet_lib.AddressFeatures.interactive_and_one_sided()
+//! address = wallet.get_dual_address(features, None)
+//!
+//! # Stealth address operations
+//! key_manager = wallet_lib.TariKeyManager.from_wallet(wallet)
+//! stealth_service = wallet_lib.TariStealthAddress()
+//! keys = key_manager.derive_view_and_spend_keys()
+//! stealth_addr = stealth_service.create_stealth_address(
+//!     keys['view_key'], keys['spend_key'], sender_private_key
+//! )
+//!
+//! # Storage and balance
+//! storage = wallet_lib.TariWalletStorage("wallet.db") 
+//! storage.initialize()
+//! balance = wallet_lib.TariBalance(storage, wallet_id)
+//! ```
+//!
+//! # Thread Safety
+//!
+//! All classes use `Arc<Mutex<T>>` for thread-safe operations with shared runtime support.
+//! Multiple Python threads can safely access wallet operations concurrently.
+
 use pyo3::prelude::*;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::types::PyDict;
@@ -36,7 +125,28 @@ pub use key_manager::TariKeyManager;
 pub use stealth_types::{StealthAddressInfo, StealthScanResult, StealthScanResultIterator};
 pub use stealth_address::TariStealthAddress;
 
-/// Python wrapper for the Tari Wallet
+/// Python wrapper for the Tari Wallet with simplified, security-focused API
+/// 
+/// Provides core wallet functionality with 1:1 mapping to Rust implementation.
+/// Removed Python-specific convenience methods in favor of direct core access.
+/// 
+/// # Security Features
+/// - Seed phrase generation and management with optional passphrase protection
+/// - Secure memory handling with automatic zeroization
+/// - Tari-compatible message signing and verification
+/// - Address generation with type-safe feature selection
+/// 
+/// # Key Changes (Simplified API)
+/// - Address generation requires `AddressFeatures` parameter for type safety
+/// - No convenience methods for batch operations or statistics
+/// - Direct mapping to Rust core functionality for security consistency
+/// 
+/// # Example
+/// ```python
+/// wallet = TariWallet.generate_new_with_seed_phrase()
+/// features = AddressFeatures.interactive_and_one_sided()
+/// address = wallet.get_dual_address(features, None)
+/// ```
 #[pyclass]
 pub struct TariWallet {
     pub(crate) inner: Arc<Mutex<Wallet>>,
@@ -152,14 +262,22 @@ impl TariWallet {
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to export seed phrase: {}", e)))
     }
 
-    /// Generate a dual address with view and spend keys
+    /// Generate a dual address with view and spend keys (Simplified API)
+    /// 
+    /// **SECURITY NOTE**: Requires AddressFeatures parameter for type safety.
+    /// This replaces previous convenience methods to ensure explicit feature selection.
     /// 
     /// Args:
     ///     features: AddressFeatures specifying the type of address to generate
-    ///     payment_id: Optional payment ID as bytes
+    ///               Use AddressFeatures.interactive_and_one_sided() for full functionality
+    ///     payment_id: Optional payment ID as bytes for payment tracking
     /// 
     /// Returns:
     ///     str: The address as a hex string
+    /// 
+    /// Example:
+    ///     features = AddressFeatures.interactive_and_one_sided()
+    ///     address = wallet.get_dual_address(features, None)
     #[pyo3(signature = (features, payment_id=None), text_signature = "(features, payment_id=None)")]
     fn get_dual_address(&self, features: AddressFeatures, payment_id: Option<Vec<u8>>) -> PyResult<String> {
         let wallet = self.inner.lock()
@@ -171,13 +289,21 @@ impl TariWallet {
         Ok(address.to_hex())
     }
 
-    /// Generate a single address with spend key only
+    /// Generate a single address with spend key only (Simplified API)
+    /// 
+    /// **SECURITY NOTE**: Requires AddressFeatures parameter for type safety.
+    /// Use this for addresses that only need spending capability without view access.
     /// 
     /// Args:
     ///     features: AddressFeatures specifying the type of address to generate
+    ///               Use AddressFeatures.interactive_only() for spending-only addresses
     /// 
     /// Returns:
     ///     str: The address as a hex string
+    /// 
+    /// Example:
+    ///     features = AddressFeatures.interactive_only()
+    ///     address = wallet.get_single_address(features)
     #[pyo3(signature = (features), text_signature = "(features)")]
     fn get_single_address(&self, features: AddressFeatures) -> PyResult<String> {
         let wallet = self.inner.lock()

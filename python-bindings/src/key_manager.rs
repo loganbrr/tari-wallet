@@ -47,10 +47,30 @@ impl KeyManagerState {
     }
 }
 
-/// Python wrapper for advanced key management and derivation
+/// Python wrapper for advanced key management and derivation (Simplified API)
 /// 
 /// Provides secure key derivation, stealth address operations, and encryption key generation
 /// following Tari's cryptographic standards with proper memory handling.
+/// 
+/// # Security-Focused Design
+/// - Direct mapping to Rust core key derivation functionality
+/// - No Python-specific convenience methods for API purity
+/// - Secure memory handling with automatic cleanup
+/// - Hierarchical key derivation following BIP32-style paths
+/// 
+/// # Key Features
+/// - Entropy-based key derivation from wallet master keys
+/// - BIP32-style hierarchical key paths via KeyDerivationPath
+/// - Diffie-Hellman shared secret generation for stealth addresses
+/// - View and spend key derivation for Tari transactions
+/// - Integration with TariStealthAddress for complete stealth workflows
+/// 
+/// # Example
+/// ```python
+/// key_manager = TariKeyManager.from_wallet(wallet)
+/// keys = key_manager.derive_view_and_spend_keys()
+/// shared_secret = key_manager.generate_shared_secret(private_key, public_key)
+/// ```
 #[pyclass]
 #[derive(Clone)]
 pub struct TariKeyManager {

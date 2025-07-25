@@ -8,9 +8,21 @@ use pyo3::exceptions::PyValueError;
 use std::str::FromStr;
 use std::fmt;
 
-/// Python wrapper for hierarchical key derivation paths
+/// Python wrapper for hierarchical key derivation paths (Simplified API)
 /// 
-/// Supports BIP32-style paths like "m/44'/0'/1" or simple component tuples
+/// Supports BIP32-style paths like "m/44'/0'/1" or simple component tuples.
+/// Provides essential key derivation functionality without convenience extensions.
+/// 
+/// # Security Design
+/// - **Core BIP32 Support**: Implements standard hierarchical deterministic key derivation
+/// - **No Extensions**: Removes non-standard convenience methods for security
+/// - **Validation Focus**: Proper input validation without complex transformations
+/// - **Memory Safe**: Secure handling of path components and parsing
+/// 
+/// # Supported Formats
+/// - String format: "m/44'/0'/1" (BIP32 standard with hardened derivation)
+/// - Tuple format: ([44, 0, 1], [True, False, False]) for programmatic construction
+/// - Navigation: child() and parent() methods for path traversal
 #[pyclass]
 #[derive(Clone, Debug, PartialEq)]
 pub struct KeyDerivationPath {

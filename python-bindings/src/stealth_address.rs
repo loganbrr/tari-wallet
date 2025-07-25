@@ -14,9 +14,34 @@ use crate::stealth_types::{StealthAddressInfo, StealthScanResult};
 /// Fixed chunk size for memory-efficient batch processing
 const FIXED_CHUNK_SIZE: usize = 1000;
 
-/// Python wrapper for stealth address operations
+/// Python wrapper for stealth address operations (Simplified API)
 /// 
-/// Provides core stealth address functionality that mirrors the Rust StealthAddressService.
+/// Provides core stealth address functionality that mirrors the Rust StealthAddressService
+/// with 1:1 API parity for security and consistency.
+/// 
+/// # Security-Focused Design
+/// - **Removed**: Python-specific timing measurements and performance statistics
+/// - **Removed**: Configurable chunk sizes and batch address generation
+/// - **Removed**: Convenience methods and validation helpers
+/// - **Retained**: Core cryptographic operations with fixed memory-efficient chunking
+/// 
+/// # Core Operations
+/// - `create_stealth_address()`: Generate stealth addresses from keys
+/// - `recover_stealth_key()`: Attempt key recovery from transaction outputs
+/// - `scan_for_outputs()`: Batch scan outputs with fixed chunking (1000 items)
+/// - `generate_shared_secret()`: Diffie-Hellman key agreement operations
+/// 
+/// # Memory Efficiency
+/// - Fixed chunk size of 1000 items for optimal memory vs performance balance
+/// - Streaming processing for large datasets without memory accumulation
+/// - No configurable parameters to maintain API simplicity and security
+/// 
+/// # Example
+/// ```python
+/// stealth_service = TariStealthAddress()
+/// stealth_addr = stealth_service.create_stealth_address(view_key, spend_key, sender_key)
+/// scan_result = stealth_service.scan_for_outputs(view_key, spend_key, outputs)
+/// ```
 #[pyclass]
 #[derive(Clone)]
 pub struct TariStealthAddress {

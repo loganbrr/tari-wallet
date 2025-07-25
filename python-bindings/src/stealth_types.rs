@@ -5,10 +5,22 @@
 
 use pyo3::prelude::*;
 
-/// Python wrapper for stealth address information
+/// Python wrapper for stealth address information (Simplified API)
 /// 
 /// Contains all the key information needed for a stealth address including
 /// view and spend keys, stealth spending key, and sender offset.
+/// 
+/// # Security Design
+/// - **Simplified Structure**: Contains only core fields without convenience methods
+/// - **No Validation Methods**: Removed convenience validation to maintain API purity
+/// - **Direct Field Access**: All fields exposed as properties for transparent access
+/// - **Memory Efficient**: Lightweight structure with hex string representation
+/// 
+/// # Core Fields
+/// - `view_public_key`: Public view key for scanning (64-char hex string)
+/// - `spend_public_key`: Base spending key (64-char hex string)
+/// - `stealth_spending_key`: Derived spending key for actual transactions (64-char hex string)
+/// - `sender_offset_public_key`: Ephemeral key from sender (64-char hex string)
 #[pyclass]
 #[derive(Clone, Debug, PartialEq)]
 pub struct StealthAddressInfo {
@@ -96,9 +108,20 @@ impl StealthAddressInfo {
     }
 }
 
-/// Python wrapper for stealth address scanning results
+/// Python wrapper for stealth address scanning results (Simplified API)
 /// 
 /// Contains the results of a stealth address scanning operation.
+/// 
+/// # Security Design
+/// - **Essential Data Only**: Contains only core scanning results without statistics
+/// - **No Timing Information**: Removed timing measurements for API purity
+/// - **Fixed Processing**: Results from fixed chunking (1000 items) without configurability
+/// - **Memory Efficient**: Lightweight result structure with essential information
+/// 
+/// # Core Results
+/// - `addresses`: List of discovered StealthAddressInfo objects
+/// - `total_scanned`: Total number of outputs processed
+/// - `addresses_found`: Number of stealth addresses discovered (computed automatically)
 #[pyclass]
 #[derive(Clone, Debug)]
 pub struct StealthScanResult {
