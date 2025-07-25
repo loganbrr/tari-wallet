@@ -201,12 +201,12 @@ impl TariStealthAddress {
     /// Example:
     ///     outputs = [{"sender_offset": "abc...", "script_key": "def..."}]
     ///     result = stealth.scan_for_outputs(view_key, outputs)
-    fn scan_for_outputs(
+    pub fn scan_for_outputs(
         &self,
         view_key_hex: &str,
         outputs: Vec<PyObject>,
     ) -> PyResult<StealthScanResult> {
-        let service = self.inner.lock()
+        let _service = self.inner.lock()
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock stealth service: {}", e)))?;
 
         let total_outputs = outputs.len();

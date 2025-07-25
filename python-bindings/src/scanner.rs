@@ -11,6 +11,7 @@ use crate::stealth_types::StealthScanResult;
 use crate::stealth_address::TariStealthAddress;
 use tari_utilities::ByteArray;
 use hex;
+use tari_utilities::hex::from_hex;
 
 /// Python wrapper for blockchain scanner wrapping HttpBlockchainScanner
 #[pyclass]
@@ -149,7 +150,7 @@ impl TariScanner {
             let commitments: Result<Vec<Vec<u8>>, LightweightWalletError> = commitment_hexes
                 .iter()
                 .map(|hex_str| {
-                    hex::from_hex(hex_str)
+                    from_hex(hex_str)
                         .map_err(|e| LightweightWalletError::ConversionError(format!("Hex decode error: {}", e)))
                 })
                 .collect();
@@ -219,7 +220,7 @@ impl TariScanner {
                         Python::with_gil(|py| {
                             let output_dict = pyo3::types::PyDict::new(py);
                             output_dict.set_item("sender_offset", hex::encode(output.sender_offset_public_key.as_bytes())).unwrap();
-                            output_dict.set_item("script_key", hex::encode(output.script_public_key.as_bytes())).unwrap();
+                            output_dict.set_item("script_key", hex::encode(&output.script.bytes)).unwrap();
                             outputs.push(output_dict.into());
                         });
                     }
@@ -228,7 +229,8 @@ impl TariScanner {
 
             // Use TariStealthAddress to scan the real outputs
             let stealth_scanner = TariStealthAddress::new();
-            Ok(stealth_scanner.scan_for_outputs(&view_key_hex, outputs)?)
+            stealth_scanner.scan_for_outputs(&view_key_hex, outputs)
+                .map_err(|e| LightweightWalletError::ConversionError(format!("Stealth scan failed: {}", e)))
         })
     }
 
@@ -244,11 +246,11 @@ impl TariScanner {
     /// Example:
     ///     outputs = [{"sender_offset": "abc...", "script_key": "def..."}]
     ///     result = scanner.scan_outputs_for_stealth_addresses(outputs)
-    #[pyo3(signature = (outputs, chunk_size=None))]
+    #[pyo3(signature = (outputs, _chunk_size=None))]
     fn scan_outputs_for_stealth_addresses(
         &self,
         outputs: Vec<PyObject>,
-        chunk_size: Option<usize>,
+        _chunk_size: Option<usize>,
     ) -> PyResult<StealthScanResult> {
         // Get wallet view key
         let wallet_guard = self.wallet.lock()
@@ -266,8 +268,8 @@ impl TariScanner {
         let view_key_hex = hex::encode(view_key.as_bytes());
 
         // Use TariStealthAddress to scan the outputs
-        let stealth_scanner = TariStealthAddress::new(chunk_size);
-        stealth_scanner.scan_for_outputs(&view_key_hex, outputs, chunk_size)
+        let stealth_scanner = TariStealthAddress::new();
+        stealth_scanner.scan_for_outputs(&view_key_hex, outputs)
     }
 
     /// Get stealth address information for the wallet
