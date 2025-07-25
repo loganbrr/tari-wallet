@@ -105,6 +105,7 @@ mod utxo;
 mod transaction;
 mod balance;
 mod validation;
+mod utxo_validator;
 mod key_derivation;
 mod key_manager;
 mod stealth_types;
@@ -114,11 +115,14 @@ pub use scanner::{TariScanner, ScanResult, ScanProgress};
 pub use balance::TariBalance;
 pub use types::{WalletTransaction, AddressFeatures};
 pub use storage::TariWalletStorage;
-pub use utxo::{TariUTXOManager, UTXOInfo, UTXOFilter, UTXOList};
+pub use utxo::{TariUTXOManager, UTXOInfo, UTXOFilter, UTXOList, PyScriptPattern};
 pub use transaction::{TariTransactionInput, TariTransactionOutput, TariTransactionKernel, TariTransactionMetadata};
 pub use validation::{
     TariRangeProofValidator, TariCommitmentValidator, TariSignatureValidator, 
-    TariEncryptedDataValidator, ValidationResult, BatchValidationResult
+    TariEncryptedDataValidator, ValidationResult, BatchValidationResult, TariUTXOBatchValidator
+};
+pub use utxo_validator::{
+    TariUTXOValidator, UTXOValidationConfig, UTXOValidationResult, BatchValidationSummary
 };
 pub use key_derivation::KeyDerivationPath;
 pub use key_manager::TariKeyManager;
@@ -481,6 +485,7 @@ fn lightweight_wallet_libpy(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<UTXOInfo>()?;
     m.add_class::<UTXOFilter>()?;
     m.add_class::<UTXOList>()?;
+    m.add_class::<PyScriptPattern>()?;
     m.add_class::<TariTransactionInput>()?;
     m.add_class::<TariTransactionOutput>()?;
     m.add_class::<TariTransactionKernel>()?;
@@ -500,6 +505,12 @@ fn lightweight_wallet_libpy(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<TariEncryptedDataValidator>()?;
     m.add_class::<ValidationResult>()?;
     m.add_class::<BatchValidationResult>()?;
+    m.add_class::<TariUTXOBatchValidator>()?;
+    // UTXO Validation classes
+    m.add_class::<TariUTXOValidator>()?;
+    m.add_class::<UTXOValidationConfig>()?;
+    m.add_class::<UTXOValidationResult>()?;
+    m.add_class::<BatchValidationSummary>()?;
     m.add_function(wrap_pyfunction!(generate_new_wallet, m)?)?;
     Ok(())
 }

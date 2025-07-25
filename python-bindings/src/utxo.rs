@@ -1,8 +1,9 @@
-//! UTXO management wrapper exposing existing StoredOutput functionality
+//! Enhanced UTXO management wrapper with validation integration
 //!
 //! This module provides Python-friendly interfaces to the existing UTXO extraction 
 //! and storage functionality, wrapping existing StoredOutput structures and exposing
-//! existing filtering capabilities.
+//! enhanced filtering capabilities including ownership validation, script pattern 
+//! filtering, and maturity-based filtering.
 
 use pyo3::prelude::*;
 use pyo3::types::PyList;
@@ -12,9 +13,58 @@ use lightweight_wallet_libs::storage::{
     WalletStorage,
     storage_trait::{OutputFilter, OutputStatus}
 };
+use lightweight_wallet_libs::validation::script_pattern::ScriptPattern;
 use crate::runtime::execute_async;
+use crate::utxo_validator::{TariUTXOValidator, UTXOValidationConfig};
 
 use lightweight_wallet_libs::storage::sqlite::SqliteStorage;
+
+/// Python-compatible script pattern enumeration
+#[pyclass(name = "ScriptPattern")]
+#[derive(Clone, PartialEq)]
+pub enum PyScriptPattern {
+    Standard(),
+    SimpleOneSided { key_hex: String },
+    StealthOneSided { nonce_hex: String, key_hex: String },
+    UnrecognizedOneSided(),
+    UnrecognizedStealth(),
+    Unknown(),
+}
+
+#[pymethods]
+impl PyScriptPattern {
+    fn __str__(&self) -> String {
+        match self {
+            Self::Standard() => "Standard".to_string(),
+            Self::SimpleOneSided { key_hex } => format!("SimpleOneSided(key={})", &key_hex[..8]),
+            Self::StealthOneSided { nonce_hex, key_hex } => {
+                format!("StealthOneSided(nonce={}, key={})", &nonce_hex[..8], &key_hex[..8])
+            }
+            Self::UnrecognizedOneSided() => "UnrecognizedOneSided".to_string(),
+            Self::UnrecognizedStealth() => "UnrecognizedStealth".to_string(),
+            Self::Unknown() => "Unknown".to_string(),
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        format!("ScriptPattern::{}", self.__str__())
+    }
+}
+
+impl From<ScriptPattern> for PyScriptPattern {
+    fn from(pattern: ScriptPattern) -> Self {
+        match pattern {
+            ScriptPattern::Standard => Self::Standard(),
+            ScriptPattern::SimpleOneSided { key_hex } => Self::SimpleOneSided { key_hex },
+            ScriptPattern::StealthOneSided { nonce_hex, key_hex } => {
+                Self::StealthOneSided { nonce_hex, key_hex }
+            }
+            ScriptPattern::UnrecognizedOneSided => Self::UnrecognizedOneSided(),
+            ScriptPattern::UnrecognizedStealth => Self::UnrecognizedStealth(),
+            ScriptPattern::Unknown => Self::Unknown(),
+        }
+    }
+}
 
 /// Python wrapper for UTXO management
 #[pyclass]
@@ -54,7 +104,7 @@ pub struct UTXOInfo {
     pub minimum_value_promise: u64,
 }
 
-/// Python wrapper for UTXO filtering
+/// Enhanced Python wrapper for UTXO filtering with validation integration
 #[pyclass]
 #[derive(Clone, Default)]
 pub struct UTXOFilter {
@@ -74,6 +124,17 @@ pub struct UTXOFilter {
     pub limit: Option<usize>,
     #[pyo3(get, set)]
     pub offset: Option<usize>,
+    // Enhanced filter options
+    #[pyo3(get, set)]
+    pub ownership_validation: bool,
+    #[pyo3(get, set)]
+    pub script_pattern: Option<PyScriptPattern>,
+    #[pyo3(get, set)]
+    pub maturity_at_height: Option<u64>,
+    #[pyo3(get, set)]
+    pub validate_before_filter: bool,
+    // Optional validator for ownership checks
+    pub validator: Option<Arc<TariUTXOValidator>>,
 }
 
 /// UTXO list with summary information
@@ -440,10 +501,48 @@ impl UTXOFilter {
         self.clone()
     }
 
+    /// Enable ownership validation for filtered UTXOs
+    fn by_ownership(&mut self, enable: bool) -> Self {
+        self.ownership_validation = enable;
+        self.clone()
+    }
+
+    /// Filter by maturity at specific block height
+    fn by_maturity_at_height(&mut self, height: u64) -> Self {
+        self.maturity_at_height = Some(height);
+        self.clone()
+    }
+
+    /// Filter by script pattern type
+    fn by_script_pattern(&mut self, pattern: PyScriptPattern) -> Self {
+        self.script_pattern = Some(pattern);
+        self.clone()
+    }
+
+    /// Enable validation step before filtering (requires validator)
+    fn validate_before_filter(&mut self, enable: bool) -> Self {
+        self.validate_before_filter = enable;
+        self.clone()
+    }
+
+    /// Set UTXO validator for ownership validation
+    fn set_validator(&mut self, validator: TariUTXOValidator) -> Self {
+        self.validator = Some(Arc::new(validator));
+        self.clone()
+    }
+
     /// String representation
     fn __str__(&self) -> String {
-        format!("UTXOFilter(wallet_id={:?}, status={:?}, value_range={:?}-{:?})", 
-                self.wallet_id, self.status, self.min_value, self.max_value)
+        format!(
+            "UTXOFilter(wallet_id={:?}, status={:?}, value_range={:?}-{:?}, ownership={}, script_pattern={:?}, validation={})", 
+            self.wallet_id, 
+            self.status, 
+            self.min_value, 
+            self.max_value,
+            self.ownership_validation,
+            self.script_pattern.as_ref().map(|p| p.__str__()),
+            self.validate_before_filter
+        )
     }
 }
 
