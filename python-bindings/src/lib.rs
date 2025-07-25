@@ -14,8 +14,10 @@ mod errors;
 mod storage;
 mod utxo;
 mod transaction;
+mod balance;
 
-pub use scanner::{TariScanner, ScanResult, Balance, ScanProgress};
+pub use scanner::{TariScanner, ScanResult, ScanProgress};
+pub use balance::TariBalance;
 pub use types::{WalletTransaction, AddressFeatures};
 pub use storage::TariWalletStorage;
 pub use utxo::{TariUTXOManager, UTXOInfo, UTXOFilter, UTXOList};
@@ -331,7 +333,7 @@ fn lightweight_wallet_libpy(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<TariWallet>()?;
     m.add_class::<TariScanner>()?;
     m.add_class::<ScanResult>()?;
-    m.add_class::<Balance>()?;
+    m.add_class::<TariBalance>()?;
     m.add_class::<ScanProgress>()?;
     m.add_class::<WalletTransaction>()?;
     m.add_class::<AddressFeatures>()?;

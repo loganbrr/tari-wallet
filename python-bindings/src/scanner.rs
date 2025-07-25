@@ -28,17 +28,7 @@ pub struct ScanResult {
     current_height: u64,
 }
 
-/// Balance information
-#[pyclass]
-#[derive(Clone)]
-pub struct Balance {
-    #[pyo3(get)]
-    available: u64,
-    #[pyo3(get)]
-    pending: u64,
-    #[pyo3(get)]
-    immature: u64,
-}
+
 
 /// Scan progress information
 #[pyclass]
@@ -123,44 +113,10 @@ impl TariScanner {
         })
     }
 
-    /// Get wallet balance by performing a quick scan from wallet birthday
-    fn get_balance(&self) -> PyResult<Balance> {
-        let base_url = self.base_url.clone();
-        let wallet = Arc::clone(&self.wallet);
-        
-        execute_async(async move {
-            let scanner_arc = get_or_create_scanner(&base_url).await?;
-            let mut scanner = scanner_arc.lock()
-                .map_err(|_| LightweightWalletError::ConversionError("Failed to lock scanner".into()))?;
-            
-            // Get wallet birthday for scan start
-            let start_height = {
-                let wallet_guard = wallet.lock()
-                    .map_err(|_| LightweightWalletError::ConversionError("Failed to lock wallet".into()))?;
-                wallet_guard.birthday()
-            };
-            
-            // Create wallet scan config and perform scan
-            let wallet_guard = wallet.lock()
-                .map_err(|_| LightweightWalletError::ConversionError("Failed to lock wallet".into()))?;
-            let scan_config = scanner.create_scan_config_with_wallet_keys(&*wallet_guard, start_height, None)?;
-            drop(wallet_guard);
-            
-            // Perform the scan
-            let block_results = scanner.scan_blocks(scan_config).await?;
-            
-            // Calculate balance from results
-            let total_value: u64 = block_results.iter()
-                .flat_map(|block| &block.wallet_outputs)
-                .map(|output| output.value().as_u64())
-                .sum();
-            
-            Ok(Balance {
-                available: total_value,
-                pending: 0,    // Could be enhanced to track pending transactions
-                immature: 0,   // Could be enhanced to track coinbase maturity
-            })
-        })
+    /// Get wallet balance - requires storage for proper balance calculation
+    /// Note: This method requires storage integration to work properly
+    fn get_balance(&self, storage: &crate::storage::TariWalletStorage, wallet_id: u32) -> PyResult<crate::balance::TariBalance> {
+        crate::balance::TariBalance::new(storage, wallet_id)
     }
 
     /// Get a single block by height
@@ -226,22 +182,7 @@ impl ScanResult {
     }
 }
 
-#[pymethods]
-impl Balance {
-    fn total(&self) -> u64 {
-        self.available + self.pending + self.immature
-    }
-    
-    fn __repr__(&self) -> String {
-        format!(
-            "Balance(available={}, pending={}, immature={}, total={})",
-            self.available,
-            self.pending,
-            self.immature,
-            self.total()
-        )
-    }
-}
+
 
 #[pymethods]
 impl ScanProgress {

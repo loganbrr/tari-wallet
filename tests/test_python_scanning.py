@@ -125,26 +125,49 @@ def test_scan_result_repr():
 
 
 def test_balance_repr():
-    """Test Balance string representation."""
-    print("\nTesting Balance representation...")
+    """Test TariBalance string representation with new storage-based API."""
+    print("\nTesting new TariBalance representation...")
     
+    # Create storage for balance testing
+    storage = lightweight_wallet_libpy.TariWalletStorage(None)  # In-memory
+    storage.initialize()
+    
+    # Create and save wallet to storage
     wallet = lightweight_wallet_libpy.TariWallet.generate_new_with_seed_phrase()
-    scanner = lightweight_wallet_libpy.TariScanner("http://127.0.0.1:18142", wallet)
+    wallet_dict = {
+        "name": "Test Wallet",
+        "seed_phrase": wallet.export_seed_phrase(),
+        "birthday_block": 0,
+        "scan_from_block": 0
+    }
+    wallet_id = storage.save_wallet(wallet_dict)
     
-    balance = scanner.get_balance()
+    # Test new balance API
+    balance = lightweight_wallet_libpy.TariBalance(storage, wallet_id)
     balance_str = str(balance)
     balance_repr = repr(balance)
     
-    print(f"Balance str: {balance_str}")
-    print(f"Balance repr: {balance_repr}")
+    print(f"TariBalance str: {balance_str}")
+    print(f"TariBalance repr: {balance_repr}")
     
-    assert "Balance" in balance_str
-    assert "available=0" in balance_str
-    assert "pending=0" in balance_str
-    assert "immature=0" in balance_str
-    assert "total=0" in balance_str
+    assert "TariBalance" in balance_str
+    assert "running_balance=" in balance_str
+    assert "available=" in balance_str
+    assert "pending=" in balance_str
+    assert "immature=" in balance_str
+    assert "total=" in balance_str
     
-    print("✅ Balance representation tests passed")
+    # Test balance methods work
+    running_balance = balance.get_running_balance()
+    available = balance.available()
+    pending = balance.pending()
+    total = balance.total()
+    
+    print(f"Running balance: {running_balance}")
+    print(f"Available: {available}, Pending: {pending}, Total: {total}")
+    
+    storage.close()
+    print("✅ New TariBalance representation tests passed")
 
 
 def test_multiple_scanners():

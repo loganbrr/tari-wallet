@@ -110,9 +110,8 @@ def main():
         scan_result = scanner.scan_blocks(1000, 1010)
         print(f"   {scan_result}")
         
-        # Get balance
-        balance = scanner.get_balance()
-        print(f"   {balance}")
+        # Note: Balance API now requires storage integration
+        print("   Balance calculation requires storage (see storage example below)")
         
     except Exception as e:
         if "connection" in str(e).lower() or "failed to connect" in str(e).lower():
@@ -173,13 +172,57 @@ def main():
     print("   - help(lightweight_wallet_libpy.TariScanner) shows constructor signature")
     print("   Try running help() on these methods in an interactive Python session!")
     
+    # Storage and Balance example
+    print("\n9. Storage and Balance integration example...")
+    
+    # Create storage instance
+    print("   Creating storage instance...")
+    storage = lightweight_wallet_libpy.TariWalletStorage("example_wallet.db")
+    storage.initialize()
+    
+    # Save a wallet to storage
+    print("   Saving wallet to storage...")
+    wallet_dict = {
+        "name": "Example Wallet",
+        "seed_phrase": seed_phrase,
+        "birthday_block": 100000,
+        "scan_from_block": 100000
+    }
+    wallet_id = storage.save_wallet(wallet_dict)
+    print(f"   Saved wallet with ID: {wallet_id}")
+    
+    # Create balance instance using storage
+    print("   Creating balance instance...")
+    balance = lightweight_wallet_libpy.TariBalance(storage, wallet_id)
+    print(f"   {balance}")
+    
+    # Access balance methods
+    print("   Balance methods:")
+    print(f"     Running balance: {balance.get_running_balance()}")
+    print(f"     Available balance: {balance.available()}")
+    print(f"     Pending balance: {balance.pending()}")
+    print(f"     Immature balance: {balance.immature()}")
+    print(f"     Total balance: {balance.total()}")
+    
+    # Get detailed stats
+    stats = balance.get_stats()
+    print(f"   Balance stats: received={stats[0]}, spent={stats[1]}, balance={stats[2]}, unspent_count={stats[3]}, spent_count={stats[4]}")
+    
+    # Clean up storage
+    storage.close()
+    print("   Storage closed")
+
     print("\n✅ All examples completed successfully!")
     print("\nNote: Blockchain scanning operations use placeholder implementations.")
     print("Real blockchain scanning requires async implementation to be completed.")
     print("\nAPI Changes Summary:")
+    print("- OLD Balance struct removed from scanner")
+    print("- NEW TariBalance class provides Rust-native balance calculation")
     print("- get_dual_address now requires AddressFeatures parameter")
     print("- get_single_address now requires AddressFeatures parameter") 
     print("- AddressFeatures provides type-safe feature selection")
+    print("- Balance calculation now requires storage integration")
+    print("- TariBalance uses actual WalletState.running_balance")
     print("- Constructor documentation improved with PyO3 signatures")
 
 
