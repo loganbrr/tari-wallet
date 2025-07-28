@@ -9,17 +9,12 @@ use pyo3::exceptions::PyValueError;
 use pyo3::types::PyList;
 use std::sync::{Arc, Mutex};
 use lightweight_wallet_libs::validation::{
-    LightweightCommitmentValidator,
-    LightweightMinimumValuePromiseValidator,
-    MinimumValuePromiseValidationOptions,
     LightweightEncryptedDataValidator,
 };
 use lightweight_wallet_libs::data_structures::{
-    types::{CompressedCommitment, MicroMinotari},
+    types::CompressedCommitment,
     encrypted_data::EncryptedData,
-    wallet_output::{LightweightRangeProof, LightweightRangeProofType},
 };
-use lightweight_wallet_libs::crypto::signing::verify_message_from_hex;
 use crate::errors::convert_to_pyerr;
 use std::time::Instant;
 
@@ -165,197 +160,16 @@ fn hex_to_commitment_bytes(hex_str: &str) -> PyResult<[u8; 32]> {
     Ok(array)
 }
 
-// ========== Range Proof Validation ==========
 
-/// Range proof validator for BulletProofPlus and RevealedValue types
-#[pyclass]
-pub struct TariRangeProofValidator {
-    inner: Arc<Mutex<LightweightMinimumValuePromiseValidator>>,
-}
-
-#[pymethods]
-impl TariRangeProofValidator {
-    #[new]
-    fn new() -> Self {
-        Self {
-            inner: Arc::new(Mutex::new(LightweightMinimumValuePromiseValidator::default())),
-        }
-    }
-
-    /// Validate a range proof hex string
-    /// 
-    /// Args:
-    ///     proof_hex: Hexadecimal-encoded range proof
-    ///     commitment_hex: Hexadecimal-encoded commitment (32 bytes)
-    ///     minimum_value: Optional minimum value promise
-    /// 
-    /// Returns:
-    ///     bool: True if validation passes
-    /// 
-    /// Raises:
-    ///     WalletValidationError: If validation fails with details
-    ///     ValueError: If inputs are malformed
-    #[pyo3(signature = (proof_hex, commitment_hex, minimum_value=None))]
-    fn validate_range_proof(
-        &self,
-        proof_hex: &str,
-        commitment_hex: &str,
-        minimum_value: Option<u64>,
-    ) -> PyResult<bool> {
-        let proof_bytes = hex_to_bytes(proof_hex)?;
-        let _commitment_bytes = hex_to_commitment_bytes(commitment_hex)?;
-        
-        let minimum_value_promise = minimum_value.unwrap_or(0);
-        
-        // Create a lightweight range proof structure
-        let range_proof = LightweightRangeProof {
-            bytes: proof_bytes,
-        };
-
-        let validator = self.inner.lock().unwrap();
-        let options = MinimumValuePromiseValidationOptions::default();
-        let minimum_value = MicroMinotari::new(minimum_value_promise);
-        
-        match validator.validate_minimum_value_promise(
-            minimum_value,
-            Some(&range_proof),
-            &LightweightRangeProofType::BulletProofPlus,
-            &options,
-        ) {
-            Ok(_) => Ok(true),
-            Err(e) => Err(convert_to_pyerr(e.into())),
-        }
-    }
-
-    /// Validate range proof and return detailed results
-    /// 
-    /// Args:
-    ///     proof_hex: Hexadecimal-encoded range proof
-    ///     commitment_hex: Hexadecimal-encoded commitment (32 bytes)
-    ///     minimum_value: Optional minimum value promise
-    /// 
-    /// Returns:
-    ///     ValidationResult: Detailed validation result with error information
-    #[pyo3(signature = (proof_hex, commitment_hex, minimum_value=None))]
-    fn validate_range_proof_detailed(
-        &self,
-        proof_hex: &str,
-        commitment_hex: &str,
-        minimum_value: Option<u64>,
-    ) -> PyResult<ValidationResult> {
-        match self.validate_range_proof(proof_hex, commitment_hex, minimum_value) {
-            Ok(true) => Ok(ValidationResult::new(true, 0, None)),
-            Ok(false) => Ok(ValidationResult::new(false, 1, Some("Range proof validation failed".to_string()))),
-            Err(e) => {
-                // Extract error details from Python exception
-                let error_msg = format!("{}", e);
-                Ok(ValidationResult::new(false, 2, Some(error_msg)))
-            }
-        }
-    }
-
-    /// Batch validate multiple range proofs
-    /// 
-    /// Args:
-    ///     proof_commitment_pairs: List of (proof_hex, commitment_hex) tuples
-    ///     minimum_values: Optional list of minimum values (must match pairs length)
-    ///     chunk_size: Optional chunk size for memory management (default: 1000)
-    /// 
-    /// Returns:
-    ///     BatchValidationResult: Results for all validations
-    #[pyo3(signature = (proof_commitment_pairs, minimum_values=None, chunk_size=None))]
-    fn batch_validate_range_proofs(
-        &self,
-        py: Python<'_>,
-        proof_commitment_pairs: &Bound<'_, PyList>,
-        minimum_values: Option<&Bound<'_, PyList>>,
-        chunk_size: Option<usize>,
-    ) -> PyResult<BatchValidationResult> {
-        let mut pairs = Vec::new();
-        for item in proof_commitment_pairs.iter() {
-            let tuple: (String, String) = item.extract()?;
-            pairs.push(tuple);
-        }
-
-        let min_values: Option<Vec<u64>> = if let Some(values) = minimum_values {
-            let mut vals = Vec::new();
-            for v in values.iter() {
-                vals.push(v.extract::<u64>()?);
-            }
-            Some(vals)
-        } else {
-            None
-        };
-
-        let config = ChunkConfig::new(chunk_size.unwrap_or(1000));
-        
-        // Process in chunks for memory efficiency
-        let results = py.allow_threads(|| {
-            self.process_range_proofs_in_chunks(pairs, min_values, &config)
-        })?;
-
-        Ok(BatchValidationResult::new(results))
-    }
-}
-
-impl TariRangeProofValidator {
-    /// Internal method to process range proofs in chunks
-    fn process_range_proofs_in_chunks(
-        &self,
-        pairs: Vec<(String, String)>,
-        min_values: Option<Vec<u64>>,
-        config: &ChunkConfig,
-    ) -> PyResult<Vec<ValidationResult>> {
-        let mut all_results = Vec::new();
-        let start_time = Instant::now();
-        let total_items = pairs.len();
-        
-        for (chunk_idx, chunk) in pairs.chunks(config.chunk_size).enumerate() {
-            let chunk_start = Instant::now();
-            
-            let chunk_results: Result<Vec<ValidationResult>, PyErr> = chunk
-                .iter()
-                .enumerate()
-                .map(|(idx, (proof_hex, commitment_hex))| {
-                    let global_idx = chunk_idx * config.chunk_size + idx;
-                    let min_val = min_values.as_ref().and_then(|v| v.get(global_idx)).copied();
-                    self.validate_range_proof_detailed(proof_hex, commitment_hex, min_val)
-                })
-                .collect();
-            
-            match chunk_results {
-                Ok(mut results) => {
-                    all_results.append(&mut results);
-                    let chunk_duration = chunk_start.elapsed();
-                    // Log performance for large chunks (could be configurable in future)
-                    if chunk.len() > 100 {
-                        eprintln!("Range proof chunk {}: {} items in {:?}", 
-                                 chunk_idx, chunk.len(), chunk_duration);
-                    }
-                },
-                Err(e) => return Err(e),
-            }
-        }
-        
-        let total_duration = start_time.elapsed();
-        if total_items > 1000 {
-            eprintln!("Range proof validation completed: {} items in {:?} ({:.2} items/sec)", 
-                     total_items, total_duration, 
-                     total_items as f64 / total_duration.as_secs_f64());
-        }
-        
-        Ok(all_results)
-    }
-}
 
 // ========== Commitment Validation ==========
 
 /// Commitment structure and integrity validator
 #[pyclass]
-pub struct TariCommitmentValidator;
+pub struct LightweightCommitmentValidator;
 
 #[pymethods]
-impl TariCommitmentValidator {
+impl LightweightCommitmentValidator {
     #[new]
     fn new() -> Self {
         Self
@@ -376,7 +190,7 @@ impl TariCommitmentValidator {
         let commitment_bytes = hex_to_commitment_bytes(commitment_hex)?;
         let commitment = CompressedCommitment::new(commitment_bytes);
         
-        match LightweightCommitmentValidator::validate_structure(&commitment) {
+        match lightweight_wallet_libs::validation::LightweightCommitmentValidator::validate_structure(&commitment) {
             Ok(_) => Ok(true),
             Err(e) => Err(convert_to_pyerr(e.into())),
         }
@@ -431,7 +245,7 @@ impl TariCommitmentValidator {
     }
 }
 
-impl TariCommitmentValidator {
+impl LightweightCommitmentValidator {
     /// Internal method to process commitments in chunks
     fn process_commitments_in_chunks(
         &self,
@@ -474,137 +288,7 @@ impl TariCommitmentValidator {
     }
 }
 
-// ========== Signature Validation ==========
 
-/// Message signature validator using Tari-compatible signing
-#[pyclass]
-pub struct TariSignatureValidator;
-
-#[pymethods]
-impl TariSignatureValidator {
-    #[new]
-    fn new() -> Self {
-        Self
-    }
-
-    /// Validate a message signature
-    /// 
-    /// Args:
-    ///     signature_hex: Hexadecimal-encoded signature scalar
-    ///     nonce_hex: Hexadecimal-encoded public nonce
-    ///     message: Original message that was signed
-    ///     public_key_hex: Hexadecimal-encoded public key
-    /// 
-    /// Returns:
-    ///     bool: True if signature is valid
-    /// 
-    /// Raises:
-    ///     WalletValidationError: If validation fails
-    ///     ValueError: If inputs are malformed
-    fn validate_signature(
-        &self,
-        signature_hex: &str,
-        nonce_hex: &str,
-        message: &str,
-        public_key_hex: &str,
-    ) -> PyResult<bool> {
-        use lightweight_wallet_libs::crypto::RistrettoPublicKey;
-        use tari_utilities::hex::Hex;
-        
-        let public_key = RistrettoPublicKey::from_hex(public_key_hex)
-            .map_err(|e| PyValueError::new_err(format!("Invalid public key hex: {}", e)))?;
-        
-        match verify_message_from_hex(&public_key, message, signature_hex, nonce_hex) {
-            Ok(is_valid) => Ok(is_valid),
-            Err(e) => Err(convert_to_pyerr(e)),
-        }
-    }
-
-    /// Validate signature with detailed results
-    /// 
-    /// Args:
-    ///     signature_hex: Hexadecimal-encoded signature scalar
-    ///     nonce_hex: Hexadecimal-encoded public nonce
-    ///     message: Original message that was signed
-    ///     public_key_hex: Hexadecimal-encoded public key
-    /// 
-    /// Returns:
-    ///     ValidationResult: Detailed validation result
-    fn validate_signature_detailed(
-        &self,
-        signature_hex: &str,
-        nonce_hex: &str,
-        message: &str,
-        public_key_hex: &str,
-    ) -> PyResult<ValidationResult> {
-        match self.validate_signature(signature_hex, nonce_hex, message, public_key_hex) {
-            Ok(true) => Ok(ValidationResult::new(true, 0, None)),
-            Ok(false) => Ok(ValidationResult::new(false, 1, Some("Signature verification failed".to_string()))),
-            Err(e) => {
-                let error_msg = format!("{}", e);
-                Ok(ValidationResult::new(false, 2, Some(error_msg)))
-            }
-        }
-    }
-
-    /// Batch validate multiple signatures
-    /// 
-    /// Args:
-    ///     signature_data: List of (signature_hex, nonce_hex, message, public_key_hex) tuples
-    ///     chunk_size: Optional chunk size for memory management (default: 1000)
-    /// 
-    /// Returns:
-    ///     BatchValidationResult: Results for all validations
-    #[pyo3(signature = (signature_data, chunk_size=None))]
-    fn batch_validate_signatures(
-        &self,
-        py: Python<'_>,
-        signature_data: &Bound<'_, PyList>,
-        chunk_size: Option<usize>,
-    ) -> PyResult<BatchValidationResult> {
-        let mut data = Vec::new();
-        for item in signature_data.iter() {
-            let tuple: (String, String, String, String) = item.extract()?;
-            data.push(tuple);
-        }
-
-        let config = ChunkConfig::new(chunk_size.unwrap_or(1000));
-
-        // Process in chunks for memory efficiency
-        let results = py.allow_threads(|| {
-            self.process_signatures_in_chunks(data, &config)
-        })?;
-
-        Ok(BatchValidationResult::new(results))
-    }
-}
-
-impl TariSignatureValidator {
-    /// Internal method to process signatures in chunks
-    fn process_signatures_in_chunks(
-        &self,
-        data: Vec<(String, String, String, String)>,
-        config: &ChunkConfig,
-    ) -> PyResult<Vec<ValidationResult>> {
-        let mut all_results = Vec::new();
-        
-        for chunk in data.chunks(config.chunk_size) {
-            let chunk_results: Result<Vec<ValidationResult>, PyErr> = chunk
-                .iter()
-                .map(|(sig_hex, nonce_hex, message, pubkey_hex)| {
-                    self.validate_signature_detailed(sig_hex, nonce_hex, message, pubkey_hex)
-                })
-                .collect();
-            
-            match chunk_results {
-                Ok(mut results) => all_results.append(&mut results),
-                Err(e) => return Err(e),
-            }
-        }
-        
-        Ok(all_results)
-    }
-}
 
 // ========== Encrypted Data Validation ==========
 
@@ -721,132 +405,4 @@ impl TariEncryptedDataValidator {
     }
 }
 
-/// Enhanced batch UTXO validation with integrated ownership detection, value extraction, and payment ID processing
-#[pyclass(name = "TariUTXOBatchValidator")]
-pub struct TariUTXOBatchValidator {
-    /// Internal range proof validator
-    _range_proof_validator: Arc<Mutex<TariRangeProofValidator>>,
-    /// Internal commitment validator
-    _commitment_validator: Arc<Mutex<TariCommitmentValidator>>,
-    /// Internal encrypted data validator
-    encrypted_data_validator: Arc<Mutex<TariEncryptedDataValidator>>,
-    /// Chunk configuration for memory management
-    chunk_config: ChunkConfig,
-}
 
-#[pymethods]
-impl TariUTXOBatchValidator {
-    /// Create a new UTXO batch validator
-    #[new]
-    #[pyo3(signature = (chunk_size=None))]
-    fn new(chunk_size: Option<usize>) -> Self {
-        Self {
-            _range_proof_validator: Arc::new(Mutex::new(TariRangeProofValidator::new())),
-            _commitment_validator: Arc::new(Mutex::new(TariCommitmentValidator::new())),
-            encrypted_data_validator: Arc::new(Mutex::new(TariEncryptedDataValidator::new(32, 2048))),
-            chunk_config: ChunkConfig::new(chunk_size.unwrap_or(1000)),
-        }
-    }
-
-    /// Batch validate UTXO ownership through encrypted data decryption
-    ///
-    /// # Arguments
-    /// * `utxo_data_list` - List of UTXO dictionaries with encrypted_data field
-    /// * `view_key_hex` - Wallet view key for decryption
-    /// * `spend_key_hex` - Wallet spend key for decryption
-    ///
-    /// # Returns
-    /// BatchValidationResult with ownership validation results
-    #[pyo3(signature = (utxo_data_list, view_key_hex, spend_key_hex))]
-    fn batch_validate_ownership(
-        &self,
-        py: Python,
-        utxo_data_list: &Bound<'_, PyList>,
-        view_key_hex: &str,
-        spend_key_hex: &str,
-    ) -> PyResult<BatchValidationResult> {
-        let utxo_data: Vec<String> = utxo_data_list
-            .iter()
-            .map(|item| {
-                let dict = item.downcast::<pyo3::types::PyDict>()?;
-                let encrypted_data = dict.get_item("encrypted_data")?
-                    .ok_or_else(|| PyValueError::new_err("Missing encrypted_data field"))?
-                    .extract::<String>()?;
-                Ok(encrypted_data)
-            })
-            .collect::<PyResult<Vec<_>>>()?;
-
-        let results = py.allow_threads(|| {
-            self.process_ownership_validation_in_chunks(utxo_data, view_key_hex, spend_key_hex)
-        })?;
-
-        Ok(BatchValidationResult::new(results))
-    }
-
-    /// Get current chunk configuration
-    #[getter]
-    fn chunk_size(&self) -> usize {
-        self.chunk_config.chunk_size
-    }
-
-    /// Update chunk size for batch processing
-    #[setter]
-    fn set_chunk_size(&mut self, size: usize) {
-        self.chunk_config.chunk_size = size;
-    }
-}
-
-impl TariUTXOBatchValidator {
-    /// Internal method for processing ownership validation in chunks
-    fn process_ownership_validation_in_chunks(
-        &self,
-        utxo_data: Vec<String>,
-        view_key_hex: &str,
-        spend_key_hex: &str,
-    ) -> PyResult<Vec<ValidationResult>> {
-        let mut all_results = Vec::new();
-
-        for chunk in utxo_data.chunks(self.chunk_config.chunk_size) {
-            let chunk_results: Result<Vec<ValidationResult>, PyErr> = chunk
-                .iter()
-                .map(|encrypted_data| {
-                    self.validate_ownership_for_utxo(encrypted_data, view_key_hex, spend_key_hex)
-                })
-                .collect();
-
-            match chunk_results {
-                Ok(mut results) => all_results.append(&mut results),
-                Err(e) => return Err(e),
-            }
-        }
-
-        Ok(all_results)
-    }
-
-    /// Validate ownership for a single UTXO
-    fn validate_ownership_for_utxo(
-        &self,
-        encrypted_data_hex: &str,
-        _view_key_hex: &str,
-        _spend_key_hex: &str,
-    ) -> PyResult<ValidationResult> {
-        // Attempt to decrypt the encrypted data using wallet keys
-        // This is a simplified implementation - actual implementation would use proper decryption
-        let encrypted_validator = self.encrypted_data_validator.lock()
-            .map_err(|_| PyValueError::new_err("Failed to acquire encrypted data validator lock"))?;
-
-        match encrypted_validator.validate_encrypted_data_detailed(encrypted_data_hex) {
-            Ok(result) => {
-                // If encrypted data is valid, assume ownership (simplified logic)
-                if result.is_valid {
-                    Ok(ValidationResult::new(true, 0, Some("Ownership confirmed".to_string())))
-                } else {
-                    Ok(ValidationResult::new(false, 1, Some("No ownership detected".to_string())))
-                }
-            }
-            Err(e) => {
-                Ok(ValidationResult::new(false, 2, Some(format!("Validation error: {}", e))))
-            }
-        }
-    }
-}

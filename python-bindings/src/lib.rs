@@ -31,9 +31,7 @@
 //! - [`StealthAddressInfo`] and [`StealthScanResult`]: Data structures for stealth operations
 //!
 //! ## Cryptographic Validation
-//! - [`TariRangeProofValidator`]: BulletProofPlus validation with chunked processing
-//! - [`TariCommitmentValidator`]: Pedersen commitment validation
-//! - [`TariSignatureValidator`]: Schnorr signature verification
+//! - [`LightweightCommitmentValidator`]: Pedersen commitment validation
 //! - [`TariEncryptedDataValidator`]: Encrypted data integrity checking
 //!
 //! # API Design Principles
@@ -116,8 +114,7 @@ pub use types::{WalletTransaction, AddressFeatures};
 pub use storage::TariWalletStorage;
 pub use transaction::{TariTransactionInput, TariTransactionOutput, TariTransactionKernel, TariTransactionMetadata};
 pub use validation::{
-    TariRangeProofValidator, TariCommitmentValidator, TariSignatureValidator, 
-    TariEncryptedDataValidator, ValidationResult, BatchValidationResult, TariUTXOBatchValidator
+    LightweightCommitmentValidator, TariEncryptedDataValidator, ValidationResult, BatchValidationResult
 };
 pub use key_derivation::KeyDerivationPath;
 pub use key_manager::TariKeyManager;
@@ -518,13 +515,10 @@ fn lightweight_wallet_libpy(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<StealthScanResultIterator>()?;
     m.add_class::<TariStealthAddress>()?;
     // Validation classes
-    m.add_class::<TariRangeProofValidator>()?;
-    m.add_class::<TariCommitmentValidator>()?;
-    m.add_class::<TariSignatureValidator>()?;
+    m.add_class::<LightweightCommitmentValidator>()?;
     m.add_class::<TariEncryptedDataValidator>()?;
     m.add_class::<ValidationResult>()?;
     m.add_class::<BatchValidationResult>()?;
-    m.add_class::<TariUTXOBatchValidator>()?;
     m.add_function(wrap_pyfunction!(generate_new_wallet, m)?)?;
     m.add_function(wrap_pyfunction!(validate_seed_phrase_py, m)?)?;
     Ok(())

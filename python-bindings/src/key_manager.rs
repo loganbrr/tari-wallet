@@ -366,7 +366,9 @@ impl TariKeyManager {
 
     /// Get string representation
     fn __repr__(&self) -> String {
-        let has_entropy = self.has_entropy().unwrap_or(false);
+        let has_entropy = self.inner.lock()
+            .map(|state| state.entropy.is_some())
+            .unwrap_or(false);
         format!("TariKeyManager(has_entropy={})", has_entropy)
     }
 
