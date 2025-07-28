@@ -242,7 +242,8 @@ async fn schedule_connection_cleanup(scanner: Arc<Mutex<HttpBlockchainScanner>>)
 /// Report error to connection health tracking and potentially evict connection
 #[allow(dead_code)]
 pub async fn report_connection_error(base_url: &str, error: &LightweightWalletError) -> Result<(), LightweightWalletError> {
-    if should_evict_connection(error) {
+    let error_string = format!("{}", error);
+    if should_evict_connection(&error_string) {
         let mut pool = SCANNER_POOL.lock()
             .map_err(|_| LightweightWalletError::ConversionError("Failed to lock scanner pool".into()))?;
         

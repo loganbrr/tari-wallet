@@ -725,9 +725,9 @@ impl TariEncryptedDataValidator {
 #[pyclass(name = "TariUTXOBatchValidator")]
 pub struct TariUTXOBatchValidator {
     /// Internal range proof validator
-    range_proof_validator: Arc<Mutex<TariRangeProofValidator>>,
-    /// Internal commitment validator  
-    commitment_validator: Arc<Mutex<TariCommitmentValidator>>,
+    _range_proof_validator: Arc<Mutex<TariRangeProofValidator>>,
+    /// Internal commitment validator
+    _commitment_validator: Arc<Mutex<TariCommitmentValidator>>,
     /// Internal encrypted data validator
     encrypted_data_validator: Arc<Mutex<TariEncryptedDataValidator>>,
     /// Chunk configuration for memory management
@@ -741,9 +741,9 @@ impl TariUTXOBatchValidator {
     #[pyo3(signature = (chunk_size=None))]
     fn new(chunk_size: Option<usize>) -> Self {
         Self {
-            range_proof_validator: Arc::new(Mutex::new(TariRangeProofValidator::new())),
-            commitment_validator: Arc::new(Mutex::new(TariCommitmentValidator::new())),
-            encrypted_data_validator: Arc::new(Mutex::new(TariEncryptedDataValidator::new())),
+            _range_proof_validator: Arc::new(Mutex::new(TariRangeProofValidator::new())),
+            _commitment_validator: Arc::new(Mutex::new(TariCommitmentValidator::new())),
+            encrypted_data_validator: Arc::new(Mutex::new(TariEncryptedDataValidator::new(32, 2048))),
             chunk_config: ChunkConfig::new(chunk_size.unwrap_or(1000)),
         }
     }
@@ -827,8 +827,8 @@ impl TariUTXOBatchValidator {
     fn validate_ownership_for_utxo(
         &self,
         encrypted_data_hex: &str,
-        view_key_hex: &str,
-        spend_key_hex: &str,
+        _view_key_hex: &str,
+        _spend_key_hex: &str,
     ) -> PyResult<ValidationResult> {
         // Attempt to decrypt the encrypted data using wallet keys
         // This is a simplified implementation - actual implementation would use proper decryption
@@ -838,7 +838,7 @@ impl TariUTXOBatchValidator {
         match encrypted_validator.validate_encrypted_data_detailed(encrypted_data_hex) {
             Ok(result) => {
                 // If encrypted data is valid, assume ownership (simplified logic)
-                if result.success {
+                if result.is_valid {
                     Ok(ValidationResult::new(true, 0, Some("Ownership confirmed".to_string())))
                 } else {
                     Ok(ValidationResult::new(false, 1, Some("No ownership detected".to_string())))

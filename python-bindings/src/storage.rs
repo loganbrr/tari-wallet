@@ -62,11 +62,11 @@ impl TariWalletStorage {
             // Store the initialized storage
             {
                 let mut storage_guard = storage_arc.lock()
-                    .map_err(|_| {
+                    .map_err(|_| 
                         lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
                             "Failed to lock storage".into()
                         )
-                    })?;
+                    )?;
                 *storage_guard = Some(storage);
             }
 
@@ -80,11 +80,11 @@ impl TariWalletStorage {
         
         execute_async(async move {
             let mut storage_guard = storage_arc.lock()
-                .map_err(|_| {
+                .map_err(|_| 
                     lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
                         "Failed to lock storage".into()
                     )
-                })?;
+                )?;
 
             if let Some(storage) = storage_guard.take() {
                 storage.close().await?;
@@ -1455,202 +1455,5 @@ impl TariWalletStorage {
 
         // Return the shared Arc for use by UTXO manager
         Ok(Arc::clone(&self.inner))
-    }
-
-    /// Get validated UTXOs by retrieving and validating outputs
-    ///
-    /// # Arguments
-    /// * `wallet_id` - Wallet ID to filter UTXOs
-    /// * `validator` - UTXO validator for ownership verification
-    ///
-    /// # Returns
-    /// List of validated UTXO information dictionaries
-    fn get_validated_utxos(
-        &self,
-        wallet_id: u32,
-        validator: crate::utxo_validator::TariUTXOValidator,
-    ) -> PyResult<PyObject> {
-        let storage_arc = Arc::clone(&self.inner);
-
-        execute_async(async move {
-            let storage_guard = storage_arc.lock()
-                .map_err(|_| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("Failed to lock storage"))?;
-
-            let storage = storage_guard.as_ref()
-                .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("Storage not initialized"))?;
-
-            // Create filter for wallet outputs
-            let filter = OutputFilter {
-                wallet_id: Some(wallet_id),
-                ..Default::default()
-            };
-
-            let outputs = storage.get_outputs(Some(filter)).await
-                .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("Failed to get outputs: {}", e)))?;
-
-            drop(storage_guard);
-
-            // Convert outputs to validation format and validate
-            let mut validated_outputs = Vec::new();
-            
-            for output in outputs {
-                // Create UTXO dictionary for validation
-                let utxo_dict = Python::with_gil(|py| {
-                    let dict = PyDict::new(py);
-                    dict.set_item("commitment", hex::encode(&output.commitment.0))?;
-                    dict.set_item("encrypted_data", hex::encode(&output.encrypted_data))?;
-                    dict.set_item("range_proof", hex::encode(&output.range_proof))?;
-                    Ok::<_, PyErr>(dict.to_object(py))
-                })?;
-
-                // Validate the UTXO
-                Python::with_gil(|py| {
-                    let dict_ref = utxo_dict.downcast_bound::<PyDict>(py)?;
-                    let validation_result = validator.validate_utxo(py, dict_ref)?;
-                    
-                    if validation_result.is_owned {
-                        // Add to validated outputs with additional info
-                        let result_dict = PyDict::new(py);
-                        result_dict.set_item("id", output.id)?;
-                        result_dict.set_item("wallet_id", output.wallet_id)?;
-                        result_dict.set_item("commitment_hex", hex::encode(&output.commitment.0))?;
-                        result_dict.set_item("value", validation_result.value.unwrap_or(0))?;
-                        result_dict.set_item("payment_id", validation_result.payment_id)?;
-                        result_dict.set_item("validation_errors", validation_result.errors)?;
-                        result_dict.set_item("maturity", output.maturity)?;
-                        result_dict.set_item("status", output.status as u32)?;
-                        
-                        validated_outputs.push(result_dict.to_object(py));
-                    }
-                    
-                    Ok::<_, PyErr>(())
-                })?;
-            }
-
-            Python::with_gil(|py| {
-                Ok(validated_outputs.to_object(py))
-            })
-        })
-    }
-
-    /// Get UTXOs with optional validation filtering
-    ///
-    /// # Arguments
-    /// * `filter_data` - Filter criteria dictionary
-    /// * `validator` - Optional UTXO validator for pre-filtering validation
-    /// * `validate_before_filter` - Whether to validate before applying filters
-    ///
-    /// # Returns
-    /// Filtered and optionally validated UTXO list
-    fn get_filtered_utxos(
-        &self,
-        filter_data: Option<&Bound<'_, PyDict>>,
-        validator: Option<crate::utxo_validator::TariUTXOValidator>,
-        validate_before_filter: Option<bool>,
-    ) -> PyResult<PyObject> {
-        let storage_arc = Arc::clone(&self.inner);
-        let should_validate = validate_before_filter.unwrap_or(false);
-
-        execute_async(async move {
-            let storage_guard = storage_arc.lock()
-                .map_err(|_| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("Failed to lock storage"))?;
-
-            let storage = storage_guard.as_ref()
-                .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("Storage not initialized"))?;
-
-            // Build output filter from provided data
-            let mut filter = OutputFilter::default();
-
-            if let Some(filter_dict) = filter_data {
-                if let Ok(wallet_id) = filter_dict.get_item("wallet_id") {
-                    if let Some(id_item) = wallet_id {
-                        filter.wallet_id = Some(id_item.extract::<u32>()?);
-                    }
-                }
-
-                if let Ok(status) = filter_dict.get_item("status") {
-                    if let Some(status_item) = status {
-                        let status_value = status_item.extract::<u32>()?;
-                        filter.status = Some(match status_value {
-                            0 => OutputStatus::Unspent,
-                            1 => OutputStatus::Spent,
-                            _ => OutputStatus::Unspent,
-                        });
-                    }
-                }
-
-                if let Ok(min_value) = filter_dict.get_item("min_value") {
-                    if let Some(min_item) = min_value {
-                        filter.min_value = Some(min_item.extract::<u64>()?);
-                    }
-                }
-
-                if let Ok(max_value) = filter_dict.get_item("max_value") {
-                    if let Some(max_item) = max_value {
-                        filter.max_value = Some(max_item.extract::<u64>()?);
-                    }
-                }
-            }
-
-            let outputs = storage.get_outputs(Some(filter)).await
-                .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("Failed to get outputs: {}", e)))?;
-
-            drop(storage_guard);
-
-            // Apply validation filtering if requested
-            let mut filtered_outputs = Vec::new();
-
-            if should_validate && validator.is_some() {
-                let validator = validator.unwrap();
-                
-                for output in outputs {
-                    // Create UTXO dictionary for validation
-                    let validation_result = Python::with_gil(|py| {
-                        let dict = PyDict::new(py);
-                        dict.set_item("commitment", hex::encode(&output.commitment.0))?;
-                        dict.set_item("encrypted_data", hex::encode(&output.encrypted_data))?;
-                        dict.set_item("range_proof", hex::encode(&output.range_proof))?;
-                        
-                        validator.validate_utxo(py, dict)
-                    })?;
-
-                    // Only include owned UTXOs
-                    if validation_result.is_owned {
-                        Python::with_gil(|py| {
-                            let dict = PyDict::new(py);
-                            dict.set_item("id", output.id)?;
-                            dict.set_item("wallet_id", output.wallet_id)?;
-                            dict.set_item("commitment_hex", hex::encode(&output.commitment.0))?;
-                            dict.set_item("value", validation_result.value.unwrap_or(output.value))?;
-                            dict.set_item("maturity", output.maturity)?;
-                            dict.set_item("status", output.status as u32)?;
-                            
-                            filtered_outputs.push(dict.to_object(py));
-                            Ok::<_, PyErr>(())
-                        })?;
-                    }
-                }
-            } else {
-                // No validation, just convert outputs
-                for output in outputs {
-                    Python::with_gil(|py| {
-                        let dict = PyDict::new(py);
-                        dict.set_item("id", output.id)?;
-                        dict.set_item("wallet_id", output.wallet_id)?;
-                        dict.set_item("commitment_hex", hex::encode(&output.commitment.0))?;
-                        dict.set_item("value", output.value)?;
-                        dict.set_item("maturity", output.maturity)?;
-                        dict.set_item("status", output.status as u32)?;
-                        
-                        filtered_outputs.push(dict.to_object(py));
-                        Ok::<_, PyErr>(())
-                    })?;
-                }
-            }
-
-            Python::with_gil(|py| {
-                Ok(filtered_outputs.to_object(py))
-            })
-        })
     }
 }

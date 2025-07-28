@@ -253,6 +253,49 @@ def test_scanner_basic():
             raise
 
 
+def test_seed_phrase_validation():
+    """Test seed phrase validation functionality."""
+    print("\nTesting seed phrase validation...")
+    
+    # Test with valid generated seed phrases
+    wallet = lightweight_wallet_libpy.TariWallet.generate_new_with_seed_phrase()
+    valid_seed_phrase = wallet.export_seed_phrase()
+    
+    # Valid seed phrase should validate successfully
+    assert lightweight_wallet_libpy.validate_seed_phrase_py(valid_seed_phrase) is True
+    print("✅ Valid generated seed phrase validation passed")
+    
+    # Test with different valid seed phrase
+    wallet2 = lightweight_wallet_libpy.TariWallet.generate_new_with_seed_phrase()
+    valid_seed_phrase2 = wallet2.export_seed_phrase()
+    assert lightweight_wallet_libpy.validate_seed_phrase_py(valid_seed_phrase2) is True
+    print("✅ Second valid seed phrase validation passed")
+    
+    # Test invalid cases - wrong word count
+    too_short = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon"
+    assert lightweight_wallet_libpy.validate_seed_phrase_py(too_short) is False
+    print("✅ Too short seed phrase correctly rejected")
+    
+    too_long = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon"
+    assert lightweight_wallet_libpy.validate_seed_phrase_py(too_long) is False
+    print("✅ Too long seed phrase correctly rejected")
+    
+    # Test invalid words
+    invalid_words = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon invalidword"
+    assert lightweight_wallet_libpy.validate_seed_phrase_py(invalid_words) is False
+    print("✅ Invalid words correctly rejected")
+    
+    # Test empty string
+    assert lightweight_wallet_libpy.validate_seed_phrase_py("") is False
+    print("✅ Empty string correctly rejected")
+    
+    # Test single word
+    assert lightweight_wallet_libpy.validate_seed_phrase_py("abandon") is False
+    print("✅ Single word correctly rejected")
+    
+    print("✅ Seed phrase validation tests passed")
+
+
 def test_data_types():
     """Test wallet transaction and related data types."""
     print("\nTesting wallet data types...")
@@ -263,6 +306,9 @@ def test_data_types():
     assert hasattr(lightweight_wallet_libpy, 'Balance')
     assert hasattr(lightweight_wallet_libpy, 'ScanProgress')
     assert hasattr(lightweight_wallet_libpy, 'AddressFeatures')
+    
+    # Test that validate_seed_phrase function is available
+    assert hasattr(lightweight_wallet_libpy, 'validate_seed_phrase_py')
     
     print("✅ Data types tests passed")
 
@@ -281,6 +327,7 @@ def main():
         test_string_representations()
         test_message_signing_basic()
         test_scanner_basic()
+        test_seed_phrase_validation()
         test_data_types()
         
         print("\n🎉 All tests passed! The Python bindings are working correctly.")

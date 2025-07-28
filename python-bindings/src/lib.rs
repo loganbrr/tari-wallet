@@ -94,18 +94,17 @@ use std::sync::{Arc, Mutex};
 use lightweight_wallet_libs::wallet::Wallet;
 use lightweight_wallet_libs::crypto::signing::{sign_message_with_tari_wallet, verify_message_from_hex, derive_tari_signing_key};
 use lightweight_wallet_libs::crypto::{RistrettoPublicKey, PublicKey};
+use lightweight_wallet_libs::key_management::validate_seed_phrase;
 use tari_utilities::hex::Hex;
 
 mod scanner;
 mod types;
 mod runtime;
-mod errors;
+pub mod errors;
 mod storage;
-mod utxo;
 mod transaction;
 mod balance;
 mod validation;
-mod utxo_validator;
 mod key_derivation;
 mod key_manager;
 mod stealth_types;
@@ -115,14 +114,10 @@ pub use scanner::{TariScanner, ScanResult, ScanProgress};
 pub use balance::TariBalance;
 pub use types::{WalletTransaction, AddressFeatures};
 pub use storage::TariWalletStorage;
-pub use utxo::{TariUTXOManager, UTXOInfo, UTXOFilter, UTXOList, PyScriptPattern};
 pub use transaction::{TariTransactionInput, TariTransactionOutput, TariTransactionKernel, TariTransactionMetadata};
 pub use validation::{
     TariRangeProofValidator, TariCommitmentValidator, TariSignatureValidator, 
     TariEncryptedDataValidator, ValidationResult, BatchValidationResult, TariUTXOBatchValidator
-};
-pub use utxo_validator::{
-    TariUTXOValidator, UTXOValidationConfig, UTXOValidationResult, BatchValidationSummary
 };
 pub use key_derivation::KeyDerivationPath;
 pub use key_manager::TariKeyManager;
@@ -470,6 +465,35 @@ fn generate_new_wallet(passphrase: Option<&str>) -> PyResult<TariWallet> {
     TariWallet::generate_new_with_seed_phrase(passphrase)
 }
 
+/// Validate a 24-word mnemonic seed phrase using Tari CipherSeed specification
+/// 
+/// This function validates that a mnemonic phrase conforms to the Tari wallet standard:
+/// - Must be exactly 24 words
+/// - All words must exist in the BIP-39 word list
+/// - Must have valid CipherSeed format and checksum
+/// 
+/// Args:
+///     mnemonic: The seed phrase to validate as a string
+/// 
+/// Returns:
+///     bool: True if the seed phrase is valid, False otherwise
+/// 
+/// Note:
+///     This is a pure validation function that does not store or expose
+///     any cryptographic material. It only validates format and checksum.
+/// 
+/// Example:
+///     >>> valid = validate_seed_phrase("abandon abandon abandon ...")
+///     >>> if valid:
+///     ...     wallet = TariWallet.from_seed_phrase(seed_phrase)
+#[pyfunction]
+fn validate_seed_phrase_py(mnemonic: &str) -> PyResult<bool> {
+    match validate_seed_phrase(mnemonic) {
+        Ok(()) => Ok(true),
+        Err(_) => Ok(false),
+    }
+}
+
 /// A Python module implemented in Rust.
 #[pymodule]
 fn lightweight_wallet_libpy(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -481,11 +505,6 @@ fn lightweight_wallet_libpy(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<WalletTransaction>()?;
     m.add_class::<AddressFeatures>()?;
     m.add_class::<TariWalletStorage>()?;
-    m.add_class::<TariUTXOManager>()?;
-    m.add_class::<UTXOInfo>()?;
-    m.add_class::<UTXOFilter>()?;
-    m.add_class::<UTXOList>()?;
-    m.add_class::<PyScriptPattern>()?;
     m.add_class::<TariTransactionInput>()?;
     m.add_class::<TariTransactionOutput>()?;
     m.add_class::<TariTransactionKernel>()?;
@@ -506,11 +525,7 @@ fn lightweight_wallet_libpy(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ValidationResult>()?;
     m.add_class::<BatchValidationResult>()?;
     m.add_class::<TariUTXOBatchValidator>()?;
-    // UTXO Validation classes
-    m.add_class::<TariUTXOValidator>()?;
-    m.add_class::<UTXOValidationConfig>()?;
-    m.add_class::<UTXOValidationResult>()?;
-    m.add_class::<BatchValidationSummary>()?;
     m.add_function(wrap_pyfunction!(generate_new_wallet, m)?)?;
+    m.add_function(wrap_pyfunction!(validate_seed_phrase_py, m)?)?;
     Ok(())
 }
