@@ -10,12 +10,12 @@ use crate::errors::PyWalletError;
 use lightweight_wallet_libs::{
     data_structures::{
         types::{CompressedPublicKey, PrivateKey},
-        transaction_output::LightweightTransactionOutput,
-        wallet_output::LightweightWalletOutput,
     },
     extraction::{extract_wallet_output, ExtractionConfig},
     errors::LightweightWalletError,
 };
+
+use crate::extraction_wrappers::{PyLightweightTransactionOutput, PyLightweightWalletOutput};
 
 /// Configuration for UTXO extraction operations
 ///
@@ -299,14 +299,35 @@ impl PyExtractionConfig {
 ///
 /// This function releases the Python GIL during cryptographic operations for performance.
 /// The extraction process validates ownership through real cryptographic decryption.
+/// Extract wallet output from transaction output using provided configuration
+///
+/// This function attempts to extract a wallet output from a given transaction output
+/// using the provided extraction configuration. It performs real cryptographic
+/// operations to determine output ownership.
+///
+/// # Arguments
+/// * `transaction_output` - The transaction output to analyze (Python wrapper)
+/// * `config` - Extraction configuration with keys and options
+///
+/// # Returns
+/// * `PyResult<PyLightweightWalletOutput>` - The extracted wallet output if successful
+///
+/// # Security Notes
+/// - Uses real cryptographic validation, not placeholder data
+/// - All sensitive data is properly zeroized after use
+/// - This function releases the Python GIL during cryptographic operations for performance.
+/// - The extraction process validates ownership through real cryptographic decryption.
 #[pyfunction]
 pub fn extract_wallet_output_py(
     py: Python,
-    transaction_output: LightweightTransactionOutput,
+    transaction_output: &PyLightweightTransactionOutput,
     config: &PyExtractionConfig,
-) -> PyResult<LightweightWalletOutput> {
+) -> PyResult<PyLightweightWalletOutput> {
     // Release GIL for cryptographic operations
     py.allow_threads(|| {
+        // Convert Python wrapper to Rust type
+        let rust_transaction_output = transaction_output.to_rust()?;
+        
         let config_guard = config.inner.lock().map_err(|e| {
             PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock config: {}", e)))
         })?;
@@ -314,10 +335,11 @@ pub fn extract_wallet_output_py(
         let rust_config = config_guard.clone();
         drop(config_guard); // Release lock before calling Rust function
         
-        let wallet_output = extract_wallet_output(&transaction_output, &rust_config)
+        let wallet_output = extract_wallet_output(&rust_transaction_output, &rust_config)
             .map_err(|e| PyWalletError(e))?;
 
-        Ok(wallet_output)
+        // Convert result back to Python wrapper
+        PyLightweightWalletOutput::from_rust(&wallet_output)
     })
 }
 

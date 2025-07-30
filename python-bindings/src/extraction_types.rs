@@ -8,10 +8,6 @@ use std::sync::{Arc, Mutex};
 
 use crate::errors::PyWalletError;
 use lightweight_wallet_libs::{
-    data_structures::{
-        payment_id::PaymentId,
-        types::{MicroMinotari, PrivateKey},
-    },
     extraction::{
         DecryptionOptions, DecryptionResult, PaymentIdExtractionResult, PaymentIdMetadata,
     },
@@ -82,14 +78,14 @@ impl PyDecryptionOptions {
     #[getter]
     pub fn try_all_keys(&self) -> PyResult<bool> {
         let options = self.inner.lock().map_err(|e| {
-            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock options: {}", e))
+            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock options: {}", e)))
         })?;
         Ok(options.try_all_keys)
     }
 
     pub fn set_try_all_keys(&self, value: bool) -> PyResult<()> {
         let mut options = self.inner.lock().map_err(|e| {
-            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock options: {}", e))
+            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock options: {}", e)))
         })?;
         options.try_all_keys = value;
         Ok(())
@@ -99,14 +95,14 @@ impl PyDecryptionOptions {
     #[getter]
     pub fn validate_decrypted_data(&self) -> PyResult<bool> {
         let options = self.inner.lock().map_err(|e| {
-            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock options: {}", e))
+            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock options: {}", e)))
         })?;
         Ok(options.validate_decrypted_data)
     }
 
     pub fn set_validate_decrypted_data(&self, value: bool) -> PyResult<()> {
         let mut options = self.inner.lock().map_err(|e| {
-            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock options: {}", e))
+            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock options: {}", e)))
         })?;
         options.validate_decrypted_data = value;
         Ok(())
@@ -116,14 +112,14 @@ impl PyDecryptionOptions {
     #[getter]
     pub fn max_keys_to_try(&self) -> PyResult<usize> {
         let options = self.inner.lock().map_err(|e| {
-            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock options: {}", e))
+            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock options: {}", e)))
         })?;
         Ok(options.max_keys_to_try)
     }
 
     pub fn set_max_keys_to_try(&self, value: usize) -> PyResult<()> {
         let mut options = self.inner.lock().map_err(|e| {
-            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock options: {}", e))
+            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock options: {}", e)))
         })?;
         options.max_keys_to_try = value;
         Ok(())
@@ -133,14 +129,14 @@ impl PyDecryptionOptions {
     #[getter]
     pub fn return_partial_results(&self) -> PyResult<bool> {
         let options = self.inner.lock().map_err(|e| {
-            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock options: {}", e))
+            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock options: {}", e)))
         })?;
         Ok(options.return_partial_results)
     }
 
     pub fn set_return_partial_results(&self, value: bool) -> PyResult<()> {
         let mut options = self.inner.lock().map_err(|e| {
-            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock options: {}", e))
+            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock options: {}", e)))
         })?;
         options.return_partial_results = value;
         Ok(())
@@ -149,7 +145,7 @@ impl PyDecryptionOptions {
     /// String representation for debugging
     fn __repr__(&self) -> PyResult<String> {
         let options = self.inner.lock().map_err(|e| {
-            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock options: {}", e))
+            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock options: {}", e)))
         })?;
         
         Ok(format!(

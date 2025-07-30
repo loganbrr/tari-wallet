@@ -108,6 +108,7 @@ mod key_manager;
 mod stealth_types;
 mod stealth_address;
 mod extraction;
+mod extraction_wrappers;
 mod extraction_batch;
 mod extraction_types;
 
@@ -124,6 +125,7 @@ pub use key_manager::TariKeyManager;
 pub use stealth_types::{StealthAddressInfo, StealthScanResult, StealthScanResultIterator};
 pub use stealth_address::TariStealthAddress;
 pub use extraction::PyExtractionConfig;
+pub use extraction_wrappers::{PyLightweightTransactionOutput, PyLightweightWalletOutput};
 pub use extraction_batch::{PyBatchValidationOptions, PyOutputValidationResult, PyBatchValidationSummary, PyBatchValidationResult};
 pub use extraction_types::{PyDecryptionOptions, PyDecryptionResult, PyPaymentIdMetadata, PyPaymentIdExtractionResult};
 
@@ -540,6 +542,7 @@ fn lightweight_wallet_libpy(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()>
     m.add_class::<PyPaymentIdExtractionResult>()?;
     // Register extraction functions
     extraction::register_extraction_classes(py, m)?;
+    extraction_wrappers::register_wrapper_classes(py, m)?;
     extraction_batch::register_batch_validation_classes(py, m)?;
     extraction_types::register_extraction_type_classes(py, m)?;
     m.add_function(wrap_pyfunction!(generate_new_wallet, m)?)?;
