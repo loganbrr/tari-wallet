@@ -507,8 +507,146 @@ def enhanced_utxo_validation_example():
         print("Make sure the wallet library is built with enhanced UTXO validation support")
 
 
+def demonstrate_extraction_functionality():
+    """Demonstrate UTXO extraction and batch validation functionality."""
+    print("Testing extraction functionality with mock data...")
+    
+    try:
+        # Create extraction configuration
+        print("\n  Creating extraction configuration...")
+        config = lightweight_wallet_libpy.TariExtractionConfig()
+        
+        # Set extraction options
+        config.set_enable_key_derivation(True)
+        config.set_validate_range_proofs(True)
+        config.set_validate_signatures(False)  # Disable for performance
+        config.set_handle_special_outputs(True)
+        config.set_detect_corruption(True)
+        
+        print(f"    Config: {config}")
+        
+        # Create private key for extraction
+        test_private_key = b'a' * 32  # 32-byte test key
+        config.set_private_key(test_private_key)
+        print("    Set private key for extraction")
+        
+        # Create decryption options
+        print("\n  Creating decryption options...")
+        decryption_options = lightweight_wallet_libpy.DecryptionOptions()
+        decryption_options.set_try_all_keys(True)
+        decryption_options.set_validate_decrypted_data(True)
+        decryption_options.set_max_keys_to_try(5)  # Limit for security
+        decryption_options.set_return_partial_results(False)
+        
+        print(f"    Options: {decryption_options}")
+        
+        # Create batch validation options
+        print("\n  Creating batch validation options...")
+        batch_options = lightweight_wallet_libpy.BatchValidationOptions()
+        batch_options.set_continue_on_error(True)
+        batch_options.set_max_errors_per_output(3)
+        batch_options.set_validate_range_proofs(True)
+        batch_options.set_validate_signatures(False)  # Performance
+        batch_options.set_validate_commitments(True)
+        
+        print(f"    Batch options: {batch_options}")
+        
+        # Test batch validation with empty list (should succeed)
+        print("\n  Testing batch validation with empty list...")
+        try:
+            empty_outputs = []
+            result = lightweight_wallet_libpy.validate_output_batch(empty_outputs, batch_options)
+            print(f"    Empty batch validation: {result}")
+            print(f"    Valid: {result.is_valid}")
+            print(f"    Summary: {result.summary}")
+        except Exception as e:
+            print(f"    Empty batch validation not supported: {e}")
+        
+        # Test extraction configuration creation methods
+        print("\n  Testing configuration creation methods...")
+        
+        # Test with_private_key
+        try:
+            config_with_private_key = lightweight_wallet_libpy.TariExtractionConfig.with_private_key(test_private_key)
+            print("    ✓ with_private_key() works")
+        except Exception as e:
+            print(f"    ✗ with_private_key() failed: {e}")
+        
+        # Test with_public_key
+        try:
+            test_public_key = b'b' * 32  # 32-byte test key
+            config_with_public_key = lightweight_wallet_libpy.TariExtractionConfig.with_public_key(test_public_key)
+            print("    ✓ with_public_key() works")
+        except Exception as e:
+            print(f"    ✗ with_public_key() failed: {e}")
+        
+        # Test custom decryption options
+        print("\n  Testing custom decryption options...")
+        try:
+            custom_options = lightweight_wallet_libpy.DecryptionOptions.with_options(
+                try_all_keys=False,
+                validate_decrypted_data=True,
+                max_keys_to_try=3,
+                return_partial_results=True
+            )
+            print(f"    Custom options: {custom_options}")
+            print("    ✓ Custom decryption options work")
+        except Exception as e:
+            print(f"    ✗ Custom decryption options failed: {e}")
+        
+        # Test custom batch validation options
+        print("\n  Testing custom batch validation options...")
+        try:
+            custom_batch_options = lightweight_wallet_libpy.BatchValidationOptions.with_options(
+                continue_on_error=False,
+                max_errors_per_output=1,
+                validate_range_proofs=False,
+                validate_signatures=False,
+                validate_commitments=True
+            )
+            print(f"    Custom batch options: {custom_batch_options}")
+            print("    ✓ Custom batch validation options work")
+        except Exception as e:
+            print(f"    ✗ Custom batch validation options failed: {e}")
+        
+        # Test error handling
+        print("\n  Testing error handling...")
+        
+        # Test invalid key length
+        try:
+            invalid_key = b'short'  # Invalid length
+            lightweight_wallet_libpy.TariExtractionConfig.with_private_key(invalid_key)
+            print("    ✗ Invalid key validation failed")
+        except Exception as e:
+            print(f"    ✓ Invalid key properly rejected: {type(e).__name__}")
+        
+        # Check for parallel validation function
+        print("\n  Checking for parallel validation support...")
+        if hasattr(lightweight_wallet_libpy, 'validate_output_batch_parallel'):
+            print("    ✓ Parallel batch validation available (grpc feature enabled)")
+            try:
+                empty_outputs = []
+                result = lightweight_wallet_libpy.validate_output_batch_parallel(empty_outputs, batch_options)
+                print(f"    Parallel validation result: {result}")
+            except Exception as e:
+                print(f"    Parallel validation test failed: {e}")
+        else:
+            print("    ℹ Parallel batch validation not available (grpc feature disabled)")
+        
+        print("\n  ✓ Extraction functionality demonstration completed")
+        
+    except Exception as e:
+        print(f"  ✗ Extraction functionality demonstration failed: {e}")
+        import traceback
+        traceback.print_exc()
+
+
 if __name__ == "__main__":
     main()
+    
+    # Run extraction examples
+    print("\n=== 11. Extraction Functionality ===")
+    demonstrate_extraction_functionality()
     
     # Uncomment to run validation examples
     # chunked_validation_example()
