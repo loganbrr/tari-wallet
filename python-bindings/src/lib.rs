@@ -107,6 +107,9 @@ mod key_derivation;
 mod key_manager;
 mod stealth_types;
 mod stealth_address;
+mod extraction;
+mod extraction_batch;
+mod extraction_types;
 
 pub use scanner::{TariScanner, ScanResult, ScanProgress};
 pub use balance::TariBalance;
@@ -120,6 +123,9 @@ pub use key_derivation::KeyDerivationPath;
 pub use key_manager::TariKeyManager;
 pub use stealth_types::{StealthAddressInfo, StealthScanResult, StealthScanResultIterator};
 pub use stealth_address::TariStealthAddress;
+pub use extraction::PyExtractionConfig;
+pub use extraction_batch::{PyBatchValidationOptions, PyOutputValidationResult, PyBatchValidationSummary, PyBatchValidationResult};
+pub use extraction_types::{PyDecryptionOptions, PyDecryptionResult, PyPaymentIdMetadata, PyPaymentIdExtractionResult};
 
 /// Python wrapper for the Tari Wallet with simplified, security-focused API
 /// 
@@ -383,13 +389,16 @@ impl TariWallet {
         Ok(is_valid)
     }
 
-    /// Sync wallet with blockchain from birthday to current tip
+    /// Scan blockchain for wallet outputs from birthday to current tip
+    /// 
+    /// Note: This method performs a read-only scan and does not update wallet state.
+    /// For full wallet synchronization, discovered outputs should be stored using TariWalletStorage.
     /// 
     /// Args:
     ///     base_node_url: The base node URL for blockchain scanning
     ///     
     /// Returns:
-    ///     dict: Sync result with total_value found and blocks scanned
+    ///     dict: Scan result with total_value found and blocks scanned
     fn sync(&self, base_node_url: String) -> PyResult<PyObject> {
         use crate::runtime::{execute_async, get_or_create_scanner};
         use lightweight_wallet_libs::scanning::BlockchainScanner;
@@ -493,7 +502,7 @@ fn validate_seed_phrase_py(mnemonic: &str) -> PyResult<bool> {
 
 /// A Python module implemented in Rust.
 #[pymodule]
-fn lightweight_wallet_libpy(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn lightweight_wallet_libpy(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<TariWallet>()?;
     m.add_class::<TariScanner>()?;
     m.add_class::<ScanResult>()?;
@@ -518,7 +527,21 @@ fn lightweight_wallet_libpy(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<LightweightCommitmentValidator>()?;
     m.add_class::<TariEncryptedDataValidator>()?;
     m.add_class::<ValidationResult>()?;
-    m.add_class::<BatchValidationResult>()?;
+    // Existing validation BatchValidationResult already added in validation module
+    // Extraction classes
+    m.add_class::<PyExtractionConfig>()?;
+    m.add_class::<PyBatchValidationOptions>()?;
+    m.add_class::<PyOutputValidationResult>()?;
+    m.add_class::<PyBatchValidationSummary>()?;
+    m.add_class::<PyBatchValidationResult>()?;
+    m.add_class::<PyDecryptionOptions>()?;
+    m.add_class::<PyDecryptionResult>()?;
+    m.add_class::<PyPaymentIdMetadata>()?;
+    m.add_class::<PyPaymentIdExtractionResult>()?;
+    // Register extraction functions
+    extraction::register_extraction_classes(py, m)?;
+    extraction_batch::register_batch_validation_classes(py, m)?;
+    extraction_types::register_extraction_type_classes(py, m)?;
     m.add_function(wrap_pyfunction!(generate_new_wallet, m)?)?;
     m.add_function(wrap_pyfunction!(validate_seed_phrase_py, m)?)?;
     Ok(())

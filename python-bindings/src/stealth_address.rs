@@ -206,7 +206,8 @@ impl TariStealthAddress {
         view_key_hex: &str,
         outputs: Vec<PyObject>,
     ) -> PyResult<StealthScanResult> {
-        let _service = self.inner.lock()
+        // Validate that the stealth service is available before processing
+        let _service_check = self.inner.lock()
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock stealth service: {}", e)))?;
 
         let total_outputs = outputs.len();

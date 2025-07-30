@@ -16,7 +16,7 @@ use lightweight_wallet_libs::data_structures::{
     encrypted_data::EncryptedData,
 };
 use crate::errors::convert_to_pyerr;
-use std::time::Instant;
+
 
 // ========== Chunk Configuration ==========
 
@@ -253,11 +253,8 @@ impl LightweightCommitmentValidator {
         config: &ChunkConfig,
     ) -> PyResult<Vec<ValidationResult>> {
         let mut all_results = Vec::new();
-        let start_time = Instant::now();
-        let total_items = hexes.len();
         
-        for (chunk_idx, chunk) in hexes.chunks(config.chunk_size).enumerate() {
-            let chunk_start = Instant::now();
+        for chunk in hexes.chunks(config.chunk_size) {
             
             let chunk_results: Result<Vec<ValidationResult>, PyErr> = chunk
                 .iter()
@@ -267,22 +264,12 @@ impl LightweightCommitmentValidator {
             match chunk_results {
                 Ok(mut results) => {
                     all_results.append(&mut results);
-                    let chunk_duration = chunk_start.elapsed();
-                    if chunk.len() > 100 {
-                        eprintln!("Commitment chunk {}: {} items in {:?}", 
-                                 chunk_idx, chunk.len(), chunk_duration);
-                    }
                 },
                 Err(e) => return Err(e),
             }
         }
         
-        let total_duration = start_time.elapsed();
-        if total_items > 1000 {
-            eprintln!("Commitment validation completed: {} items in {:?} ({:.2} items/sec)", 
-                     total_items, total_duration, 
-                     total_items as f64 / total_duration.as_secs_f64());
-        }
+
         
         Ok(all_results)
     }

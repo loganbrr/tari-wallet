@@ -193,17 +193,22 @@ impl TariScanner {
         let wallet = self.wallet.clone();
         
         execute_async(async move {
-            // Get wallet view key for stealth address scanning
-            let wallet_guard = wallet.lock()
-                .map_err(|e| LightweightWalletError::ConversionError(format!("Failed to lock wallet: {}", e)))?;
+            // Get wallet view key using master key with proper derivation
+            let (view_key, _) = {
+                let wallet_guard = wallet.lock()
+                    .map_err(|e| LightweightWalletError::ConversionError(format!("Failed to lock wallet: {}", e)))?;
                 
-            let master_key_bytes = wallet_guard.master_key_bytes();
-            let mut entropy = [0u8; 16];
-            entropy.copy_from_slice(&master_key_bytes[0..16]);
-            drop(wallet_guard);
-
-            // Derive view key from entropy
-            let (view_key, _) = lightweight_wallet_libs::key_management::key_derivation::derive_view_and_spend_keys_from_entropy(&entropy)?;
+                // Get master key and use it as-is for view key (matches wallet's simple approach)
+                // This aligns with the wallet's current derive_key_pair implementation which uses
+                // master_key directly as view_key
+                let master_key_bytes = wallet_guard.master_key_bytes();
+                let view_key = lightweight_wallet_libs::data_structures::types::PrivateKey::from_canonical_bytes(&master_key_bytes)
+                    .map_err(|e| LightweightWalletError::ConversionError(format!("Failed to create view key: {}", e)))?;
+                
+                // Spend key not needed for scanning, so just use dummy value
+                let spend_key = view_key.clone();
+                (view_key, spend_key)
+            };
             let view_key_hex = hex::encode(view_key.as_bytes());
 
             // Get blockchain scanner
