@@ -23,6 +23,8 @@ mod runtime;
 pub mod errors;
 mod error_hierarchy;
 mod secure_wrapper;
+mod hybrid_serialization;
+mod crypto_types;
 #[macro_use]
 mod field_extraction_macros;  // New macro module for reducing boilerplate
 mod transaction_utils;        // Consolidated transaction utilities
@@ -361,6 +363,14 @@ fn lightweight_wallet_libpy(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()>
     extraction_wrappers::register_wrapper_classes(py, m)?;
     extraction_batch::register_batch_validation_classes(py, m)?;
     extraction_types::register_extraction_type_classes(py, m)?;
+    
+    // Hybrid serialization and crypto types
+    m.add_class::<hybrid_serialization::CryptoPyWrapper>()?;
+    m.add_class::<hybrid_serialization::EnhancedTransactionOutput>()?;
+    m.add_class::<crypto_types::EnhancedPublicKey>()?;
+    m.add_class::<crypto_types::EnhancedCommitment>()?;
+    m.add_class::<crypto_types::EnhancedSignature>()?;
+    m.add_class::<crypto_types::EnhancedRangeProof>()?;
     
     // Functions
     m.add_function(wrap_pyfunction!(generate_new_wallet, m)?)?;
