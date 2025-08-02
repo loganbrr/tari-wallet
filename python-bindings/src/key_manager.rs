@@ -11,6 +11,7 @@ use std::convert::TryInto;
 use std::str::FromStr;
 use tari_utilities::ByteArray;
 use crate::errors::{lock_error, hex_decode_error};
+use crate::secure_wrapper::{SecureData, SecureEntropy};
 
 use lightweight_wallet_libs::key_management::{
     key_derivation::{
@@ -25,11 +26,11 @@ use lightweight_wallet_libs::crypto::{RistrettoSecretKey, SecretKey};
 use crate::key_derivation::KeyDerivationPath;
 use crate::stealth_types::StealthAddressInfo;
 
-/// Internal key manager state for secure operations
+/// Internal key manager state with secure memory management
 #[derive(Debug)]
 struct KeyManagerState {
     stealth_service: StealthAddressService,
-    entropy: Option<[u8; 16]>, // Store wallet entropy for key derivation
+    entropy: Option<SecureData<SecureEntropy>>, // Secure entropy storage with zeroization
 }
 
 impl KeyManagerState {
@@ -43,7 +44,7 @@ impl KeyManagerState {
     fn with_entropy(entropy: [u8; 16]) -> Self {
         Self {
             stealth_service: StealthAddressService::new(),
-            entropy: Some(entropy),
+            entropy: Some(SecureData::new(SecureEntropy::from(entropy))),
         }
     }
 }
@@ -132,7 +133,7 @@ impl TariKeyManager {
 
         let mut state = self.inner.lock().map_err(lock_error("key manager"))?;
         
-        state.entropy = Some(entropy);
+        state.entropy = Some(SecureData::new(SecureEntropy::from(entropy)));
         Ok(())
     }
 
@@ -150,7 +151,7 @@ impl TariKeyManager {
         let state = self.inner.lock()
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock key manager: {}", e)))?;
 
-        let entropy = state.entropy.ok_or_else(|| {
+        let entropy_data = state.entropy.as_ref().ok_or_else(|| {
             PyRuntimeError::new_err("No entropy set. Use set_entropy() or from_wallet() first.")
         })?;
 
@@ -167,10 +168,17 @@ impl TariKeyManager {
         let branch_seed = format!("branch_{}", derivation_path.components()[0]);
         let key_index = derivation_path.components().get(1).copied().unwrap_or(0) as u64;
 
-        let private_key = derive_private_key_from_entropy(&entropy, &branch_seed, key_index)
-            .map_err(|e| PyRuntimeError::new_err(format!("Key derivation failed: {}", e)))?;
+        // Use secure data with closure to avoid exposing entropy
+        let result = entropy_data.with_data(|entropy| {
+            derive_private_key_from_entropy(entropy.as_bytes(), &branch_seed, key_index)
+                .map_err(|e| PyRuntimeError::new_err(format!("Key derivation failed: {}", e)))
+        });
 
-        Ok(hex::encode(private_key.as_bytes()))
+        match result {
+            Some(Ok(private_key)) => Ok(hex::encode(private_key.as_bytes())),
+            Some(Err(e)) => Err(e),
+            None => Err(PyRuntimeError::new_err("Entropy data has been zeroized")),
+        }
     }
 
     /// Derive view and spend keys from wallet entropy
@@ -186,19 +194,27 @@ impl TariKeyManager {
         let state = self.inner.lock()
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock key manager: {}", e)))?;
 
-        let entropy = state.entropy.ok_or_else(|| {
+        let entropy_data = state.entropy.as_ref().ok_or_else(|| {
             PyRuntimeError::new_err("No entropy set. Use set_entropy() or from_wallet() first.")
         })?;
 
-        let (view_key, spend_key) = derive_view_and_spend_keys_from_entropy(&entropy)
-            .map_err(|e| PyRuntimeError::new_err(format!("Key derivation failed: {}", e)))?;
+        let result = entropy_data.with_data(|entropy| {
+            derive_view_and_spend_keys_from_entropy(entropy.as_bytes())
+                .map_err(|e| PyRuntimeError::new_err(format!("Key derivation failed: {}", e)))
+        });
 
-        Python::with_gil(|py| {
-            let dict = PyDict::new(py);
-            dict.set_item("view_key", hex::encode(view_key.as_bytes()))?;
-            dict.set_item("spend_key", hex::encode(spend_key.as_bytes()))?;
-            Ok(dict.into())
-        })
+        match result {
+            Some(Ok((view_key, spend_key))) => {
+                Python::with_gil(|py| {
+                    let dict = PyDict::new(py);
+                    dict.set_item("view_key", hex::encode(view_key.as_bytes()))?;
+                    dict.set_item("spend_key", hex::encode(spend_key.as_bytes()))?;
+                    Ok(dict.into())
+                })
+            },
+            Some(Err(e)) => Err(e),
+            None => Err(PyRuntimeError::new_err("Entropy data has been zeroized")),
+        }
     }
 
     /// Generate a shared secret from private and public keys
@@ -359,13 +375,13 @@ impl TariKeyManager {
         let state = self.inner.lock()
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock key manager: {}", e)))?;
         
-        Ok(state.entropy.is_some())
+        Ok(state.entropy.as_ref().map_or(false, |entropy| entropy.is_available()))
     }
 
     /// Get string representation
     fn __repr__(&self) -> String {
         let has_entropy = self.inner.lock()
-            .map(|state| state.entropy.is_some())
+            .map(|state| state.entropy.as_ref().map_or(false, |entropy| entropy.is_available()))
             .unwrap_or(false);
         format!("TariKeyManager(has_entropy={})", has_entropy)
     }
@@ -389,13 +405,15 @@ impl TariKeyManager {
         let state = self.inner.lock()
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock key manager: {}", e)))?;
 
-        let entropy = state.entropy.ok_or_else(|| {
+        let entropy_data = state.entropy.as_ref().ok_or_else(|| {
             PyRuntimeError::new_err("No entropy set. Use set_entropy() or from_wallet() first.")
         })?;
 
-        // Derive view and spend keys from entropy
-        let (view_key, spend_key) = derive_view_and_spend_keys_from_entropy(&entropy)
-            .map_err(|e| PyRuntimeError::new_err(format!("Key derivation failed: {}", e)))?;
+        // Derive view and spend keys from entropy using secure data
+        let (view_key, spend_key) = entropy_data.with_data(|entropy| {
+            derive_view_and_spend_keys_from_entropy(entropy.as_bytes())
+        }).ok_or_else(|| PyRuntimeError::new_err("Entropy data has been zeroized"))?
+        .map_err(|e| PyRuntimeError::new_err(format!("Key derivation failed: {}", e)))?;
 
         // Convert spend key to public key
         let spend_public_key = CompressedPublicKey::from_private_key(&PrivateKey::from_canonical_bytes(spend_key.as_bytes())
@@ -447,13 +465,15 @@ impl TariKeyManager {
         let state = self.inner.lock()
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock key manager: {}", e)))?;
 
-        let entropy = state.entropy.ok_or_else(|| {
+        let entropy_data = state.entropy.as_ref().ok_or_else(|| {
             PyRuntimeError::new_err("No entropy set. Use set_entropy() or from_wallet() first.")
         })?;
 
-        // Derive view key from entropy
-        let (view_key, _) = derive_view_and_spend_keys_from_entropy(&entropy)
-            .map_err(|e| PyRuntimeError::new_err(format!("Key derivation failed: {}", e)))?;
+        // Derive view key from entropy using secure data
+        let (view_key, _) = entropy_data.with_data(|entropy| {
+            derive_view_and_spend_keys_from_entropy(entropy.as_bytes())
+        }).ok_or_else(|| PyRuntimeError::new_err("Entropy data has been zeroized"))?
+        .map_err(|e| PyRuntimeError::new_err(format!("Key derivation failed: {}", e)))?;
 
         // Decode sender offset public key
         let sender_offset_bytes = hex::decode(sender_offset_public_key_hex)
@@ -501,12 +521,14 @@ impl TariKeyManager {
         let state = self.inner.lock()
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock key manager: {}", e)))?;
 
-        let entropy = state.entropy.ok_or_else(|| {
+        let entropy_data = state.entropy.as_ref().ok_or_else(|| {
             PyRuntimeError::new_err("No entropy set. Use set_entropy() or from_wallet() first.")
         })?;
 
-        let (view_key, spend_key) = derive_view_and_spend_keys_from_entropy(&entropy)
-            .map_err(|e| PyRuntimeError::new_err(format!("Key derivation failed: {}", e)))?;
+        let (view_key, spend_key) = entropy_data.with_data(|entropy| {
+            derive_view_and_spend_keys_from_entropy(entropy.as_bytes())
+        }).ok_or_else(|| PyRuntimeError::new_err("Entropy data has been zeroized"))?
+        .map_err(|e| PyRuntimeError::new_err(format!("Key derivation failed: {}", e)))?;
 
         // Convert to public keys
         let view_public_key = derive_public_key_from_private(&view_key)
@@ -524,15 +546,8 @@ impl TariKeyManager {
     }
 }
 
-// Implement secure cleanup
-impl Drop for KeyManagerState {
-    fn drop(&mut self) {
-        // Zero out entropy on drop for security
-        if let Some(ref mut entropy) = self.entropy {
-            entropy.fill(0);
-        }
-    }
-}
+// SecureData handles its own zeroization automatically
+// Drop implementation no longer needed as SecureData<[u8; 16]> implements ZeroizeOnDrop
 
 #[cfg(test)]
 mod tests {

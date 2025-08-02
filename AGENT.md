@@ -98,6 +98,79 @@ impl Zeroize for Wallet {
 }
 ```
 
+## Python Bindings Architecture
+
+### Complex Type Wrapper Pattern
+
+**Critical Pattern for Python Bindings**: When exposing complex Rust types to Python, follow the established hex-string serialization pattern:
+
+#### Implementation Strategy
+```rust
+#[pyclass]
+#[derive(Clone)]
+pub struct PyComplexType {
+    #[pyo3(get)]
+    pub version: u8,
+    
+    #[pyo3(get)]  
+    pub complex_field_hex: String,  // Convert complex types to hex
+    
+    #[pyo3(get)]
+    pub simple_field: u64,          // Simple types can be exposed directly
+}
+
+impl PyComplexType {
+    /// Convert from Rust type to Python wrapper
+    pub fn from_rust(rust_type: &RustType) -> PyResult<Self> {
+        use borsh::to_vec;
+        
+        let complex_field_hex = hex::encode(to_vec(&rust_type.complex_field).map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!("Serialization error: {}", e))
+        })?);
+        
+        Ok(Self {
+            version: rust_type.version,
+            complex_field_hex,
+            simple_field: rust_type.simple_field,
+        })
+    }
+    
+    /// Convert from Python wrapper to Rust type
+    pub fn to_rust(&self) -> PyResult<RustType> {
+        use borsh::from_slice;
+        
+        let complex_field = from_slice(&hex::decode(&self.complex_field_hex).map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!("Hex decode error: {}", e))
+        })?).map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!("Deserialization error: {}", e))
+        })?;
+        
+        Ok(RustType::new(
+            self.version,
+            complex_field,
+            self.simple_field,
+        ))
+    }
+}
+```
+
+#### When to Apply This Pattern
+- **Complex cryptographic types**: `CompressedCommitment`, `CompressedPublicKey`, `LightweightSignature`
+- **Script types**: `LightweightScript`, `LightweightCovenant`, `LightweightExecutionStack`
+- **Proof types**: `LightweightRangeProof`, `EncryptedData`
+- **Any type requiring BorshSerialize/BorshDeserialize**
+
+#### Dependencies Required
+```toml
+borsh = { version = "1.5.7", features = ["derive"] }
+hex = "0.4"
+```
+
+#### Examples in Codebase
+- `PyLightweightTransactionOutput` in `python-bindings/src/extraction_wrappers.rs`
+- `PyLightweightWalletOutput` in `python-bindings/src/extraction_wrappers.rs`
+- `TariTransactionOutput` in `python-bindings/src/transaction.rs`
+
 ## Code Quality Standards
 
 ### Linting Configuration (Enforced via .cargo/config.toml)

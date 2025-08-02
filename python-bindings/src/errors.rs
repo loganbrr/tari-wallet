@@ -1,4 +1,7 @@
 //! Error handling for Python bindings
+//!
+//! This module provides both legacy error handling for backward compatibility
+//! and enhanced error handling with source chain preservation.
 
 use pyo3::prelude::*;
 use pyo3::exceptions::{
@@ -7,6 +10,13 @@ use pyo3::exceptions::{
 };
 use lightweight_wallet_libs::errors::LightweightWalletError;
 use std::sync::PoisonError;
+
+// Re-export enhanced error handling
+pub use crate::error_hierarchy::{
+    EnhancedPyWalletError, TariValidationError, TariStorageError, 
+    TariKeyError, TariNetworkError, enhanced_convert_to_pyerr,
+    debug_error_chain, wrap_result, register_exceptions
+};
 
 /// PyO3 best practice error wrapper to circumvent orphan rules
 /// 

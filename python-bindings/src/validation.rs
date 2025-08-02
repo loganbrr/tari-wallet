@@ -9,7 +9,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::types::PyList;
 use std::sync::{Arc, Mutex};
 use lightweight_wallet_libs::validation::{
-    LightweightEncryptedDataValidator,
+    LightweightEncryptedDataValidator as CoreLightweightEncryptedDataValidator,
 };
 use lightweight_wallet_libs::data_structures::{
     types::CompressedCommitment,
@@ -211,17 +211,17 @@ impl LightweightCommitmentValidator {
 
 /// Encrypted data integrity validator
 #[pyclass]
-pub struct TariEncryptedDataValidator {
-    inner: Arc<Mutex<LightweightEncryptedDataValidator>>,
+pub struct LightweightEncryptedDataValidator {
+    inner: Arc<Mutex<CoreLightweightEncryptedDataValidator>>,
 }
 
 #[pymethods]
-impl TariEncryptedDataValidator {
+impl LightweightEncryptedDataValidator {
     #[new]
     #[pyo3(signature = (min_size=64, max_size=1024))]
     fn new(min_size: usize, max_size: usize) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(LightweightEncryptedDataValidator::new(min_size, max_size))),
+            inner: Arc::new(Mutex::new(CoreLightweightEncryptedDataValidator::new(min_size, max_size))),
         }
     }
 
@@ -297,7 +297,7 @@ impl TariEncryptedDataValidator {
     }
 }
 
-impl TariEncryptedDataValidator {
+impl LightweightEncryptedDataValidator {
     /// Internal method to process encrypted data in chunks
     fn process_encrypted_data_in_chunks(
         &self,

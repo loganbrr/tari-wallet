@@ -21,6 +21,8 @@ mod scanner;
 mod types;
 mod runtime;
 pub mod errors;
+mod error_hierarchy;
+mod secure_wrapper;
 #[macro_use]
 mod field_extraction_macros;  // New macro module for reducing boilerplate
 mod transaction_utils;        // Consolidated transaction utilities
@@ -45,7 +47,7 @@ pub use types::{WalletTransaction, AddressFeatures};
 pub use storage::TariWalletStorage;
 pub use transaction::{TariTransactionInput, TariTransactionOutput, TariTransactionKernel, TariTransactionMetadata};
 pub use validation::{
-    LightweightCommitmentValidator, TariEncryptedDataValidator, ValidationResult, BatchValidationResult
+    LightweightCommitmentValidator, LightweightEncryptedDataValidator, ValidationResult, BatchValidationResult
 };
 pub use key_derivation::KeyDerivationPath;
 pub use key_manager::TariKeyManager;
@@ -340,7 +342,7 @@ fn lightweight_wallet_libpy(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()>
     
     // Validation
     m.add_class::<LightweightCommitmentValidator>()?;
-    m.add_class::<TariEncryptedDataValidator>()?;
+    m.add_class::<LightweightEncryptedDataValidator>()?;
     m.add_class::<ValidationResult>()?;
     
     // Extraction framework

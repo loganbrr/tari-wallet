@@ -65,23 +65,23 @@ class TestCommitmentValidation:
     """Test suite for commitment structure validation."""
 
     def test_commitment_validator_creation(self):
-        """Test TariCommitmentValidator instantiation."""
+        """Test LightweightCommitmentValidator instantiation."""
         try:
-            from lightweight_wallet_libpy import TariCommitmentValidator
+            from lightweight_wallet_libpy import LightweightCommitmentValidator
         except ImportError:
-            pytest.skip("TariCommitmentValidator not available - module may not be built")
+            pytest.skip("LightweightCommitmentValidator not available - module may not be built")
 
-        validator = TariCommitmentValidator()
+        validator = LightweightCommitmentValidator()
         assert validator is not None
 
     def test_valid_commitment_validation(self):
         """Test validation of properly formatted commitments."""
         try:
-            from lightweight_wallet_libpy import TariCommitmentValidator
+            from lightweight_wallet_libpy import LightweightCommitmentValidator
         except ImportError:
-            pytest.skip("TariCommitmentValidator not available - module may not be built")
+            pytest.skip("LightweightCommitmentValidator not available - module may not be built")
 
-        validator = TariCommitmentValidator()
+        validator = LightweightCommitmentValidator()
         
         # Create a valid 32-byte commitment with proper prefix
         valid_commitment = "08" + "1234567890abcdef" * 3 + "1234567890abcdef"[:-2]  # Remove 2 chars to get exactly 32 bytes
@@ -96,11 +96,11 @@ class TestCommitmentValidation:
     def test_invalid_commitment_validation(self):
         """Test validation rejection of malformed commitments."""
         try:
-            from lightweight_wallet_libpy import TariCommitmentValidator
+            from lightweight_wallet_libpy import LightweightCommitmentValidator
         except ImportError:
-            pytest.skip("TariCommitmentValidator not available - module may not be built")
+            pytest.skip("LightweightCommitmentValidator not available - module may not be built")
 
-        validator = TariCommitmentValidator()
+        validator = LightweightCommitmentValidator()
         
         # Test invalid hex string
         with pytest.raises(Exception):  # Should raise ValueError
@@ -124,11 +124,11 @@ class TestCommitmentValidation:
     def test_commitment_detailed_validation(self):
         """Test detailed validation results."""
         try:
-            from lightweight_wallet_libpy import TariCommitmentValidator
+            from lightweight_wallet_libpy import LightweightCommitmentValidator
         except ImportError:
-            pytest.skip("TariCommitmentValidator not available - module may not be built")
+            pytest.skip("LightweightCommitmentValidator not available - module may not be built")
 
-        validator = TariCommitmentValidator()
+        validator = LightweightCommitmentValidator()
         
         valid_commitment = "08" + "1234567890abcdef" * 3 + "1234567890abcdef"
         
@@ -144,11 +144,11 @@ class TestCommitmentValidation:
     def test_batch_commitment_validation(self):
         """Test batch processing of multiple commitments."""
         try:
-            from lightweight_wallet_libpy import TariCommitmentValidator
+            from lightweight_wallet_libpy import LightweightCommitmentValidator
         except ImportError:
-            pytest.skip("TariCommitmentValidator not available - module may not be built")
+            pytest.skip("LightweightCommitmentValidator not available - module may not be built")
 
-        validator = TariCommitmentValidator()
+        validator = LightweightCommitmentValidator()
         
         commitments = [
             "08" + "1234567890abcdef" * 3 + "1234567890abcdef",
@@ -321,27 +321,27 @@ class TestEncryptedDataValidation:
     """Test suite for encrypted data validation."""
 
     def test_encrypted_data_validator_creation(self):
-        """Test TariEncryptedDataValidator instantiation."""
+        """Test LightweightEncryptedDataValidator instantiation."""
         try:
-            from lightweight_wallet_libpy import TariEncryptedDataValidator
+            from lightweight_wallet_libpy import LightweightEncryptedDataValidator
         except ImportError:
-            pytest.skip("TariEncryptedDataValidator not available - module may not be built")
+            pytest.skip("LightweightEncryptedDataValidator not available - module may not be built")
 
-        validator = TariEncryptedDataValidator()
+        validator = LightweightEncryptedDataValidator()
         assert validator is not None
         
         # Test with custom size limits
-        custom_validator = TariEncryptedDataValidator(min_size=32, max_size=2048)
+        custom_validator = LightweightEncryptedDataValidator(min_size=32, max_size=2048)
         assert custom_validator is not None
 
     def test_encrypted_data_validation_basic(self):
         """Test basic encrypted data validation."""
         try:
-            from lightweight_wallet_libpy import TariEncryptedDataValidator
+            from lightweight_wallet_libpy import LightweightEncryptedDataValidator
         except ImportError:
-            pytest.skip("TariEncryptedDataValidator not available - module may not be built")
+            pytest.skip("LightweightEncryptedDataValidator not available - module may not be built")
 
-        validator = TariEncryptedDataValidator()
+        validator = LightweightEncryptedDataValidator()
         
         # Create mock encrypted data (128 bytes)
         encrypted_data_hex = "deadbeef" * 32
@@ -357,11 +357,11 @@ class TestEncryptedDataValidation:
     def test_encrypted_data_size_validation(self):
         """Test encrypted data size constraint validation."""
         try:
-            from lightweight_wallet_libpy import TariEncryptedDataValidator
+            from lightweight_wallet_libpy import LightweightEncryptedDataValidator
         except ImportError:
-            pytest.skip("TariEncryptedDataValidator not available - module may not be built")
+            pytest.skip("LightweightEncryptedDataValidator not available - module may not be built")
 
-        validator = TariEncryptedDataValidator(min_size=100, max_size=200)
+        validator = LightweightEncryptedDataValidator(min_size=100, max_size=200)
         
         # Test data too small
         small_data = "deadbeef" * 4  # 32 bytes
@@ -384,11 +384,11 @@ class TestEncryptedDataValidation:
     def test_encrypted_data_detailed_validation(self):
         """Test detailed encrypted data validation results."""
         try:
-            from lightweight_wallet_libpy import TariEncryptedDataValidator
+            from lightweight_wallet_libpy import LightweightEncryptedDataValidator
         except ImportError:
-            pytest.skip("TariEncryptedDataValidator not available - module may not be built")
+            pytest.skip("LightweightEncryptedDataValidator not available - module may not be built")
 
-        validator = TariEncryptedDataValidator()
+        validator = LightweightEncryptedDataValidator()
         
         encrypted_data_hex = "deadbeef" * 32
         
@@ -401,11 +401,11 @@ class TestEncryptedDataValidation:
     def test_batch_encrypted_data_validation(self):
         """Test batch encrypted data validation."""
         try:
-            from lightweight_wallet_libpy import TariEncryptedDataValidator
+            from lightweight_wallet_libpy import LightweightEncryptedDataValidator
         except ImportError:
-            pytest.skip("TariEncryptedDataValidator not available - module may not be built")
+            pytest.skip("LightweightEncryptedDataValidator not available - module may not be built")
 
-        validator = TariEncryptedDataValidator()
+        validator = LightweightEncryptedDataValidator()
         
         encrypted_data_hexes = [
             "deadbeef" * 32,
@@ -425,11 +425,11 @@ class TestValidationPerformance:
     def test_batch_vs_individual_performance(self):
         """Test that batch validation is more efficient than individual calls."""
         try:
-            from lightweight_wallet_libpy import TariCommitmentValidator
+            from lightweight_wallet_libpy import LightweightCommitmentValidator
         except ImportError:
-            pytest.skip("TariCommitmentValidator not available - module may not be built")
+            pytest.skip("LightweightCommitmentValidator not available - module may not be built")
 
-        validator = TariCommitmentValidator()
+        validator = LightweightCommitmentValidator()
         
         # Generate test data
         commitments = [
@@ -462,11 +462,11 @@ class TestValidationPerformance:
     def test_concurrent_validation_access(self):
         """Test concurrent access to validation from multiple threads."""
         try:
-            from lightweight_wallet_libpy import TariCommitmentValidator
+            from lightweight_wallet_libpy import LightweightCommitmentValidator
         except ImportError:
-            pytest.skip("TariCommitmentValidator not available - module may not be built")
+            pytest.skip("LightweightCommitmentValidator not available - module may not be built")
 
-        validator = TariCommitmentValidator()
+        validator = LightweightCommitmentValidator()
         results = []
         errors = []
         
@@ -501,11 +501,11 @@ class TestValidationPerformance:
     def test_memory_usage_batch_validation(self):
         """Test that batch validation doesn't cause excessive memory usage."""
         try:
-            from lightweight_wallet_libpy import TariCommitmentValidator
+            from lightweight_wallet_libpy import LightweightCommitmentValidator
         except ImportError:
-            pytest.skip("TariCommitmentValidator not available - module may not be built")
+            pytest.skip("LightweightCommitmentValidator not available - module may not be built")
 
-        validator = TariCommitmentValidator()
+        validator = LightweightCommitmentValidator()
         
         # Generate large batch
         large_batch = [
@@ -527,11 +527,11 @@ class TestValidationErrorHandling:
     def test_invalid_hex_input_handling(self):
         """Test handling of various invalid hex inputs."""
         try:
-            from lightweight_wallet_libpy import TariCommitmentValidator
+            from lightweight_wallet_libpy import LightweightCommitmentValidator
         except ImportError:
-            pytest.skip("TariCommitmentValidator not available - module may not be built")
+            pytest.skip("LightweightCommitmentValidator not available - module may not be built")
 
-        validator = TariCommitmentValidator()
+        validator = LightweightCommitmentValidator()
         
         invalid_inputs = [
             "",  # Empty string
@@ -551,11 +551,11 @@ class TestValidationErrorHandling:
     def test_empty_batch_validation(self):
         """Test batch validation with empty input lists."""
         try:
-            from lightweight_wallet_libpy import TariCommitmentValidator
+            from lightweight_wallet_libpy import LightweightCommitmentValidator
         except ImportError:
-            pytest.skip("TariCommitmentValidator not available - module may not be built")
+            pytest.skip("LightweightCommitmentValidator not available - module may not be built")
 
-        validator = TariCommitmentValidator()
+        validator = LightweightCommitmentValidator()
         
         result = validator.batch_validate_commitments([])
         assert result.total_count == 0
@@ -588,11 +588,11 @@ class TestChunkedValidation:
     def test_chunked_commitment_validation(self):
         """Test commitment validation with custom chunk sizes."""
         try:
-            from lightweight_wallet_libpy import TariCommitmentValidator
+            from lightweight_wallet_libpy import LightweightCommitmentValidator
         except ImportError:
-            pytest.skip("TariCommitmentValidator not available - module may not be built")
+            pytest.skip("LightweightCommitmentValidator not available - module may not be built")
 
-        validator = TariCommitmentValidator()
+        validator = LightweightCommitmentValidator()
         
         # Generate test data larger than default chunk size
         commitments = [
@@ -666,11 +666,11 @@ class TestChunkedValidation:
     def test_chunked_encrypted_data_validation(self):
         """Test encrypted data validation with chunking."""
         try:
-            from lightweight_wallet_libpy import TariEncryptedDataValidator
+            from lightweight_wallet_libpy import LightweightEncryptedDataValidator
         except ImportError:
-            pytest.skip("TariEncryptedDataValidator not available - module may not be built")
+            pytest.skip("LightweightEncryptedDataValidator not available - module may not be built")
 
-        validator = TariEncryptedDataValidator()
+        validator = LightweightEncryptedDataValidator()
         
         # Generate large encrypted data dataset
         encrypted_data_hexes = [
@@ -687,11 +687,11 @@ class TestChunkedValidation:
     def test_chunk_size_edge_cases(self):
         """Test edge cases for chunk sizes."""
         try:
-            from lightweight_wallet_libpy import TariCommitmentValidator
+            from lightweight_wallet_libpy import LightweightCommitmentValidator
         except ImportError:
-            pytest.skip("TariCommitmentValidator not available - module may not be built")
+            pytest.skip("LightweightCommitmentValidator not available - module may not be built")
 
-        validator = TariCommitmentValidator()
+        validator = LightweightCommitmentValidator()
         
         # Small dataset
         commitments = ["08" + "12" * 31, "09" + "34" * 31]
@@ -713,11 +713,11 @@ class TestChunkedValidation:
     def test_memory_efficiency_demonstration(self):
         """Demonstrate memory-efficient processing patterns."""
         try:
-            from lightweight_wallet_libpy import TariCommitmentValidator
+            from lightweight_wallet_libpy import LightweightCommitmentValidator
         except ImportError:
-            pytest.skip("TariCommitmentValidator not available - module may not be built")
+            pytest.skip("LightweightCommitmentValidator not available - module may not be built")
 
-        validator = TariCommitmentValidator()
+        validator = LightweightCommitmentValidator()
         
         # Generator function for memory-efficient iteration
         def generate_commitments(count, chunk_size=500):
@@ -745,11 +745,11 @@ class TestChunkedValidation:
     def test_chunk_size_performance_optimization(self):
         """Test that different chunk sizes affect processing characteristics."""
         try:
-            from lightweight_wallet_libpy import TariCommitmentValidator
+            from lightweight_wallet_libpy import LightweightCommitmentValidator
         except ImportError:
-            pytest.skip("TariCommitmentValidator not available - module may not be built")
+            pytest.skip("LightweightCommitmentValidator not available - module may not be built")
 
-        validator = TariCommitmentValidator()
+        validator = LightweightCommitmentValidator()
         
         # Generate test data for performance comparison
         test_size = 500

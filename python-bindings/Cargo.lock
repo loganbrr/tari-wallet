@@ -1351,6 +1351,7 @@ dependencies = [
  "pyo3-async-runtimes",
  "tari_utilities 0.8.0",
  "tokio",
+ "zeroize",
 ]
 
 [[package]]
