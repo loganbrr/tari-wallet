@@ -7,9 +7,9 @@
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyBytes};
 
-// Note: Transaction structures are currently used as reference types only
-// The actual transaction data structures from the main crate are not imported
-// as this module provides Python-compatible wrappers
+// CONSOLIDATION NOTE: This module provides read-only transaction data structures.
+// The core transaction handling functionality has been consolidated into storage.rs
+// to eliminate duplication. These structs remain for backward compatibility.
 
 /// Python wrapper for TransactionInput
 #[pyclass]
@@ -323,8 +323,8 @@ impl TariTransactionMetadata {
         let output_count = outputs.len();
         let kernel_count = kernels.len();
 
-        // Calculate total values (would need actual parsing in real implementation)
-        let total_input_value = 0u64;  // Placeholder - would need to parse from inputs
+        // Note: Value calculations are placeholders for display purposes only
+        let total_input_value = 0u64;  // Display-only placeholder
         let total_output_value = outputs.iter().map(|o| o.minimum_value_promise).sum();
 
         Self {
@@ -393,10 +393,12 @@ impl TariTransactionMetadata {
         Ok(true)
     }
 
-    /// Calculate transaction weight (simplified)
+    /// Calculate transaction weight (display-only estimation)
+    /// 
+    /// NOTE: This is a simplified estimation for display purposes only.
+    /// Real weight calculations should use the core library functions.
     fn calculate_weight(&self) -> u64 {
-        // Simplified weight calculation
-        // In practice, this would use the actual transaction structure
+        // Display-only weight estimation - not for production use
         (self.input_count * 100 + self.output_count * 200 + self.kernel_count * 50) as u64
     }
 

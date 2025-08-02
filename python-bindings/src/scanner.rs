@@ -9,6 +9,7 @@ use lightweight_wallet_libs::errors::LightweightWalletError;
 use crate::runtime::{execute_async, get_or_create_scanner};
 use crate::stealth_types::StealthScanResult;
 use crate::stealth_address::TariStealthAddress;
+use crate::utils::{derive_view_spend_keys_from_master_key, get_stealth_info_from_master_key};
 use tari_utilities::ByteArray;
 use hex;
 use tari_utilities::hex::from_hex;
@@ -193,23 +194,18 @@ impl TariScanner {
         let wallet = self.wallet.clone();
         
         execute_async(async move {
-            // Get wallet view key using master key with proper derivation
-            let (view_key, _) = {
+            // Get wallet view key using shared utility
+            let view_key_hex = {
                 let wallet_guard = wallet.lock()
                     .map_err(|e| LightweightWalletError::ConversionError(format!("Failed to lock wallet: {}", e)))?;
-                
-                // Get master key and use it as-is for view key (matches wallet's simple approach)
-                // This aligns with the wallet's current derive_key_pair implementation which uses
-                // master_key directly as view_key
                 let master_key_bytes = wallet_guard.master_key_bytes();
-                let view_key = lightweight_wallet_libs::data_structures::types::PrivateKey::from_canonical_bytes(&master_key_bytes)
-                    .map_err(|e| LightweightWalletError::ConversionError(format!("Failed to create view key: {}", e)))?;
+                drop(wallet_guard);
                 
-                // Spend key not needed for scanning, so just use dummy value
-                let spend_key = view_key.clone();
-                (view_key, spend_key)
+                let (view_key, _) = derive_view_spend_keys_from_master_key(&master_key_bytes)
+                    .map_err(|e| LightweightWalletError::ConversionError(format!("Failed to derive view key: {}", e)))?;
+                
+                hex::encode(view_key.as_bytes())
             };
-            let view_key_hex = hex::encode(view_key.as_bytes());
 
             // Get blockchain scanner
             let scanner_arc = get_or_create_scanner(&base_url).await?;
@@ -257,17 +253,13 @@ impl TariScanner {
         outputs: Vec<PyObject>,
         _chunk_size: Option<usize>,
     ) -> PyResult<StealthScanResult> {
-        // Get wallet view key
+        // Get wallet view key using shared utility
         let wallet_guard = self.wallet.lock()
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to lock wallet: {}", e)))?;
-            
         let master_key_bytes = wallet_guard.master_key_bytes();
-        let mut entropy = [0u8; 16];
-        entropy.copy_from_slice(&master_key_bytes[0..16]);
         drop(wallet_guard);
 
-        // Derive view key from entropy  
-        let (view_key, _) = lightweight_wallet_libs::key_management::key_derivation::derive_view_and_spend_keys_from_entropy(&entropy)
+        let (view_key, _) = derive_view_spend_keys_from_master_key(&master_key_bytes)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("View key derivation failed: {}", e)))?;
 
         let view_key_hex = hex::encode(view_key.as_bytes());
@@ -288,22 +280,12 @@ impl TariScanner {
     fn get_stealth_address_info(&self) -> PyResult<PyObject> {
         let wallet_guard = self.wallet.lock()
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to lock wallet: {}", e)))?;
-            
         let master_key_bytes = wallet_guard.master_key_bytes();
-        let mut entropy = [0u8; 16];
-        entropy.copy_from_slice(&master_key_bytes[0..16]);
         drop(wallet_guard);
 
-        // Derive view and spend keys
-        let (view_key, spend_key) = lightweight_wallet_libs::key_management::key_derivation::derive_view_and_spend_keys_from_entropy(&entropy)
+        // Use shared utility for key derivation
+        let (view_key, spend_key, view_public_key, spend_public_key) = get_stealth_info_from_master_key(&master_key_bytes)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Key derivation failed: {}", e)))?;
-
-        // Convert to public keys
-        let view_public_key = lightweight_wallet_libs::key_management::key_derivation::derive_public_key_from_private(&view_key)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("View public key derivation failed: {}", e)))?;
-            
-        let spend_public_key = lightweight_wallet_libs::key_management::key_derivation::derive_public_key_from_private(&spend_key)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Spend public key derivation failed: {}", e)))?;
 
         Python::with_gil(|py| {
             let dict = pyo3::types::PyDict::new(py);

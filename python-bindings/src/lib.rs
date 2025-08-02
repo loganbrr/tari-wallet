@@ -1,89 +1,10 @@
 //! Tari Lightweight Wallet Python Bindings
 //!
-//! This module provides PyO3-based Python bindings for the Tari Lightweight Wallet Libraries.
-//! The bindings offer 1:1 API parity with the Rust core implementation, providing secure
-//! and performant access to Tari wallet functionality from Python.
+//! PyO3-based bindings providing 1:1 API parity with Rust core implementation.
+//! Security-first design with direct mapping to core functionality.
 //!
-//! # Security Design
-//!
-//! These bindings follow a security-first approach:
-//! - **API Purity**: Direct mapping to Rust core functionality without Python-specific conveniences
-//! - **Memory Safety**: Zeroization of sensitive data and secure memory handling
-//! - **No Mock Data**: All cryptographic operations use real implementations
-//! - **Fixed Chunking**: Memory-efficient batch processing with fixed chunk sizes
-//!
-//! # Core Components
-//!
-//! ## Wallet Operations
-//! - [`TariWallet`]: Core wallet functionality with seed phrase management
-//! - [`TariScanner`]: Blockchain scanning for UTXO discovery
-//! - [`TariBalance`]: Rust-native balance calculation with storage integration
-//!
-//! ## Storage System  
-//! - [`TariWalletStorage`]: SQLite-based persistent storage backend
-//! - [`TariUTXOManager`]: UTXO management with filtering and balance calculation
-//! - Transaction data structures for comprehensive transaction analysis
-//!
-//! ## Stealth Address Operations
-//! - [`TariStealthAddress`]: Core stealth address functionality
-//! - [`TariKeyManager`]: Hierarchical key derivation and stealth operations  
-//! - [`KeyDerivationPath`]: BIP32-style key derivation paths
-//! - [`StealthAddressInfo`] and [`StealthScanResult`]: Data structures for stealth operations
-//!
-//! ## Cryptographic Validation
-//! - [`LightweightCommitmentValidator`]: Pedersen commitment validation
-//! - [`TariEncryptedDataValidator`]: Encrypted data integrity checking
-//!
-//! # API Design Principles
-//!
-//! ## Simplified API (Security-Focused)
-//! The bindings implement a simplified API that removes Python-specific convenience methods
-//! in favor of direct core functionality mapping:
-//!
-//! - **Removed**: Timing measurements, statistics, unique IDs, validation helpers
-//! - **Removed**: Configurable chunk sizes, Python-specific data transforms
-//! - **Retained**: Core cryptographic operations, essential data structures
-//!
-//! ## Memory Efficiency
-//! - Fixed chunking (1000 items) for large dataset processing
-//! - Streaming result aggregation to prevent memory accumulation
-//! - Generator pattern support for memory-efficient iteration
-//!
-//! ## Error Handling
-//! - Comprehensive error hierarchy with proper Python exception mapping
-//! - Error source chain preservation across Rust-Python boundary
-//! - Context-rich error messages for debugging
-//!
-//! # Usage Examples
-//!
-//! ```python
-//! import lightweight_wallet_libpy as wallet_lib
-//!
-//! # Create wallet
-//! wallet = wallet_lib.TariWallet.generate_new_with_seed_phrase()
-//! 
-//! # Generate addresses with features
-//! features = wallet_lib.AddressFeatures.interactive_and_one_sided()
-//! address = wallet.get_dual_address(features, None)
-//!
-//! # Stealth address operations
-//! key_manager = wallet_lib.TariKeyManager.from_wallet(wallet)
-//! stealth_service = wallet_lib.TariStealthAddress()
-//! keys = key_manager.derive_view_and_spend_keys()
-//! stealth_addr = stealth_service.create_stealth_address(
-//!     keys['view_key'], keys['spend_key'], sender_private_key
-//! )
-//!
-//! # Storage and balance
-//! storage = wallet_lib.TariWalletStorage("wallet.db") 
-//! storage.initialize()
-//! balance = wallet_lib.TariBalance(storage, wallet_id)
-//! ```
-//!
-//! # Thread Safety
-//!
-//! All classes use `Arc<Mutex<T>>` for thread-safe operations with shared runtime support.
-//! Multiple Python threads can safely access wallet operations concurrently.
+//! Core modules: [`TariWallet`], [`TariScanner`], [`TariWalletStorage`], [`TariKeyManager`],
+//! [`TariStealthAddress`], validation and transaction types.
 
 use pyo3::prelude::*;
 use pyo3::exceptions::PyRuntimeError;
@@ -94,11 +15,15 @@ use lightweight_wallet_libs::crypto::signing::{sign_message_with_tari_wallet, ve
 use lightweight_wallet_libs::crypto::{RistrettoPublicKey, PublicKey};
 use lightweight_wallet_libs::key_management::validate_seed_phrase;
 use tari_utilities::hex::Hex;
+use crate::errors::lock_error;
 
 mod scanner;
 mod types;
 mod runtime;
 pub mod errors;
+#[macro_use]
+mod field_extraction_macros;  // New macro module for reducing boilerplate
+mod transaction_utils;        // Consolidated transaction utilities
 mod storage;
 mod transaction;
 mod balance;
@@ -111,6 +36,8 @@ mod extraction;
 mod extraction_wrappers;
 mod extraction_batch;
 mod extraction_types;
+mod extraction_utils;
+mod utils;
 
 pub use scanner::{TariScanner, ScanResult, ScanProgress};
 pub use balance::TariBalance;
@@ -129,28 +56,7 @@ pub use extraction_wrappers::{PyLightweightTransactionOutput, PyLightweightWalle
 pub use extraction_batch::{PyBatchValidationOptions, PyOutputValidationResult, PyBatchValidationSummary, PyBatchValidationResult};
 pub use extraction_types::{PyDecryptionOptions, PyDecryptionResult, PyPaymentIdMetadata, PyPaymentIdExtractionResult};
 
-/// Python wrapper for the Tari Wallet with simplified, security-focused API
-/// 
-/// Provides core wallet functionality with 1:1 mapping to Rust implementation.
-/// Removed Python-specific convenience methods in favor of direct core access.
-/// 
-/// # Security Features
-/// - Seed phrase generation and management with optional passphrase protection
-/// - Secure memory handling with automatic zeroization
-/// - Tari-compatible message signing and verification
-/// - Address generation with type-safe feature selection
-/// 
-/// # Key Changes (Simplified API)
-/// - Address generation requires `AddressFeatures` parameter for type safety
-/// - No convenience methods for batch operations or statistics
-/// - Direct mapping to Rust core functionality for security consistency
-/// 
-/// # Example
-/// ```python
-/// wallet = TariWallet.generate_new_with_seed_phrase()
-/// features = AddressFeatures.interactive_and_one_sided()
-/// address = wallet.get_dual_address(features, None)
-/// ```
+/// Python wrapper for the Tari Wallet with 1:1 API mapping to Rust core
 #[pyclass]
 pub struct TariWallet {
     pub(crate) inner: Arc<Mutex<Wallet>>,
@@ -178,156 +84,105 @@ impl TariWallet {
 
     /// Get the wallet birthday (block height when the wallet was created)
     fn birthday(&self) -> PyResult<u64> {
-        let wallet = self.inner.lock()
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock wallet: {}", e)))?;
+        let wallet = self.inner.lock().map_err(lock_error("wallet"))?;
         Ok(wallet.birthday())
     }
 
     /// Set the wallet birthday
     fn set_birthday(&self, birthday: u64) -> PyResult<()> {
-        let mut wallet = self.inner.lock()
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock wallet: {}", e)))?;
+        let mut wallet = self.inner.lock().map_err(lock_error("wallet"))?;
         wallet.set_birthday(birthday);
         Ok(())
     }
 
     /// Get the wallet label
     fn label(&self) -> PyResult<Option<String>> {
-        let wallet = self.inner.lock()
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock wallet: {}", e)))?;
+        let wallet = self.inner.lock().map_err(lock_error("wallet"))?;
         Ok(wallet.label().cloned())
     }
 
     /// Set the wallet label
     fn set_label(&self, label: Option<String>) -> PyResult<()> {
-        let mut wallet = self.inner.lock()
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock wallet: {}", e)))?;
+        let mut wallet = self.inner.lock().map_err(lock_error("wallet"))?;
         wallet.set_label(label);
         Ok(())
     }
 
     /// Get the network
     fn network(&self) -> PyResult<String> {
-        let wallet = self.inner.lock()
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock wallet: {}", e)))?;
+        let wallet = self.inner.lock().map_err(lock_error("wallet"))?;
         Ok(wallet.network().to_string())
     }
 
     /// Set the network
     fn set_network(&self, network: String) -> PyResult<()> {
-        let mut wallet = self.inner.lock()
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock wallet: {}", e)))?;
+        let mut wallet = self.inner.lock().map_err(lock_error("wallet"))?;
         wallet.set_network(network);
         Ok(())
     }
 
     /// Get the current key index
     fn current_key_index(&self) -> PyResult<u64> {
-        let wallet = self.inner.lock()
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock wallet: {}", e)))?;
+        let wallet = self.inner.lock().map_err(lock_error("wallet"))?;
         Ok(wallet.current_key_index())
     }
 
     /// Set the current key index
     fn set_current_key_index(&self, index: u64) -> PyResult<()> {
-        let mut wallet = self.inner.lock()
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock wallet: {}", e)))?;
+        let mut wallet = self.inner.lock().map_err(lock_error("wallet"))?;
         wallet.set_current_key_index(index);
         Ok(())
     }
 
     /// Add a custom property to the wallet metadata
     fn set_property(&self, key: String, value: String) -> PyResult<()> {
-        let mut wallet = self.inner.lock()
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock wallet: {}", e)))?;
+        let mut wallet = self.inner.lock().map_err(lock_error("wallet"))?;
         wallet.set_property(key, value);
         Ok(())
     }
 
     /// Get a custom property from the wallet metadata
     fn get_property(&self, key: &str) -> PyResult<Option<String>> {
-        let wallet = self.inner.lock()
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock wallet: {}", e)))?;
+        let wallet = self.inner.lock().map_err(lock_error("wallet"))?;
         Ok(wallet.get_property(key).cloned())
     }
 
     /// Remove a custom property from the wallet metadata
     fn remove_property(&self, key: &str) -> PyResult<Option<String>> {
-        let mut wallet = self.inner.lock()
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock wallet: {}", e)))?;
+        let mut wallet = self.inner.lock().map_err(lock_error("wallet"))?;
         Ok(wallet.remove_property(key))
     }
 
     /// Export the original seed phrase if available
     fn export_seed_phrase(&self) -> PyResult<String> {
-        let wallet = self.inner.lock()
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock wallet: {}", e)))?;
+        let wallet = self.inner.lock().map_err(lock_error("wallet"))?;
         wallet.export_seed_phrase()
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to export seed phrase: {}", e)))
     }
 
-    /// Generate a dual address with view and spend keys (Simplified API)
-    /// 
-    /// **SECURITY NOTE**: Requires AddressFeatures parameter for type safety.
-    /// This replaces previous convenience methods to ensure explicit feature selection.
-    /// 
-    /// Args:
-    ///     features: AddressFeatures specifying the type of address to generate
-    ///               Use AddressFeatures.interactive_and_one_sided() for full functionality
-    ///     payment_id: Optional payment ID as bytes for payment tracking
-    /// 
-    /// Returns:
-    ///     str: The address as a hex string
-    /// 
-    /// Example:
-    ///     features = AddressFeatures.interactive_and_one_sided()
-    ///     address = wallet.get_dual_address(features, None)
-    #[pyo3(signature = (features, payment_id=None), text_signature = "(features, payment_id=None)")]
+    /// Generate a dual address with view and spend keys
+    #[pyo3(signature = (features, payment_id=None))]
     fn get_dual_address(&self, features: AddressFeatures, payment_id: Option<Vec<u8>>) -> PyResult<String> {
-        let wallet = self.inner.lock()
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock wallet: {}", e)))?;
-        
+        let wallet = self.inner.lock().map_err(lock_error("wallet"))?;
         let address = wallet.get_dual_address(features.inner, payment_id)
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to generate dual address: {}", e)))?;
-        
         Ok(address.to_hex())
     }
 
-    /// Generate a single address with spend key only (Simplified API)
-    /// 
-    /// **SECURITY NOTE**: Requires AddressFeatures parameter for type safety.
-    /// Use this for addresses that only need spending capability without view access.
-    /// 
-    /// Args:
-    ///     features: AddressFeatures specifying the type of address to generate
-    ///               Use AddressFeatures.interactive_only() for spending-only addresses
-    /// 
-    /// Returns:
-    ///     str: The address as a hex string
-    /// 
-    /// Example:
-    ///     features = AddressFeatures.interactive_only()
-    ///     address = wallet.get_single_address(features)
-    #[pyo3(signature = (features), text_signature = "(features)")]
+    /// Generate a single address with spend key only
     fn get_single_address(&self, features: AddressFeatures) -> PyResult<String> {
-        let wallet = self.inner.lock()
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock wallet: {}", e)))?;
-        
+        let wallet = self.inner.lock().map_err(lock_error("wallet"))?;
         let address = wallet.get_single_address(features.inner)
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to generate single address: {}", e)))?;
-        
         Ok(address.to_hex())
     }
 
     /// String representation of the wallet
     fn __str__(&self) -> PyResult<String> {
-        let wallet = self.inner.lock()
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock wallet: {}", e)))?;
-        
+        let wallet = self.inner.lock().map_err(lock_error("wallet"))?;
         let label = wallet.label().map(|s| s.as_str()).unwrap_or("Unlabeled");
         let network = wallet.network();
         let birthday = wallet.birthday();
-        
         Ok(format!("TariWallet(label='{}', network='{}', birthday={})", label, network, birthday))
     }
 
@@ -337,15 +192,8 @@ impl TariWallet {
     }
 
     /// Sign a message using the wallet's master key
-    /// 
-    /// Args:
-    ///     message: The message to sign as a string
-    /// 
-    /// Returns:
-    ///     dict: Dictionary with 'signature', 'nonce', and 'public_key' as hex strings
     fn sign_message(&self, message: String) -> PyResult<PyObject> {
-        let wallet = self.inner.lock()
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock wallet: {}", e)))?;
+        let wallet = self.inner.lock().map_err(lock_error("wallet"))?;
         
         // Get the seed phrase from the wallet
         let seed_phrase = wallet.export_seed_phrase()
@@ -371,15 +219,6 @@ impl TariWallet {
     }
 
     /// Verify a message signature
-    /// 
-    /// Args:
-    ///     message: The original message as a string
-    ///     signature_hex: The signature as a hex string
-    ///     nonce_hex: The nonce as a hex string
-    ///     public_key_hex: The public key as a hex string
-    /// 
-    /// Returns:
-    ///     bool: True if the signature is valid, False otherwise
     fn verify_message(&self, message: String, signature_hex: String, nonce_hex: String, public_key_hex: String) -> PyResult<bool> {
         // Parse the public key from hex
         let public_key = RistrettoPublicKey::from_hex(&public_key_hex)
@@ -392,15 +231,6 @@ impl TariWallet {
     }
 
     /// Scan blockchain for wallet outputs from birthday to current tip
-    /// 
-    /// Note: This method performs a read-only scan and does not update wallet state.
-    /// For full wallet synchronization, discovered outputs should be stored using TariWalletStorage.
-    /// 
-    /// Args:
-    ///     base_node_url: The base node URL for blockchain scanning
-    ///     
-    /// Returns:
-    ///     dict: Scan result with total_value found and blocks scanned
     fn sync(&self, base_node_url: String) -> PyResult<PyObject> {
         use crate::runtime::{execute_async, get_or_create_scanner};
         use lightweight_wallet_libs::scanning::BlockchainScanner;
@@ -461,12 +291,6 @@ impl TariWallet {
 }
 
 /// Convenience function to generate a new wallet with seed phrase
-/// 
-/// Args:
-///     passphrase: Optional passphrase for seed phrase encryption
-/// 
-/// Returns:
-///     TariWallet: A new wallet instance with randomly generated seed phrase
 #[pyfunction]
 #[pyo3(signature = (passphrase=None))]
 fn generate_new_wallet(passphrase: Option<&str>) -> PyResult<TariWallet> {
@@ -474,26 +298,6 @@ fn generate_new_wallet(passphrase: Option<&str>) -> PyResult<TariWallet> {
 }
 
 /// Validate a 24-word mnemonic seed phrase using Tari CipherSeed specification
-/// 
-/// This function validates that a mnemonic phrase conforms to the Tari wallet standard:
-/// - Must be exactly 24 words
-/// - All words must exist in the BIP-39 word list
-/// - Must have valid CipherSeed format and checksum
-/// 
-/// Args:
-///     mnemonic: The seed phrase to validate as a string
-/// 
-/// Returns:
-///     bool: True if the seed phrase is valid, False otherwise
-/// 
-/// Note:
-///     This is a pure validation function that does not store or expose
-///     any cryptographic material. It only validates format and checksum.
-/// 
-/// Example:
-///     >>> valid = validate_seed_phrase("abandon abandon abandon ...")
-///     >>> if valid:
-///     ...     wallet = TariWallet.from_seed_phrase(seed_phrase)
 #[pyfunction]
 fn validate_seed_phrase_py(mnemonic: &str) -> PyResult<bool> {
     match validate_seed_phrase(mnemonic) {
@@ -502,35 +306,44 @@ fn validate_seed_phrase_py(mnemonic: &str) -> PyResult<bool> {
     }
 }
 
-/// A Python module implemented in Rust.
 #[pymodule]
 fn lightweight_wallet_libpy(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    // Core wallet and scanner
     m.add_class::<TariWallet>()?;
     m.add_class::<TariScanner>()?;
     m.add_class::<ScanResult>()?;
-    m.add_class::<TariBalance>()?;
     m.add_class::<ScanProgress>()?;
+    
+    // Storage and balance
+    m.add_class::<TariBalance>()?;
+    m.add_class::<TariWalletStorage>()?;
+    
+    // Types and features
     m.add_class::<WalletTransaction>()?;
     m.add_class::<AddressFeatures>()?;
-    m.add_class::<TariWalletStorage>()?;
+    
+    // Transaction components
     m.add_class::<TariTransactionInput>()?;
     m.add_class::<TariTransactionOutput>()?;
     m.add_class::<TariTransactionKernel>()?;
     m.add_class::<TariTransactionMetadata>()?;
-    // Key derivation
+    
+    // Key management
     m.add_class::<KeyDerivationPath>()?;
     m.add_class::<TariKeyManager>()?;
-    // Stealth address types
+    
+    // Stealth addresses
     m.add_class::<StealthAddressInfo>()?;
     m.add_class::<StealthScanResult>()?;
     m.add_class::<StealthScanResultIterator>()?;
     m.add_class::<TariStealthAddress>()?;
-    // Validation classes
+    
+    // Validation
     m.add_class::<LightweightCommitmentValidator>()?;
     m.add_class::<TariEncryptedDataValidator>()?;
     m.add_class::<ValidationResult>()?;
-    // Existing validation BatchValidationResult already added in validation module
-    // Extraction classes
+    
+    // Extraction framework
     m.add_class::<PyExtractionConfig>()?;
     m.add_class::<PyBatchValidationOptions>()?;
     m.add_class::<PyOutputValidationResult>()?;
@@ -540,12 +353,16 @@ fn lightweight_wallet_libpy(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()>
     m.add_class::<PyDecryptionResult>()?;
     m.add_class::<PyPaymentIdMetadata>()?;
     m.add_class::<PyPaymentIdExtractionResult>()?;
-    // Register extraction functions
+    
+    // Module-specific registrations
     extraction::register_extraction_classes(py, m)?;
     extraction_wrappers::register_wrapper_classes(py, m)?;
     extraction_batch::register_batch_validation_classes(py, m)?;
     extraction_types::register_extraction_type_classes(py, m)?;
+    
+    // Functions
     m.add_function(wrap_pyfunction!(generate_new_wallet, m)?)?;
     m.add_function(wrap_pyfunction!(validate_seed_phrase_py, m)?)?;
+    
     Ok(())
 }

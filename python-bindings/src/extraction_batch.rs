@@ -6,15 +6,14 @@
 use pyo3::prelude::*;
 use std::sync::{Arc, Mutex};
 
-use crate::errors::PyWalletError;
+
+use crate::extraction_utils::{lock_with_conversion_error, convert_outputs_to_rust};
 use crate::extraction_wrappers::PyLightweightTransactionOutput;
 use lightweight_wallet_libs::{
-    data_structures::transaction_output::LightweightTransactionOutput,
     extraction::{
         validate_output_batch, BatchValidationOptions, BatchValidationResult, 
         BatchValidationSummary, OutputValidationResult,
     },
-    errors::LightweightWalletError,
 };
 
 #[cfg(feature = "grpc")]
@@ -86,16 +85,12 @@ impl PyBatchValidationOptions {
     /// Whether to continue validation after encountering errors
     #[getter]
     pub fn continue_on_error(&self) -> PyResult<bool> {
-        let options = self.inner.lock().map_err(|e| {
-            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock options: {}", e)))
-        })?;
+        let options = lock_with_conversion_error(&self.inner, "options")?;
         Ok(options.continue_on_error)
     }
 
     pub fn set_continue_on_error(&self, value: bool) -> PyResult<()> {
-        let mut options = self.inner.lock().map_err(|e| {
-            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock options: {}", e)))
-        })?;
+        let mut options = lock_with_conversion_error(&self.inner, "options")?;
         options.continue_on_error = value;
         Ok(())
     }
@@ -103,16 +98,12 @@ impl PyBatchValidationOptions {
     /// Maximum number of errors to collect per output
     #[getter]
     pub fn max_errors_per_output(&self) -> PyResult<usize> {
-        let options = self.inner.lock().map_err(|e| {
-            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock options: {}", e)))
-        })?;
+        let options = lock_with_conversion_error(&self.inner, "options")?;
         Ok(options.max_errors_per_output)
     }
 
     pub fn set_max_errors_per_output(&self, value: usize) -> PyResult<()> {
-        let mut options = self.inner.lock().map_err(|e| {
-            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock options: {}", e)))
-        })?;
+        let mut options = lock_with_conversion_error(&self.inner, "options")?;
         options.max_errors_per_output = value;
         Ok(())
     }
@@ -120,16 +111,12 @@ impl PyBatchValidationOptions {
     /// Whether to validate range proofs (can be expensive)
     #[getter]
     pub fn validate_range_proofs(&self) -> PyResult<bool> {
-        let options = self.inner.lock().map_err(|e| {
-            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock options: {}", e)))
-        })?;
+        let options = lock_with_conversion_error(&self.inner, "options")?;
         Ok(options.validate_range_proofs)
     }
 
     pub fn set_validate_range_proofs(&self, value: bool) -> PyResult<()> {
-        let mut options = self.inner.lock().map_err(|e| {
-            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock options: {}", e)))
-        })?;
+        let mut options = lock_with_conversion_error(&self.inner, "options")?;
         options.validate_range_proofs = value;
         Ok(())
     }
@@ -137,16 +124,12 @@ impl PyBatchValidationOptions {
     /// Whether to validate signatures (can be expensive)
     #[getter]
     pub fn validate_signatures(&self) -> PyResult<bool> {
-        let options = self.inner.lock().map_err(|e| {
-            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock options: {}", e)))
-        })?;
+        let options = lock_with_conversion_error(&self.inner, "options")?;
         Ok(options.validate_signatures)
     }
 
     pub fn set_validate_signatures(&self, value: bool) -> PyResult<()> {
-        let mut options = self.inner.lock().map_err(|e| {
-            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock options: {}", e)))
-        })?;
+        let mut options = lock_with_conversion_error(&self.inner, "options")?;
         options.validate_signatures = value;
         Ok(())
     }
@@ -154,25 +137,19 @@ impl PyBatchValidationOptions {
     /// Whether to validate commitments
     #[getter]
     pub fn validate_commitments(&self) -> PyResult<bool> {
-        let options = self.inner.lock().map_err(|e| {
-            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock options: {}", e)))
-        })?;
+        let options = lock_with_conversion_error(&self.inner, "options")?;
         Ok(options.validate_commitments)
     }
 
     pub fn set_validate_commitments(&self, value: bool) -> PyResult<()> {
-        let mut options = self.inner.lock().map_err(|e| {
-            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock options: {}", e)))
-        })?;
+        let mut options = lock_with_conversion_error(&self.inner, "options")?;
         options.validate_commitments = value;
         Ok(())
     }
 
     /// String representation for debugging
     fn __repr__(&self) -> PyResult<String> {
-        let options = self.inner.lock().map_err(|e| {
-            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock options: {}", e)))
-        })?;
+        let options = lock_with_conversion_error(&self.inner, "options")?;
         
         Ok(format!(
             "BatchValidationOptions(continue_on_error={}, max_errors_per_output={}, validate_range_proofs={}, validate_signatures={}, validate_commitments={})",
@@ -370,16 +347,9 @@ pub fn validate_output_batch_py(
     // Release GIL for potentially long-running validation
     py.allow_threads(|| {
         // Convert Python wrappers to Rust types
-        let rust_outputs: Result<Vec<LightweightTransactionOutput>, PyErr> = outputs
-            .iter()
-            .map(|output| output.to_rust())
-            .collect();
-        let rust_outputs = rust_outputs?;
+        let rust_outputs = convert_outputs_to_rust(outputs)?;
         
-        let options_guard = options.inner.lock().map_err(|e| {
-            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock options: {}", e)))
-        })?;
-        
+        let options_guard = lock_with_conversion_error(&options.inner, "options")?;
         let rust_options = options_guard.clone();
         drop(options_guard);
 
@@ -419,16 +389,9 @@ pub fn validate_output_batch_parallel_py(
     // Release GIL for parallel validation
     py.allow_threads(|| {
         // Convert Python wrappers to Rust types
-        let rust_outputs: Result<Vec<LightweightTransactionOutput>, PyErr> = outputs
-            .iter()
-            .map(|output| output.to_rust())
-            .collect();
-        let rust_outputs = rust_outputs?;
+        let rust_outputs = convert_outputs_to_rust(outputs)?;
         
-        let options_guard = options.inner.lock().map_err(|e| {
-            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock options: {}", e)))
-        })?;
-        
+        let options_guard = lock_with_conversion_error(&options.inner, "options")?;
         let rust_options = options_guard.clone();
         drop(options_guard);
 

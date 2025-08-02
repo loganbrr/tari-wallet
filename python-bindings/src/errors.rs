@@ -1,7 +1,4 @@
 //! Error handling for Python bindings
-//!
-//! Provides PyO3 best practice error wrapper infrastructure with proper
-//! exception mapping and error context preservation.
 
 use pyo3::prelude::*;
 use pyo3::exceptions::{
@@ -9,6 +6,7 @@ use pyo3::exceptions::{
     PyConnectionError
 };
 use lightweight_wallet_libs::errors::LightweightWalletError;
+use std::sync::PoisonError;
 
 /// PyO3 best practice error wrapper to circumvent orphan rules
 /// 
@@ -113,31 +111,44 @@ impl From<PyHexError> for PyErr {
     }
 }
 
+/// Shared utility for mutex lock failures across all modules
+pub fn lock_error<T>(operation: &str) -> impl Fn(PoisonError<T>) -> PyErr + '_ {
+    move |_| PyRuntimeError::new_err(format!("Failed to lock {}", operation))
+}
+
+/// Shared utility for hex decode failures  
+pub fn hex_decode_error(context: &str) -> impl Fn(hex::FromHexError) -> PyErr + '_ {
+    move |e| PyValueError::new_err(format!("Invalid {} hex: {}", context, e))
+}
+
+/// Shared utility for conversion failures
+pub fn conversion_error(operation: &str) -> impl Fn(Box<dyn std::error::Error>) -> PyErr + '_ {
+    move |e| PyValueError::new_err(format!("{} failed: {}", operation, e))
+}
+
 /// Legacy conversion function (maintained for backward compatibility)
-/// 
-/// Note: New code should use PyWalletError wrapper with ? operator instead
 pub fn convert_to_pyerr(error: LightweightWalletError) -> PyErr {
     PyWalletError::from(error).into()
 }
 
-/// Legacy hex error conversion (maintained for backward compatibility)
-///
-/// Note: New code should use PyHexError wrapper with ? operator instead  
-pub fn hex_to_pyerr(error: hex::FromHexError) -> PyErr {
-    PyHexError::from(error).into()
-}
-
-/// Stub for connection management (placeholder)
-pub fn should_evict_connection(_error: &str) -> bool {
-    false // Stub implementation
-}
-
-/// Generic error conversion for validation errors
-pub fn validation_error(msg: &str) -> PyErr {
-    PyValueError::new_err(format!("Validation error: {}", msg))
-}
-
-/// Generic error conversion for conversion errors  
-pub fn conversion_error(msg: &str) -> PyErr {
-    PyValueError::new_err(format!("Conversion error: {}", msg))
+/// Determine if a connection should be evicted based on error patterns
+pub fn should_evict_connection(error_message: &str) -> bool {
+    // Network-level errors that indicate connection should be evicted
+    let eviction_patterns = [
+        "connection refused",
+        "connection reset",
+        "connection timeout",
+        "network unreachable",
+        "dns resolution failed",
+        "tls handshake",
+        "certificate verification failed",
+        "connection closed",
+        "broken pipe",
+        "http2 error",
+        "protocol error",
+        "invalid response"
+    ];
+    
+    let error_lower = error_message.to_lowercase();
+    eviction_patterns.iter().any(|pattern| error_lower.contains(pattern))
 }

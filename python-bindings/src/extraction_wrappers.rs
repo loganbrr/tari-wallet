@@ -5,6 +5,7 @@
 //! are converted to hex strings for Python consumption.
 
 use pyo3::prelude::*;
+use crate::extraction_utils::{serialize_field_to_hex, hex_utils};
 use lightweight_wallet_libs::{
     data_structures::{
         transaction_output::LightweightTransactionOutput,
@@ -133,25 +134,12 @@ impl PyLightweightTransactionOutput {
     pub fn from_rust(output: &LightweightTransactionOutput) -> PyResult<Self> {
         use borsh::to_vec;
         
-        let features_hex = hex::encode(to_vec(&output.features).map_err(|e| {
-            pyo3::exceptions::PyValueError::new_err(format!("Failed to serialize features: {}", e))
-        })?);
+        let features_hex = serialize_field_to_hex(&output.features, "features")?;
+        let commitment_hex = hex_utils::commitment_to_hex(&output.commitment);
         
-        let commitment_hex = hex::encode(output.commitment.as_bytes());
-        
-        let proof_hex = if let Some(ref proof) = output.proof {
-            Some(hex::encode(to_vec(proof).map_err(|e| {
-                pyo3::exceptions::PyValueError::new_err(format!("Failed to serialize proof: {}", e))
-            })?))
-        } else {
-            None
-        };
-        
-        let script_hex = hex::encode(to_vec(&output.script).map_err(|e| {
-            pyo3::exceptions::PyValueError::new_err(format!("Failed to serialize script: {}", e))
-        })?);
-        
-        let sender_offset_public_key_hex = hex::encode(output.sender_offset_public_key.as_bytes());
+        let proof_hex = hex_utils::optional_to_hex(&output.proof, "proof")?;
+        let script_hex = serialize_field_to_hex(&output.script, "script")?;
+        let sender_offset_public_key_hex = hex_utils::public_key_to_hex(&output.sender_offset_public_key);
         
         let metadata_signature_hex = hex::encode(to_vec(&output.metadata_signature).map_err(|e| {
             pyo3::exceptions::PyValueError::new_err(format!("Failed to serialize metadata signature: {}", e))

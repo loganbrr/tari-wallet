@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::convert::TryInto;
 use std::str::FromStr;
 use tari_utilities::ByteArray;
+use crate::errors::{lock_error, hex_decode_error};
 
 use lightweight_wallet_libs::key_management::{
     key_derivation::{
@@ -100,8 +101,7 @@ impl TariKeyManager {
     #[staticmethod]
     fn from_wallet(wallet: &crate::TariWallet) -> PyResult<Self> {
         // Extract master key from wallet
-        let wallet_guard = wallet.inner.lock()
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock wallet: {}", e)))?;
+        let wallet_guard = wallet.inner.lock().map_err(lock_error("wallet"))?;
         
         // Get the master key bytes and use first 16 bytes as entropy
         let master_key_bytes = wallet_guard.master_key_bytes();
@@ -125,14 +125,12 @@ impl TariKeyManager {
             return Err(PyValueError::new_err("Entropy must be exactly 32 hex characters (16 bytes)"));
         }
 
-        let entropy_bytes = hex::decode(entropy_hex)
-            .map_err(|e| PyValueError::new_err(format!("Invalid hex string: {}", e)))?;
+        let entropy_bytes = hex::decode(entropy_hex).map_err(hex_decode_error("entropy"))?;
 
         let entropy: [u8; 16] = entropy_bytes.try_into()
             .map_err(|_| PyValueError::new_err("Entropy must be exactly 16 bytes"))?;
 
-        let mut state = self.inner.lock()
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock key manager: {}", e)))?;
+        let mut state = self.inner.lock().map_err(lock_error("key manager"))?;
         
         state.entropy = Some(entropy);
         Ok(())

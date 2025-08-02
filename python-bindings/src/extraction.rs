@@ -7,6 +7,7 @@ use pyo3::prelude::*;
 use std::sync::{Arc, Mutex};
 
 use crate::errors::PyWalletError;
+use crate::extraction_utils::lock_with_conversion_error;
 use lightweight_wallet_libs::{
     data_structures::{
         types::{CompressedPublicKey, PrivateKey},
@@ -124,9 +125,7 @@ impl PyExtractionConfig {
         key_array.copy_from_slice(&private_key);
         let rust_private_key = PrivateKey::new(key_array);
 
-        let mut config = self.inner.lock().map_err(|e| {
-            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock config: {}", e)))
-        })?;
+        let mut config = lock_with_conversion_error(&self.inner, "config")?;
         config.set_private_key(rust_private_key);
         Ok(())
     }
@@ -149,9 +148,7 @@ impl PyExtractionConfig {
         key_array.copy_from_slice(&public_key);
         let rust_public_key = CompressedPublicKey::new(key_array);
 
-        let mut config = self.inner.lock().map_err(|e| {
-            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock config: {}", e)))
-        })?;
+        let mut config = lock_with_conversion_error(&self.inner, "config")?;
         config.set_public_key(rust_public_key);
         Ok(())
     }
@@ -159,17 +156,13 @@ impl PyExtractionConfig {
     /// Get key derivation setting
     #[getter]
     pub fn enable_key_derivation(&self) -> PyResult<bool> {
-        let config = self.inner.lock().map_err(|e| {
-            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock config: {}", e)))
-        })?;
+        let config = lock_with_conversion_error(&self.inner, "config")?;
         Ok(config.enable_key_derivation)
     }
 
     /// Set key derivation setting
     pub fn set_enable_key_derivation(&self, enabled: bool) -> PyResult<()> {
-        let mut config = self.inner.lock().map_err(|e| {
-            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock config: {}", e)))
-        })?;
+        let mut config = lock_with_conversion_error(&self.inner, "config")?;
         config.enable_key_derivation = enabled;
         Ok(())
     }
@@ -180,16 +173,12 @@ impl PyExtractionConfig {
     ///     enabled (bool): Whether to validate range proofs
     #[getter]
     pub fn validate_range_proofs(&self) -> PyResult<bool> {
-        let config = self.inner.lock().map_err(|e| {
-            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock config: {}", e)))
-        })?;
+        let config = lock_with_conversion_error(&self.inner, "config")?;
         Ok(config.validate_range_proofs)
     }
 
     pub fn set_validate_range_proofs(&self, enabled: bool) -> PyResult<()> {
-        let mut config = self.inner.lock().map_err(|e| {
-            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock config: {}", e)))
-        })?;
+        let mut config = lock_with_conversion_error(&self.inner, "config")?;
         config.validate_range_proofs = enabled;
         Ok(())
     }
@@ -200,16 +189,12 @@ impl PyExtractionConfig {
     ///     enabled (bool): Whether to validate signatures
     #[getter]
     pub fn validate_signatures(&self) -> PyResult<bool> {
-        let config = self.inner.lock().map_err(|e| {
-            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock config: {}", e)))
-        })?;
+        let config = lock_with_conversion_error(&self.inner, "config")?;
         Ok(config.validate_signatures)
     }
 
     pub fn set_validate_signatures(&self, enabled: bool) -> PyResult<()> {
-        let mut config = self.inner.lock().map_err(|e| {
-            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock config: {}", e)))
-        })?;
+        let mut config = lock_with_conversion_error(&self.inner, "config")?;
         config.validate_signatures = enabled;
         Ok(())
     }
@@ -220,16 +205,12 @@ impl PyExtractionConfig {
     ///     enabled (bool): Whether to handle special outputs (coinbase, burn, etc.)
     #[getter]
     pub fn handle_special_outputs(&self) -> PyResult<bool> {
-        let config = self.inner.lock().map_err(|e| {
-            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock config: {}", e)))
-        })?;
+        let config = lock_with_conversion_error(&self.inner, "config")?;
         Ok(config.handle_special_outputs)
     }
 
     pub fn set_handle_special_outputs(&self, enabled: bool) -> PyResult<()> {
-        let mut config = self.inner.lock().map_err(|e| {
-            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock config: {}", e)))
-        })?;
+        let mut config = lock_with_conversion_error(&self.inner, "config")?;
         config.handle_special_outputs = enabled;
         Ok(())
     }
@@ -240,25 +221,19 @@ impl PyExtractionConfig {
     ///     enabled (bool): Whether to detect data corruption
     #[getter]
     pub fn detect_corruption(&self) -> PyResult<bool> {
-        let config = self.inner.lock().map_err(|e| {
-            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock config: {}", e)))
-        })?;
+        let config = lock_with_conversion_error(&self.inner, "config")?;
         Ok(config.detect_corruption)
     }
 
     pub fn set_detect_corruption(&self, enabled: bool) -> PyResult<()> {
-        let mut config = self.inner.lock().map_err(|e| {
-            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock config: {}", e)))
-        })?;
+        let mut config = lock_with_conversion_error(&self.inner, "config")?;
         config.detect_corruption = enabled;
         Ok(())
     }
 
     /// String representation for debugging
     fn __repr__(&self) -> PyResult<String> {
-        let config = self.inner.lock().map_err(|e| {
-            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock config: {}", e)))
-        })?;
+        let config = lock_with_conversion_error(&self.inner, "config")?;
         
         Ok(format!(
             "TariExtractionConfig(enable_key_derivation={}, validate_range_proofs={}, validate_signatures={}, handle_special_outputs={}, detect_corruption={}, has_private_key={}, has_public_key={})",
@@ -328,9 +303,7 @@ pub fn extract_wallet_output_py(
         // Convert Python wrapper to Rust type
         let rust_transaction_output = transaction_output.to_rust()?;
         
-        let config_guard = config.inner.lock().map_err(|e| {
-            PyWalletError(LightweightWalletError::ConversionError(format!("Failed to lock config: {}", e)))
-        })?;
+        let config_guard = lock_with_conversion_error(&config.inner, "config")?;
         
         let rust_config = config_guard.clone();
         drop(config_guard); // Release lock before calling Rust function

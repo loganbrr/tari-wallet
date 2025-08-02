@@ -8,6 +8,12 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use std::sync::{Arc, Mutex};
 use std::path::PathBuf;
+
+// Import macros and utilities to reduce boilerplate
+use crate::{extract_required_field, extract_optional_field, extract_filter_param};
+use crate::transaction_utils::{
+    parse_transaction_direction, parse_transaction_status
+};
 use lightweight_wallet_libs::storage::{
     WalletStorage,
     sqlite::SqliteStorage,
@@ -111,31 +117,12 @@ impl TariWalletStorage {
     fn save_wallet(&self, wallet_data: &Bound<'_, PyDict>) -> PyResult<u32> {
         let storage_arc = Arc::clone(&self.inner);
         
-        // Extract data from dictionary
-        let name = match wallet_data.get_item("name")? {
-            Some(v) => v.extract::<String>()?,
-            None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: name")),
-        };
-        
-        let seed_phrase = match wallet_data.get_item("seed_phrase")? {
-            Some(v) => Some(v.extract::<String>()?),
-            None => None,
-        };
-        
-        let view_key_hex = match wallet_data.get_item("view_key_hex")? {
-            Some(v) => v.extract::<String>()?,
-            None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: view_key_hex")),
-        };
-        
-        let spend_key_hex = match wallet_data.get_item("spend_key_hex")? {
-            Some(v) => Some(v.extract::<String>()?),
-            None => None,
-        };
-        
-        let birthday_block = match wallet_data.get_item("birthday_block")? {
-            Some(v) => v.extract::<u64>()?,
-            None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: birthday_block")),
-        };
+        // Extract data from dictionary using macros
+        let name = extract_required_field!(wallet_data, "name", String);
+        let seed_phrase = extract_optional_field!(wallet_data, "seed_phrase", String);
+        let view_key_hex = extract_required_field!(wallet_data, "view_key_hex", String);
+        let spend_key_hex = extract_optional_field!(wallet_data, "spend_key_hex", String);
+        let birthday_block = extract_required_field!(wallet_data, "birthday_block", u64);
 
         execute_async(async move {
             let storage_guard = storage_arc.lock()
@@ -689,89 +676,46 @@ impl TariWalletStorage {
             }
             
             if let Some(filter_dict) = filter_data {
-                // Parse filter parameters if provided (handle errors properly)
-                if let Some(range_val) = filter_dict.get_item("block_height_range").map_err(|e| {
-                    lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(format!("Filter error: {}", e))
-                })? {
-                    let range_tuple: (u64, u64) = range_val.extract().map_err(|e| {
-                        lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(format!("Range extraction error: {}", e))
-                    })?;
-                    filter = filter.with_block_range(range_tuple.0, range_tuple.1);
+                // Parse filter parameters using macro for conciseness
+                if let Some((start, end)) = extract_filter_param!(filter_dict, "block_height_range", (u64, u64))? {
+                    filter = filter.with_block_range(start, end);
                 }
                 
-                if let Some(direction_val) = filter_dict.get_item("direction").map_err(|e| {
-                    lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(format!("Filter error: {}", e))
-                })? {
-                    let direction_str: String = direction_val.extract().map_err(|e| {
-                        lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(format!("Direction extraction error: {}", e))
-                    })?;
-                    let direction = match direction_str.as_str() {
-                        "inbound" => TransactionDirection::Inbound,
-                        "outbound" => TransactionDirection::Outbound,
-                        _ => return Err(lightweight_wallet_libs::errors::LightweightWalletError::InvalidArgument {
+                if let Some(direction_str) = extract_filter_param!(filter_dict, "direction", String)? {
+                    let direction = parse_transaction_direction(&direction_str).map_err(|e| {
+                        lightweight_wallet_libs::errors::LightweightWalletError::InvalidArgument {
                             argument: "direction".into(),
                             value: direction_str,
-                            message: "Invalid direction. Must be 'inbound' or 'outbound'".into()
-                        }),
-                    };
+                            message: e,
+                        }
+                    })?;
                     filter = filter.with_direction(direction);
                 }
                 
-                if let Some(status_val) = filter_dict.get_item("status").map_err(|e| {
-                    lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(format!("Filter error: {}", e))
-                })? {
-                    let status_str: String = status_val.extract().map_err(|e| {
-                        lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(format!("Status extraction error: {}", e))
-                    })?;
-                    let status = match status_str.as_str() {
-                        "minedconfirmed" => TransactionStatus::MinedConfirmed,
-                        "minedunconfirmed" => TransactionStatus::MinedUnconfirmed,
-                        "coinbase" => TransactionStatus::Coinbase,
-                        "rejected" => TransactionStatus::Rejected,
-                        "broadcast" => TransactionStatus::Broadcast,
-                        "pending" => TransactionStatus::Pending,
-                        _ => return Err(lightweight_wallet_libs::errors::LightweightWalletError::InvalidArgument {
+                if let Some(status_str) = extract_filter_param!(filter_dict, "status", String)? {
+                    let status = parse_transaction_status(&status_str).map_err(|e| {
+                        lightweight_wallet_libs::errors::LightweightWalletError::InvalidArgument {
                             argument: "status".into(),
                             value: status_str,
-                            message: "Invalid status. Must be one of: minedconfirmed, minedunconfirmed, coinbase, rejected, broadcast, pending".into()
-                        }),
-                    };
+                            message: e,
+                        }
+                    })?;
                     filter = filter.with_status(status);
                 }
                 
-                if let Some(spent_val) = filter_dict.get_item("is_spent").map_err(|e| {
-                    lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(format!("Filter error: {}", e))
-                })? {
-                    let is_spent: bool = spent_val.extract().map_err(|e| {
-                        lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(format!("Boolean extraction error: {}", e))
-                    })?;
+                if let Some(is_spent) = extract_filter_param!(filter_dict, "is_spent", bool)? {
                     filter = filter.with_spent_status(is_spent);
                 }
                 
-                if let Some(mature_val) = filter_dict.get_item("is_mature").map_err(|e| {
-                    lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(format!("Filter error: {}", e))
-                })? {
-                    let is_mature: bool = mature_val.extract().map_err(|e| {
-                        lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(format!("Boolean extraction error: {}", e))
-                    })?;
+                if let Some(is_mature) = extract_filter_param!(filter_dict, "is_mature", bool)? {
                     filter = filter.with_maturity(is_mature);
                 }
                 
-                if let Some(limit_val) = filter_dict.get_item("limit").map_err(|e| {
-                    lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(format!("Filter error: {}", e))
-                })? {
-                    let limit: usize = limit_val.extract().map_err(|e| {
-                        lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(format!("Integer extraction error: {}", e))
-                    })?;
+                if let Some(limit) = extract_filter_param!(filter_dict, "limit", usize)? {
                     filter = filter.with_limit(limit);
                 }
                 
-                if let Some(offset_val) = filter_dict.get_item("offset").map_err(|e| {
-                    lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(format!("Filter error: {}", e))
-                })? {
-                    let offset: usize = offset_val.extract().map_err(|e| {
-                        lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(format!("Integer extraction error: {}", e))
-                    })?;
+                if let Some(offset) = extract_filter_param!(filter_dict, "offset", usize)? {
                     filter = filter.with_offset(offset);
                 }
             }

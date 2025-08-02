@@ -16,43 +16,13 @@ use lightweight_wallet_libs::data_structures::{
     encrypted_data::EncryptedData,
 };
 use crate::errors::convert_to_pyerr;
+use crate::utils::{hex_to_bytes, hex_to_commitment_bytes};
 
 
-// ========== Chunk Configuration ==========
+// ========== Constants ==========
 
-/// Configuration for chunked batch processing
-#[derive(Debug, Clone)]
-pub struct ChunkConfig {
-    pub chunk_size: usize,
-    #[allow(dead_code)]  // Reserved for future memory limiting feature
-    pub max_memory_mb: Option<usize>,
-}
-
-impl Default for ChunkConfig {
-    fn default() -> Self {
-        Self {
-            chunk_size: 1000,  // Default chunk size balances memory and performance
-            max_memory_mb: None,  // No memory limit by default
-        }
-    }
-}
-
-impl ChunkConfig {
-    pub fn new(chunk_size: usize) -> Self {
-        Self {
-            chunk_size,
-            max_memory_mb: None,
-        }
-    }
-
-    #[allow(dead_code)]  // Reserved for future memory limiting feature
-    pub fn with_memory_limit(chunk_size: usize, max_memory_mb: usize) -> Self {
-        Self {
-            chunk_size,
-            max_memory_mb: Some(max_memory_mb),
-        }
-    }
-}
+/// Fixed chunk size for memory-efficient batch processing
+const DEFAULT_CHUNK_SIZE: usize = 1000;
 
 // ========== Validation Result Structures ==========
 
@@ -138,29 +108,6 @@ impl BatchValidationResult {
     }
 }
 
-// ========== Utility Functions ==========
-
-/// Convert hex string to bytes with proper error handling
-fn hex_to_bytes(hex_str: &str) -> PyResult<Vec<u8>> {
-    hex::decode(hex_str.trim_start_matches("0x"))
-        .map_err(|e| PyValueError::new_err(format!("Invalid hex string: {}", e)))
-}
-
-/// Convert hex string to 32-byte array for commitments
-fn hex_to_commitment_bytes(hex_str: &str) -> PyResult<[u8; 32]> {
-    let bytes = hex_to_bytes(hex_str)?;
-    if bytes.len() != 32 {
-        return Err(PyValueError::new_err(format!(
-            "Commitment must be exactly 32 bytes, got {} bytes",
-            bytes.len()
-        )));
-    }
-    let mut array = [0u8; 32];
-    array.copy_from_slice(&bytes);
-    Ok(array)
-}
-
-
 
 // ========== Commitment Validation ==========
 
@@ -234,11 +181,11 @@ impl LightweightCommitmentValidator {
             hexes.push(item.extract::<String>()?);
         }
 
-        let config = ChunkConfig::new(chunk_size.unwrap_or(1000));
+        let chunk_size = chunk_size.unwrap_or(DEFAULT_CHUNK_SIZE);
 
         // Process in chunks for memory efficiency
         let results = py.allow_threads(|| {
-            self.process_commitments_in_chunks(hexes, &config)
+            self.process_commitments_in_chunks(hexes, chunk_size)
         })?;
 
         Ok(BatchValidationResult::new(results))
@@ -250,28 +197,11 @@ impl LightweightCommitmentValidator {
     fn process_commitments_in_chunks(
         &self,
         hexes: Vec<String>,
-        config: &ChunkConfig,
+        chunk_size: usize,
     ) -> PyResult<Vec<ValidationResult>> {
-        let mut all_results = Vec::new();
-        
-        for chunk in hexes.chunks(config.chunk_size) {
-            
-            let chunk_results: Result<Vec<ValidationResult>, PyErr> = chunk
-                .iter()
-                .map(|hex| self.validate_commitment_detailed(hex))
-                .collect();
-            
-            match chunk_results {
-                Ok(mut results) => {
-                    all_results.append(&mut results);
-                },
-                Err(e) => return Err(e),
-            }
-        }
-        
-
-        
-        Ok(all_results)
+        process_validation_in_chunks(hexes, chunk_size, |hex| {
+            self.validate_commitment_detailed(hex)
+        })
     }
 }
 
@@ -356,11 +286,11 @@ impl TariEncryptedDataValidator {
             hexes.push(item.extract::<String>()?);
         }
 
-        let config = ChunkConfig::new(chunk_size.unwrap_or(1000));
+        let chunk_size = chunk_size.unwrap_or(DEFAULT_CHUNK_SIZE);
 
         // Process in chunks for memory efficiency
         let results = py.allow_threads(|| {
-            self.process_encrypted_data_in_chunks(hexes, &config)
+            self.process_encrypted_data_in_chunks(hexes, chunk_size)
         })?;
 
         Ok(BatchValidationResult::new(results))
@@ -372,24 +302,38 @@ impl TariEncryptedDataValidator {
     fn process_encrypted_data_in_chunks(
         &self,
         hexes: Vec<String>,
-        config: &ChunkConfig,
+        chunk_size: usize,
     ) -> PyResult<Vec<ValidationResult>> {
-        let mut all_results = Vec::new();
-        
-        for chunk in hexes.chunks(config.chunk_size) {
-            let chunk_results: Result<Vec<ValidationResult>, PyErr> = chunk
-                .iter()
-                .map(|hex| self.validate_encrypted_data_detailed(hex))
-                .collect();
-            
-            match chunk_results {
-                Ok(mut results) => all_results.append(&mut results),
-                Err(e) => return Err(e),
-            }
-        }
-        
-        Ok(all_results)
+        process_validation_in_chunks(hexes, chunk_size, |hex| {
+            self.validate_encrypted_data_detailed(hex)
+        })
     }
+}
+
+/// Generic chunk processing function to eliminate duplication
+fn process_validation_in_chunks<F>(
+    hexes: Vec<String>,
+    chunk_size: usize,
+    validator: F,
+) -> PyResult<Vec<ValidationResult>>
+where
+    F: Fn(&str) -> PyResult<ValidationResult>,
+{
+    let mut all_results = Vec::new();
+    
+    for chunk in hexes.chunks(chunk_size) {
+        let chunk_results: Result<Vec<ValidationResult>, PyErr> = chunk
+            .iter()
+            .map(|hex| validator(hex))
+            .collect();
+        
+        match chunk_results {
+            Ok(mut results) => all_results.append(&mut results),
+            Err(e) => return Err(e),
+        }
+    }
+    
+    Ok(all_results)
 }
 
 
