@@ -191,7 +191,7 @@ impl PyOutputFeatures {
 
     /// Get metadata
     pub fn metadata<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new_bound(py, &self.inner.metadata)
+        PyBytes::new(py, &self.inner.metadata)
     }
 
     fn __str__(&self) -> String {
@@ -244,7 +244,7 @@ impl PyScript {
 
     /// Get script bytes
     pub fn to_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new_bound(py, &self.inner.bytes)
+        PyBytes::new(py, &self.inner.bytes)
     }
 
     /// Get script length
@@ -318,7 +318,7 @@ impl PyCovenant {
 
     /// Get covenant bytes
     pub fn to_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new_bound(py, &self.inner.bytes)
+        PyBytes::new(py, &self.inner.bytes)
     }
 
     /// Get covenant length
@@ -384,7 +384,7 @@ impl PySignature {
 
     /// Get signature bytes
     pub fn to_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new_bound(py, &self.inner.bytes)
+        PyBytes::new(py, &self.inner.bytes)
     }
 
     /// Get signature length
@@ -446,7 +446,7 @@ impl PyRangeProof {
 
     /// Get range proof bytes
     pub fn to_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new_bound(py, &self.inner.bytes)
+        PyBytes::new(py, &self.inner.bytes)
     }
 
     /// Get range proof length
@@ -520,12 +520,12 @@ impl PyEncryptedData {
 
     /// Get encrypted data bytes
     pub fn data<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new_bound(py, &self.inner.data)
+        PyBytes::new(py, &self.inner.data)
     }
 
     /// Get payment ID bytes
     pub fn payment_id<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new_bound(py, &self.inner.payment_id)
+        PyBytes::new(py, &self.inner.payment_id)
     }
 
     /// Get data length
@@ -715,12 +715,12 @@ impl PyTransactionOutput {
 
     /// Calculate output hash
     pub fn hash<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new_bound(py, &self.inner.hash())
+        PyBytes::new(py, &self.inner.hash())
     }
 
     /// Calculate SMT hash
     pub fn smt_hash<'py>(&self, py: Python<'py>, mined_height: u64) -> Bound<'py, PyBytes> {
-        PyBytes::new_bound(py, &self.inner.smt_hash(mined_height))
+        PyBytes::new(py, &self.inner.smt_hash(mined_height))
     }
 
     /// Check if this is a coinbase output

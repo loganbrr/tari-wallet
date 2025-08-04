@@ -333,12 +333,12 @@ impl PyTariAddress {
     /// Get public view key (returns None for single addresses)
     pub fn public_view_key<'py>(&self, py: Python<'py>) -> Option<Bound<'py, PyBytes>> {
         self.inner.public_view_key()
-            .map(|key| PyBytes::new_bound(py, key.as_bytes()))
+            .map(|key| PyBytes::new(py, key.as_bytes()))
     }
 
     /// Get public spend key
     pub fn public_spend_key<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new_bound(py, self.inner.public_spend_key().as_bytes())
+        PyBytes::new(py, self.inner.public_spend_key().as_bytes())
     }
 
     /// Check if this is a dual address
@@ -373,7 +373,7 @@ impl PyTariAddress {
 
     /// Convert to bytes
     pub fn to_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new_bound(py, &self.inner.to_vec())
+        PyBytes::new(py, &self.inner.to_vec())
     }
 
     fn __str__(&self) -> String {
@@ -486,17 +486,17 @@ impl PyDualAddress {
 
     /// Get public view key
     pub fn public_view_key<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new_bound(py, self.inner.public_view_key().as_bytes())
+        PyBytes::new(py, self.inner.public_view_key().as_bytes())
     }
 
     /// Get public spend key
     pub fn public_spend_key<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new_bound(py, self.inner.public_spend_key().as_bytes())
+        PyBytes::new(py, self.inner.public_spend_key().as_bytes())
     }
 
     /// Get payment ID user data
     pub fn payment_id_user_data<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new_bound(py, &self.inner.get_payment_id_user_data_bytes())
+        PyBytes::new(py, &self.inner.get_payment_id_user_data_bytes())
     }
 
     /// Convert to emoji string
@@ -516,7 +516,7 @@ impl PyDualAddress {
 
     /// Convert to bytes
     pub fn to_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new_bound(py, &self.inner.to_vec())
+        PyBytes::new(py, &self.inner.to_vec())
     }
 
     fn __str__(&self) -> String {
@@ -595,7 +595,7 @@ impl PySingleAddress {
 
     /// Get public spend key
     pub fn public_spend_key<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new_bound(py, self.inner.public_spend_key().as_bytes())
+        PyBytes::new(py, self.inner.public_spend_key().as_bytes())
     }
 
     /// Convert to emoji string
@@ -615,7 +615,7 @@ impl PySingleAddress {
 
     /// Convert to bytes
     pub fn to_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new_bound(py, &self.inner.to_vec())
+        PyBytes::new(py, &self.inner.to_vec())
     }
 
     fn __str__(&self) -> String {

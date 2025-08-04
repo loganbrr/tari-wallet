@@ -278,7 +278,7 @@ impl PyTariWallet {
         })?;
         
         let entropy = wallet.entropy();
-        Ok(PyBytes::new_bound(py, &entropy))
+        Ok(PyBytes::new(py, &entropy))
     }
 
     /// Get view key index

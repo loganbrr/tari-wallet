@@ -270,7 +270,7 @@ fn utils(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
         use rand::RngCore;
         let mut entropy = [0u8; 16];
         rand::thread_rng().fill_bytes(&mut entropy);
-        pyo3::types::PyBytes::new_bound(py, &entropy)
+        pyo3::types::PyBytes::new(py, &entropy)
     }
     
     Ok(())

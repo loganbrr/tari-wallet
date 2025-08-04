@@ -32,7 +32,7 @@ impl PyPrivateKey {
 
     /// Create from bytes (32 bytes required)
     #[staticmethod]
-    pub fn from_bytes(bytes: &PyBytes) -> PyResult<Self> {
+    pub fn from_bytes(bytes: &Bound<'_, PyBytes>) -> PyResult<Self> {
         let key_bytes: [u8; 32] = bytes.as_bytes().try_into().map_err(|_| {
             PyWalletError::from_msg("Private key must be exactly 32 bytes")
         })?;
@@ -51,7 +51,7 @@ impl PyPrivateKey {
 
     /// Get the private key bytes (returns copy for security)
     pub fn to_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new_bound(py, &self.inner.as_bytes())
+        PyBytes::new(py, &self.inner.as_bytes())
     }
 
     /// Convert to hex string (for compatibility - use sparingly)
@@ -128,7 +128,7 @@ impl PyCompressedPublicKey {
 
     /// Get the public key bytes
     pub fn to_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new_bound(py, &self.inner.as_bytes())
+        PyBytes::new(py, &self.inner.as_bytes())
     }
 
     /// Convert to hex string
@@ -197,7 +197,7 @@ impl PyCompressedCommitment {
 
     /// Get the commitment bytes
     pub fn to_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new_bound(py, &self.inner.as_bytes())
+        PyBytes::new(py, &self.inner.as_bytes())
     }
 
     /// Convert to hex string
@@ -266,7 +266,7 @@ impl PyFixedHash {
 
     /// Get the hash bytes
     pub fn to_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new_bound(py, self.inner.as_bytes())
+        PyBytes::new(py, self.inner.as_bytes())
     }
 
     /// Convert to hex string
@@ -447,7 +447,7 @@ impl PySafeArray {
 
     /// Get the array bytes (returns copy for security)
     pub fn to_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new_bound(py, self.inner.as_bytes())
+        PyBytes::new(py, self.inner.as_bytes())
     }
 
     /// Convert to hex string
