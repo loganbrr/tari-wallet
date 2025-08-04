@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::convert::TryInto;
 use std::str::FromStr;
 use tari_utilities::ByteArray;
-use crate::errors::{lock_error, hex_decode_error};
+use crate::errors::{lock_error, PyWalletError};
 use crate::secure_wrapper::{SecureData, SecureEntropy};
 
 use lightweight_wallet_libs::key_management::{
@@ -100,9 +100,9 @@ impl TariKeyManager {
     /// Returns:
     ///     TariKeyManager: Key manager with derived entropy from master key
     #[staticmethod]
-    fn from_wallet(wallet: &crate::TariWallet) -> PyResult<Self> {
+    fn from_wallet(wallet: &crate::wallet::PyTariWallet) -> PyResult<Self> {
         // Extract master key from wallet
-        let wallet_guard = wallet.inner.lock().map_err(lock_error("wallet"))?;
+        let wallet_guard = wallet.inner().lock().map_err(lock_error("wallet"))?;
         
         // Get the master key bytes and use first 16 bytes as entropy
         let master_key_bytes = wallet_guard.master_key_bytes();
@@ -126,7 +126,7 @@ impl TariKeyManager {
             return Err(PyValueError::new_err("Entropy must be exactly 32 hex characters (16 bytes)"));
         }
 
-        let entropy_bytes = hex::decode(entropy_hex).map_err(hex_decode_error("entropy"))?;
+        let entropy_bytes = hex::decode(entropy_hex).map_err(|e| PyWalletError::from_msg(&format!("Invalid hex: {}", e)))?;
 
         let entropy: [u8; 16] = entropy_bytes.try_into()
             .map_err(|_| PyValueError::new_err("Entropy must be exactly 16 bytes"))?;

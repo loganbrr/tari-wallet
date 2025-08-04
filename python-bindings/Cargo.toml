@@ -21,3 +21,4 @@ blake2b_simd = "1.0"
 borsh = { version = "1.5.7", features = ["derive"] }
 paste = "1.0"
 zeroize = { version = "1.7", features = ["zeroize_derive"] }
+rand = "0.8"

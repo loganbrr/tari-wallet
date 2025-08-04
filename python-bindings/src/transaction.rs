@@ -4,7 +4,7 @@
 //! internally for transaction components. This improves performance and type safety
 //! compared to hex string serialization.
 
-use crate::crypto::{PyCompressedCommitment, PyCompressedPublicKey, PyFixedHash, PyMicroMinotari};
+use crate::crypto::{PyCompressedCommitment, PyCompressedPublicKey, PyMicroMinotari};
 use crate::errors::PyWalletError;
 use lightweight_wallet_libs::data_structures::{
     encrypted_data::EncryptedData,
@@ -12,6 +12,7 @@ use lightweight_wallet_libs::data_structures::{
     wallet_output::{
         LightweightCovenant, LightweightOutputFeatures, LightweightOutputType,
         LightweightRangeProof, LightweightScript, LightweightSignature,
+        LightweightRangeProofType,
     },
 };
 use pyo3::prelude::*;
@@ -30,7 +31,7 @@ impl PyOutputType {
     #[staticmethod]
     pub fn standard() -> Self {
         Self {
-            inner: LightweightOutputType::Standard,
+            inner: LightweightOutputType::Payment,
         }
     }
 
@@ -68,7 +69,7 @@ impl PyOutputType {
 
     /// Check if this is a standard output
     pub fn is_standard(&self) -> bool {
-        matches!(self.inner, LightweightOutputType::Standard)
+        matches!(self.inner, LightweightOutputType::Payment)
     }
 
     /// Check if this is a coinbase output
@@ -83,7 +84,7 @@ impl PyOutputType {
 
     fn __str__(&self) -> String {
         match self.inner {
-            LightweightOutputType::Standard => "Standard".to_string(),
+            LightweightOutputType::Payment => "Standard".to_string(),
             LightweightOutputType::Coinbase => "Coinbase".to_string(),
             LightweightOutputType::Burn => "Burn".to_string(),
             LightweightOutputType::ValidatorNodeRegistration => "ValidatorNodeRegistration".to_string(),
@@ -98,11 +99,10 @@ impl PyOutputType {
     fn __eq__(&self, other: &Self) -> bool {
         self.inner == other.inner
     }
-}
 
-impl PyOutputType {
-    pub fn inner(&self) -> LightweightOutputType {
-        self.inner
+    /// Get the inner LightweightOutputType as a string
+    pub fn inner_as_string(&self) -> String {
+        format!("{:?}", self.inner)
     }
 }
 
@@ -118,19 +118,33 @@ impl PyOutputFeatures {
     /// Create new output features
     #[new]
     pub fn new(
-        version: u8,
         output_type: &PyOutputType,
         maturity: u64,
-        recovery_byte: u8,
-        metadata: &PyBytes,
+        range_proof_type: u8,
     ) -> Self {
+        let range_proof = match range_proof_type {
+            0 => LightweightRangeProofType::BulletProofPlus,
+            1 => LightweightRangeProofType::RevealedValue,
+            _ => LightweightRangeProofType::BulletProofPlus,
+        };
+        
         Self {
             inner: LightweightOutputFeatures {
-                version,
-                output_type: output_type.inner(),
+                output_type: output_type.inner.clone(),
                 maturity,
-                recovery_byte,
-                metadata: metadata.as_bytes().to_vec(),
+                range_proof_type: range_proof,
+            },
+        }
+    }
+
+    /// Create default output features
+    #[staticmethod]
+    pub fn default() -> Self {
+        Self {
+            inner: LightweightOutputFeatures {
+                output_type: LightweightOutputType::Payment,
+                maturity: 0,
+                range_proof_type: LightweightRangeProofType::BulletProofPlus,
             },
         }
     }
@@ -140,58 +154,31 @@ impl PyOutputFeatures {
     pub fn standard(maturity: u64) -> Self {
         Self {
             inner: LightweightOutputFeatures {
-                version: 1,
-                output_type: LightweightOutputType::Standard,
+                output_type: LightweightOutputType::Payment,
                 maturity,
-                recovery_byte: 0,
-                metadata: Vec::new(),
+                range_proof_type: LightweightRangeProofType::BulletProofPlus,
             },
         }
     }
 
-    /// Create coinbase output features
-    #[staticmethod]
-    pub fn coinbase(maturity: u64) -> Self {
-        Self {
-            inner: LightweightOutputFeatures {
-                version: 1,
-                output_type: LightweightOutputType::Coinbase,
-                maturity,
-                recovery_byte: 0,
-                metadata: Vec::new(),
-            },
-        }
-    }
-
-    /// Get version
-    #[getter]
-    pub fn version(&self) -> u8 {
-        self.inner.version
-    }
-
-    /// Get output type
-    #[getter]
+    /// Get the output type
     pub fn output_type(&self) -> PyOutputType {
         PyOutputType {
-            inner: self.inner.output_type,
+            inner: self.inner.output_type.clone(),
         }
     }
 
-    /// Get maturity
-    #[getter]
+    /// Get the maturity height
     pub fn maturity(&self) -> u64 {
         self.inner.maturity
     }
 
-    /// Get recovery byte
-    #[getter]
-    pub fn recovery_byte(&self) -> u8 {
-        self.inner.recovery_byte
-    }
-
-    /// Get metadata
-    pub fn metadata<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new(py, &self.inner.metadata)
+    /// Get the range proof type
+    pub fn range_proof_type(&self) -> u8 {
+        match self.inner.range_proof_type {
+            LightweightRangeProofType::BulletProofPlus => 0,
+            LightweightRangeProofType::RevealedValue => 1,
+        }
     }
 
     fn __str__(&self) -> String {
@@ -200,8 +187,8 @@ impl PyOutputFeatures {
     }
 
     fn __repr__(&self) -> String {
-        format!("OutputFeatures(version={}, output_type={}, maturity={}, recovery_byte={})",
-            self.version(), self.output_type().__str__(), self.maturity(), self.recovery_byte())
+        format!("OutputFeatures(output_type={}, maturity={}, range_proof_type={})",
+            self.output_type().__str__(), self.maturity(), self.range_proof_type())
     }
 }
 
@@ -226,7 +213,7 @@ pub struct PyScript {
 impl PyScript {
     /// Create from bytes
     #[staticmethod]
-    pub fn from_bytes(bytes: &PyBytes) -> Self {
+    pub fn from_bytes(bytes: Bound<'_, PyBytes>) -> Self {
         Self {
             inner: LightweightScript {
                 bytes: bytes.as_bytes().to_vec(),
@@ -300,7 +287,7 @@ pub struct PyCovenant {
 impl PyCovenant {
     /// Create from bytes
     #[staticmethod]
-    pub fn from_bytes(bytes: &PyBytes) -> Self {
+    pub fn from_bytes(bytes: Bound<'_, PyBytes>) -> Self {
         Self {
             inner: LightweightCovenant {
                 bytes: bytes.as_bytes().to_vec(),
@@ -374,7 +361,7 @@ pub struct PySignature {
 impl PySignature {
     /// Create from bytes
     #[staticmethod]
-    pub fn from_bytes(bytes: &PyBytes) -> Self {
+    pub fn from_bytes(bytes: Bound<'_, PyBytes>) -> Self {
         Self {
             inner: LightweightSignature {
                 bytes: bytes.as_bytes().to_vec(),
@@ -436,7 +423,7 @@ pub struct PyRangeProof {
 impl PyRangeProof {
     /// Create from bytes
     #[staticmethod]
-    pub fn from_bytes(bytes: &PyBytes) -> Self {
+    pub fn from_bytes(bytes: Bound<'_, PyBytes>) -> Self {
         Self {
             inner: LightweightRangeProof {
                 bytes: bytes.as_bytes().to_vec(),
@@ -496,14 +483,12 @@ pub struct PyEncryptedData {
 
 #[pymethods]
 impl PyEncryptedData {
-    /// Create from raw data  
-    #[staticmethod]
-    pub fn from_data(data: &PyBytes, payment_id: &PyBytes) -> Self {
+    /// Create new encrypted data
+    #[new]
+    pub fn new(data: Bound<'_, PyBytes>) -> Self {
         Self {
-            inner: EncryptedData {
-                data: data.as_bytes().to_vec(),
-                payment_id: payment_id.as_bytes().to_vec(),
-            },
+            inner: EncryptedData::from_bytes(data.as_bytes())
+                .unwrap_or_else(|_| EncryptedData::from_bytes(&[]).unwrap()),
         }
     }
 
@@ -511,46 +496,37 @@ impl PyEncryptedData {
     #[staticmethod]
     pub fn empty() -> Self {
         Self {
-            inner: EncryptedData {
-                data: Vec::new(),
-                payment_id: Vec::new(),
-            },
+            inner: EncryptedData::from_bytes(&[])
+                .unwrap_or_else(|_| EncryptedData::from_bytes(&[]).unwrap()),
         }
     }
 
-    /// Get encrypted data bytes
+    /// Get the encrypted data bytes
     pub fn data<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new(py, &self.inner.data)
+        PyBytes::new(py, self.inner.as_bytes())
     }
 
-    /// Get payment ID bytes
-    pub fn payment_id<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new(py, &self.inner.payment_id)
+    /// Get the data length
+    pub fn len(&self) -> usize {
+        self.inner.as_bytes().len()
     }
 
-    /// Get data length
-    pub fn data_len(&self) -> usize {
-        self.inner.data.len()
-    }
-
-    /// Get payment ID length
-    pub fn payment_id_len(&self) -> usize {
-        self.inner.payment_id.len()
-    }
-
-    /// Check if data is empty
+    /// Check if the data is empty
     pub fn is_empty(&self) -> bool {
-        self.inner.data.is_empty() && self.inner.payment_id.is_empty()
+        self.inner.as_bytes().is_empty()
+    }
+
+    /// Get hex representation
+    pub fn to_hex(&self) -> String {
+        format!("data: {}", hex::encode(self.inner.as_bytes()))
     }
 
     fn __str__(&self) -> String {
-        format!("EncryptedData(data={} bytes, payment_id={} bytes)", 
-            self.data_len(), self.payment_id_len())
+        format!("EncryptedData(data={} bytes)", self.len())
     }
 
     fn __repr__(&self) -> String {
-        format!("EncryptedData(data={}, payment_id={})",
-            hex::encode(&self.inner.data), hex::encode(&self.inner.payment_id))
+        format!("EncryptedData(len={})", self.len())
     }
 }
 
@@ -651,8 +627,7 @@ impl PyTransactionOutput {
         }
     }
 
-    /// Get commitment
-    #[getter]
+    /// Get the commitment
     pub fn commitment(&self) -> PyCompressedCommitment {
         PyCompressedCommitment {
             inner: self.inner.commitment().clone(),
@@ -675,8 +650,7 @@ impl PyTransactionOutput {
         }
     }
 
-    /// Get sender offset public key
-    #[getter]
+    /// Get the sender offset public key
     pub fn sender_offset_public_key(&self) -> PyCompressedPublicKey {
         PyCompressedPublicKey {
             inner: self.inner.sender_offset_public_key().clone(),

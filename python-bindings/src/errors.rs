@@ -6,18 +6,19 @@
 
 use pyo3::prelude::*;
 use pyo3::exceptions::{
-    PyRuntimeError, PyValueError, PyIOError, PyTimeoutError,
-    PyConnectionError, PyTypeError, PyNotImplementedError
+    PyValueError, PyRuntimeError, PyIOError, PyConnectionError, PyTypeError, PyTimeoutError
 };
 use lightweight_wallet_libs::errors::LightweightWalletError;
 use std::sync::PoisonError;
+use std::error::Error;
 
 /// Enhanced PyO3 error wrapper with direct message creation
 /// 
 /// This error type provides clean error creation and comprehensive mapping
 /// from Rust errors to appropriate Python exception types while preserving
 /// error context and source chain information.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+#[pyclass(extends=pyo3::exceptions::PyException)]
 pub struct PyWalletError {
     message: String,
     error_type: ErrorType,
@@ -32,7 +33,7 @@ enum ErrorType {
     Connection,
     Timeout,
     Type,
-    NotImplemented,
+    Validation,
 }
 
 impl PyWalletError {
@@ -45,7 +46,16 @@ impl PyWalletError {
         }
     }
 
-    /// Create a value error
+    /// Create a new error from a LightweightWalletError
+    pub fn from_wallet_error(error: LightweightWalletError) -> Self {
+        Self {
+            message: error.to_string(),
+            error_type: ErrorType::Validation,
+            source_chain: vec![],
+        }
+    }
+
+    /// Create value error
     pub fn value_error(message: &str) -> Self {
         Self {
             message: message.to_string(),
@@ -110,101 +120,46 @@ impl From<LightweightWalletError> for PyWalletError {
     fn from(err: LightweightWalletError) -> Self {
         use LightweightWalletError::*;
         
-        let (message, error_type) = match &err {
-            // Data structure errors -> ValueError
-            DataStructureError(e) => (
-                format!("Data structure error: {}", e),
-                ErrorType::Value
-            ),
-            
-            // Validation errors -> ValueError  
-            ValidationError(e) => (
+        let (error_type, message, _source) = match err {
+            ValidationError(ref e) => (
+                ErrorType::Validation,
                 format!("Validation error: {}", e),
-                ErrorType::Value
+                err.to_string(),
             ),
-            
-            // Storage errors -> IOError
-            StorageError(e) => (
-                format!("Storage error: {}", e),
-                ErrorType::IO
-            ),
-            
-            // Scanning errors -> ConnectionError
-            ScanningError(e) => (
-                format!("Scanning error: {}", e),
-                ErrorType::Connection
-            ),
-            
-            // Key management errors -> ValueError (sensitive data handling)
-            KeyManagementError(e) => (
+            KeyManagementError(ref e) => (
+                ErrorType::Runtime,
                 format!("Key management error: {}", e),
-                ErrorType::Value
+                err.to_string(),
             ),
-            
-            // Encryption errors -> ValueError
-            EncryptionError(e) => (
-                format!("Encryption error: {}", e),
-                ErrorType::Value
+            StorageError(ref e) => (
+                ErrorType::IO,
+                format!("Storage error: {}", e),
+                err.to_string(),
             ),
-            
-            // Network errors -> ConnectionError
-            NetworkError(e) => (
-                format!("Network error: {}", e),
-                ErrorType::Connection
+            ScanningError(ref e) => (
+                ErrorType::Connection,
+                format!("Scanner error: {}", e),
+                err.to_string(),
             ),
-            
-            // Timeout errors -> TimeoutError
-            Timeout(e) => (
-                format!("Timeout error: {}", e),
-                ErrorType::Timeout
-            ),
-            
-            // Conversion errors -> ValueError
-            ConversionError(e) => (
+            ConversionError(ref e) => (
+                ErrorType::Type,
                 format!("Conversion error: {}", e),
-                ErrorType::Value
+                err.to_string(),
             ),
-            
-            // Connection errors -> ConnectionError
-            ConnectionError(e) => (
-                format!("Connection error: {}", e),
-                ErrorType::Connection
+            NetworkError(ref e) => (
+                ErrorType::Connection,
+                format!("Network error: {}", e),
+                err.to_string(),
             ),
-            
-            // gRPC errors -> ConnectionError
-            GrpcError(e) => (
-                format!("gRPC error: {}", e),
-                ErrorType::Connection
+            Timeout(ref e) => (
+                ErrorType::Timeout,
+                format!("Timeout error: {}", e),
+                err.to_string(),
             ),
-            
-            // Hex errors -> ValueError
-            HexError(e) => (
-                format!("Hex error: {}", e),
-                ErrorType::Value
-            ),
-            
-            // Serialization errors -> ValueError
-            SerializationError(e) => (
-                format!("Serialization error: {}", e),
-                ErrorType::Value
-            ),
-            
-            // Range validation errors -> ValueError
-            RangeValidationError(e) => (
-                format!("Range validation error: {}", e),
-                ErrorType::Value
-            ),
-            
-            // Cryptographic signature errors -> ValueError
-            CryptographicSignatureError(e) => (
-                format!("Cryptographic signature error: {}", e),
-                ErrorType::Value
-            ),
-            
-            // Fallback for any unhandled variants -> RuntimeError
             _ => (
+                ErrorType::Runtime,
                 format!("Wallet error: {}", err),
-                ErrorType::Runtime
+                err.to_string(),
             ),
         };
 
@@ -235,7 +190,7 @@ impl From<PyWalletError> for PyErr {
             ErrorType::Connection => PyConnectionError::new_err(full_message),
             ErrorType::Timeout => PyTimeoutError::new_err(full_message),
             ErrorType::Type => PyTypeError::new_err(full_message),
-            ErrorType::NotImplemented => PyNotImplementedError::new_err(full_message),
+            ErrorType::Validation => PyValueError::new_err(full_message),
         }
     }
 }
@@ -249,9 +204,20 @@ impl std::fmt::Display for PyWalletError {
 impl std::error::Error for PyWalletError {}
 
 /// Convenience function for lock errors
-pub fn lock_error(resource: &str) -> impl Fn(PoisonError<std::sync::MutexGuard<'_, impl std::fmt::Debug>>) -> PyWalletError {
+pub fn lock_error<T: std::fmt::Debug>(resource: &str) -> impl Fn(PoisonError<std::sync::MutexGuard<'_, T>>) -> PyWalletError {
     let resource = resource.to_string();
     move |_| PyWalletError::from_msg(&format!("Failed to lock {}", resource))
+}
+
+/// Convert LightweightWalletError to PyErr
+pub fn convert_to_pyerr(error: LightweightWalletError) -> PyErr {
+    let py_error = PyWalletError::from_wallet_error(error);
+    py_error.into()
+}
+
+/// Check if connection should be evicted
+pub fn should_evict_connection(_error: &PyWalletError) -> bool {
+    false // Simple implementation for now
 }
 
 /// Helper macro for error propagation with context
@@ -269,19 +235,6 @@ macro_rules! py_try {
             Err(err) => return Err(PyWalletError::from(err).with_context($context).into()),
         }
     };
-}
-
-/// Result type alias for convenience
-pub type PyWalletResult<T> = Result<T, PyWalletError>;
-
-/// Convert any error to PyWalletError
-impl<E: std::error::Error + 'static> From<E> for PyWalletError
-where
-    E: Send + Sync,
-{
-    fn from(err: E) -> Self {
-        PyWalletError::from_msg(&err.to_string())
-    }
 }
 
 /// Custom error types for specific domains

@@ -12,11 +12,10 @@ use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-/// Native PyO3 wrapper for PrivateKey with automatic memory zeroing
+/// Native PyO3 wrapper for PrivateKey
 #[pyclass(name = "PrivateKey")]
-#[derive(ZeroizeOnDrop)]
+#[derive(Clone, ZeroizeOnDrop)]
 pub struct PyPrivateKey {
-    #[zeroize(skip)]  // PrivateKey handles its own zeroization
     inner: PrivateKey,
 }
 
@@ -32,7 +31,7 @@ impl PyPrivateKey {
 
     /// Create from bytes (32 bytes required)
     #[staticmethod]
-    pub fn from_bytes(bytes: &Bound<'_, PyBytes>) -> PyResult<Self> {
+    pub fn from_bytes(bytes: Bound<'_, PyBytes>) -> PyResult<Self> {
         let key_bytes: [u8; 32] = bytes.as_bytes().try_into().map_err(|_| {
             PyWalletError::from_msg("Private key must be exactly 32 bytes")
         })?;
@@ -85,8 +84,9 @@ impl PyPrivateKey {
         &self.inner
     }
     
+    /// Get the inner PrivateKey
     pub fn into_inner(self) -> PrivateKey {
-        self.inner
+        self.inner.clone()
     }
 }
 
@@ -94,14 +94,14 @@ impl PyPrivateKey {
 #[pyclass(name = "CompressedPublicKey")]
 #[derive(Clone)]
 pub struct PyCompressedPublicKey {
-    inner: CompressedPublicKey,
+    pub inner: CompressedPublicKey,
 }
 
 #[pymethods]
 impl PyCompressedPublicKey {
     /// Create from bytes (32 bytes required)
     #[staticmethod]
-    pub fn from_bytes(bytes: &PyBytes) -> PyResult<Self> {
+    pub fn from_bytes(bytes: Bound<'_, PyBytes>) -> PyResult<Self> {
         let key_bytes: [u8; 32] = bytes.as_bytes().try_into().map_err(|_| {
             PyWalletError::from_msg("Public key must be exactly 32 bytes")
         })?;
@@ -171,14 +171,14 @@ impl PyCompressedPublicKey {
 #[pyclass(name = "CompressedCommitment")]
 #[derive(Clone)]
 pub struct PyCompressedCommitment {
-    inner: CompressedCommitment,
+    pub inner: CompressedCommitment,
 }
 
 #[pymethods]
 impl PyCompressedCommitment {
     /// Create from bytes (32 bytes required)
     #[staticmethod]
-    pub fn from_bytes(bytes: &PyBytes) -> PyResult<Self> {
+    pub fn from_bytes(bytes: Bound<'_, PyBytes>) -> PyResult<Self> {
         let commitment_bytes: [u8; 32] = bytes.as_bytes().try_into().map_err(|_| {
             PyWalletError::from_msg("Commitment must be exactly 32 bytes")
         })?;
@@ -197,7 +197,7 @@ impl PyCompressedCommitment {
 
     /// Get the commitment bytes
     pub fn to_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new(py, &self.inner.as_bytes())
+        PyBytes::new(py, self.inner.as_bytes())
     }
 
     /// Convert to hex string
@@ -247,7 +247,7 @@ pub struct PyFixedHash {
 impl PyFixedHash {
     /// Create from bytes (32 bytes required)
     #[staticmethod]
-    pub fn from_bytes(bytes: &PyBytes) -> PyResult<Self> {
+    pub fn from_bytes(bytes: Bound<'_, PyBytes>) -> PyResult<Self> {
         let hash_bytes: [u8; 32] = bytes.as_bytes().try_into().map_err(|_| {
             PyWalletError::from_msg("Hash must be exactly 32 bytes")
         })?;
@@ -428,7 +428,7 @@ pub struct PySafeArray {
 impl PySafeArray {
     /// Create from bytes (32 bytes required for this implementation)
     #[staticmethod]
-    pub fn from_bytes(bytes: &PyBytes) -> PyResult<Self> {
+    pub fn from_bytes(bytes: Bound<'_, PyBytes>) -> PyResult<Self> {
         let array_bytes: [u8; 32] = bytes.as_bytes().try_into().map_err(|_| {
             PyWalletError::from_msg("Array must be exactly 32 bytes")
         })?;
@@ -445,8 +445,8 @@ impl PySafeArray {
         Ok(Self { inner })
     }
 
-    /// Get the array bytes (returns copy for security)
-    pub fn to_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+    /// Get bytes
+    pub fn bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
         PyBytes::new(py, self.inner.as_bytes())
     }
 
@@ -488,8 +488,9 @@ impl PySafeArray {
         &self.inner
     }
 
+    /// Get the inner SafeArray
     pub fn into_inner(self) -> SafeArray<32> {
-        self.inner
+        self.inner.clone()
     }
 }
 
@@ -537,9 +538,8 @@ impl PySignatureResult {
 
 /// Key pair wrapper for related private/public key operations
 #[pyclass(name = "KeyPair")]
-#[derive(ZeroizeOnDrop)]
+#[derive(Clone)]
 pub struct PyKeyPair {
-    #[zeroize(skip)]  // Components handle their own zeroization
     private_key: PyPrivateKey,
     public_key: PyCompressedPublicKey,
 }

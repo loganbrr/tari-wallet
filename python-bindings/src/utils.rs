@@ -52,3 +52,26 @@ pub fn get_stealth_info_from_master_key(master_key_bytes: &[u8]) -> Result<(Rist
     
     Ok((view_key, spend_key, view_public_key, spend_public_key))
 }
+
+/// Utils module for Python
+#[pymodule]
+pub fn utils_module(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    /// Validate a seed phrase
+    #[pyfn(m)]
+    fn validate_seed_phrase(seed_phrase: &str) -> bool {
+        use lightweight_wallet_libs::key_management::validate_seed_phrase;
+        validate_seed_phrase(seed_phrase).is_ok()
+    }
+    
+    /// Generate random entropy for wallet creation
+    #[pyfn(m)]
+    fn generate_entropy<'py>(py: Python<'py>) -> Bound<'py, pyo3::types::PyBytes> {
+        use rand::rngs::OsRng;
+        use rand::RngCore;
+        let mut entropy = [0u8; 32];
+        OsRng.fill_bytes(&mut entropy);
+        pyo3::types::PyBytes::new(py, &entropy)
+    }
+    
+    Ok(())
+}

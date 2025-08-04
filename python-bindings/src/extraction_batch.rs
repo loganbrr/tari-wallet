@@ -5,16 +5,25 @@
 
 use pyo3::prelude::*;
 use std::sync::{Arc, Mutex};
-
-
-use crate::extraction_utils::{lock_with_conversion_error, convert_outputs_to_rust};
-use crate::extraction_wrappers::PyLightweightTransactionOutput;
 use lightweight_wallet_libs::{
     extraction::{
-        validate_output_batch, BatchValidationOptions, BatchValidationResult, 
-        BatchValidationSummary, OutputValidationResult,
+        batch_validation::{
+            BatchValidationOptions, BatchValidationResult,
+            BatchValidationSummary, OutputValidationResult,
+        },
     },
 };
+use crate::errors::PyWalletError;
+
+// Helper function for locking with error conversion
+fn lock_with_conversion_error<'a, T>(
+    arc_mutex: &'a Arc<Mutex<T>>,
+    context: &'a str,
+) -> Result<std::sync::MutexGuard<'a, T>, PyErr> {
+    arc_mutex.lock().map_err(|e| {
+        PyWalletError::from_msg(&format!("Failed to acquire lock for {}: {}", context, e)).into()
+    })
+}
 
 #[cfg(feature = "grpc")]
 use lightweight_wallet_libs::extraction::validate_output_batch_parallel;
@@ -199,6 +208,7 @@ impl PyOutputValidationResult {
 }
 
 impl PyOutputValidationResult {
+    #[allow(dead_code)]
     fn from_rust(result: OutputValidationResult) -> Self {
         let errors = result.errors.into_iter()
             .map(|e| format!("{:?}", e))
@@ -248,6 +258,7 @@ impl PyBatchValidationSummary {
 }
 
 impl PyBatchValidationSummary {
+    #[allow(dead_code)]
     fn from_rust(summary: BatchValidationSummary) -> Self {
         Self {
             total_outputs: summary.total_outputs,
@@ -300,117 +311,28 @@ impl PyBatchValidationResult {
 }
 
 impl PyBatchValidationResult {
+    #[allow(dead_code)]
     fn from_rust(result: BatchValidationResult) -> Self {
         let results = result.results.into_iter()
             .map(PyOutputValidationResult::from_rust)
             .collect();
 
+        let summary = PyBatchValidationSummary::from_rust(result.summary);
+
         Self {
             is_valid: result.is_valid,
             results,
-            summary: PyBatchValidationSummary::from_rust(result.summary),
+            summary,
         }
     }
 }
 
-/// Validate a batch of transaction outputs with sequential processing
-///
-/// Validates multiple transaction outputs in sequence, providing comprehensive
-/// validation results with configurable error handling and validation options.
-///
-/// The validation process includes:
-/// - Commitment integrity checks (32-byte length, valid prefix)
-/// - Range proof validation (size constraints, structure validation)
-/// - Optional signature validation (when enabled)
-///
-/// Args:
-///     outputs (List[LightweightTransactionOutput]): List of transaction outputs to validate
-///     options (BatchValidationOptions): Configuration for validation behavior
-///
-/// Returns:
-///     BatchValidationResult: Comprehensive validation results with individual and summary statistics
-///
-/// Raises:
-///     PyWalletError: If validation process fails due to internal errors
-///
-/// # Performance Note
-///
-/// This function releases the Python GIL during validation for improved performance
-/// with concurrent Python operations. For large batches, consider using the parallel
-/// version if available (requires grpc feature).
-#[pyfunction]
-pub fn validate_output_batch_py(
-    py: Python,
-    outputs: Vec<PyLightweightTransactionOutput>,
-    options: &PyBatchValidationOptions,
-) -> PyResult<PyBatchValidationResult> {
-    // Release GIL for potentially long-running validation
-    py.allow_threads(|| {
-        // Convert Python wrappers to Rust types
-        let rust_outputs = convert_outputs_to_rust(outputs)?;
-        
-        let options_guard = lock_with_conversion_error(&options.inner, "options")?;
-        let rust_options = options_guard.clone();
-        drop(options_guard);
-
-        let result = validate_output_batch(&rust_outputs, &rust_options);
-
-        Ok(PyBatchValidationResult::from_rust(result))
-    })
-}
-
-/// Validate a batch of transaction outputs with parallel processing
-///
-/// Similar to validate_output_batch but uses parallel processing for improved
-/// performance on large batches. Only available when the 'grpc' feature is enabled.
-///
-/// Args:
-///     outputs (List[LightweightTransactionOutput]): List of transaction outputs to validate
-///     options (BatchValidationOptions): Configuration for validation behavior
-///
-/// Returns:
-///     BatchValidationResult: Comprehensive validation results with individual and summary statistics
-///
-/// Raises:
-///     PyWalletError: If validation process fails due to internal errors
-///
-/// # Performance Note
-///
-/// This function uses Rayon for parallel processing and releases the Python GIL
-/// during validation. Best suited for large batches (>100 outputs) where the
-/// parallel overhead is justified by improved throughput.
-#[cfg(feature = "grpc")]
-#[pyfunction]
-pub fn validate_output_batch_parallel_py(
-    py: Python,
-    outputs: Vec<PyLightweightTransactionOutput>,
-    options: &PyBatchValidationOptions,
-) -> PyResult<PyBatchValidationResult> {
-    // Release GIL for parallel validation
-    py.allow_threads(|| {
-        // Convert Python wrappers to Rust types
-        let rust_outputs = convert_outputs_to_rust(outputs)?;
-        
-        let options_guard = lock_with_conversion_error(&options.inner, "options")?;
-        let rust_options = options_guard.clone();
-        drop(options_guard);
-
-        let result = validate_output_batch_parallel(&rust_outputs, &rust_options);
-
-        Ok(PyBatchValidationResult::from_rust(result))
-    })
-}
-
 /// Register batch validation classes and functions with Python module
+#[allow(dead_code)]
 pub fn register_batch_validation_classes(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyBatchValidationOptions>()?;
-    m.add_class::<PyOutputValidationResult>()?;
-    m.add_class::<PyBatchValidationSummary>()?;
     m.add_class::<PyBatchValidationResult>()?;
-    m.add_function(wrap_pyfunction!(validate_output_batch_py, m)?)?;
-    
-    #[cfg(feature = "grpc")]
-    m.add_function(wrap_pyfunction!(validate_output_batch_parallel_py, m)?)?;
-    
+    m.add_class::<PyBatchValidationSummary>()?;
+    m.add_class::<PyOutputValidationResult>()?;
     Ok(())
 }

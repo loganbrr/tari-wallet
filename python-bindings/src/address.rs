@@ -11,6 +11,7 @@ use lightweight_wallet_libs::data_structures::address::{
 };
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
+use lightweight_wallet_libs::data_structures::types::CompressedPublicKey;
 
 /// Native PyO3 wrapper for TariAddressFeatures
 #[pyclass(name = "TariAddressFeatures")]
@@ -205,7 +206,7 @@ impl PyNetwork {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
         let mut hasher = DefaultHasher::new();
-        self.inner.hash(&mut hasher);
+        self.to_byte().hash(&mut hasher);
         hasher.finish()
     }
 }
@@ -213,6 +214,26 @@ impl PyNetwork {
 impl PyNetwork {
     pub fn inner(&self) -> Network {
         self.inner
+    }
+}
+
+impl std::hash::Hash for PyNetwork {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // Use the byte value for hashing
+        self.to_byte().hash(state);
+    }
+}
+
+impl std::fmt::Display for PyNetwork {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.inner {
+            Network::MainNet => write!(f, "mainnet"),
+            Network::StageNet => write!(f, "stagenet"),
+            Network::NextNet => write!(f, "testnet"),
+            Network::LocalNet => write!(f, "localnet"),
+            Network::Igor => write!(f, "igor"),
+            Network::Esmeralda => write!(f, "esmeralda"),
+        }
     }
 }
 
@@ -228,11 +249,11 @@ impl PyTariAddress {
     /// Create a new dual address
     #[staticmethod]
     pub fn new_dual_address(
-        view_key: &PyBytes,
-        spend_key: &PyBytes,
+        view_key: Bound<'_, PyBytes>,
+        spend_key: Bound<'_, PyBytes>,
         network: &PyNetwork,
         features: &PyTariAddressFeatures,
-        payment_id: Option<&PyBytes>,
+        payment_id: Option<Bound<'_, PyBytes>>,
     ) -> PyResult<Self> {
         // Convert PyBytes to CompressedPublicKey
         let view_key_bytes: [u8; 32] = view_key.as_bytes().try_into().map_err(|_| {
@@ -261,7 +282,7 @@ impl PyTariAddress {
     /// Create a new single address
     #[staticmethod]
     pub fn new_single_address(
-        spend_key: &PyBytes,
+        spend_key: Bound<'_, PyBytes>,
         network: &PyNetwork,
         features: &PyTariAddressFeatures,
     ) -> PyResult<Self> {
@@ -312,12 +333,67 @@ impl PyTariAddress {
         Ok(Self { inner })
     }
 
+    /// Create a single address from spend key
+    #[staticmethod]
+    pub fn from_spend_key(
+        spend_key: Bound<'_, PyBytes>,
+        features: &PyTariAddressFeatures,
+    ) -> PyResult<Self> {
+        let spend_key_bytes: [u8; 32] = spend_key.as_bytes().try_into().map_err(|_| {
+            PyWalletError::from_msg("Invalid spend key length")
+        })?;
+        
+        // Convert bytes to CompressedPublicKey
+        let spend_pub_key = CompressedPublicKey::new(spend_key_bytes);
+        
+        let address = SingleAddress::new(
+            spend_pub_key,
+            Network::MainNet, // Default network
+            features.inner().clone(),
+        ).map_err(|e| PyWalletError::from_msg(&format!("Failed to create single address: {}", e)))?;
+        
+        Ok(Self { inner: TariAddress::Single(address) })
+    }
+
     /// Create from bytes
     #[staticmethod]
-    pub fn from_bytes(bytes: &PyBytes) -> PyResult<Self> {
+    pub fn from_bytes(bytes: Bound<'_, PyBytes>) -> PyResult<Self> {
         let inner = TariAddress::from_bytes(bytes.as_bytes())
-            .map_err(|e| PyWalletError::from(e))?;
+            .map_err(|e| PyWalletError::from_msg(&format!("Failed to parse address: {}", e)))?;
         Ok(Self { inner })
+    }
+
+    /// Create a dual address from view and spend keys
+    #[staticmethod]
+    pub fn from_keys(
+        view_key: Bound<'_, PyBytes>,
+        spend_key: Bound<'_, PyBytes>,
+        features: &PyTariAddressFeatures,
+        payment_id: Option<Bound<'_, PyBytes>>,
+    ) -> PyResult<Self> {
+        let view_key_bytes: [u8; 32] = view_key.as_bytes().try_into().map_err(|_| {
+            PyWalletError::from_msg("Invalid view key length")
+        })?;
+        
+        let spend_key_bytes: [u8; 32] = spend_key.as_bytes().try_into().map_err(|_| {
+            PyWalletError::from_msg("Invalid spend key length")
+        })?;
+        
+        let payment_id_data = payment_id.map(|bytes| bytes.as_bytes().to_vec());
+        
+        // Convert bytes to CompressedPublicKey
+        let view_pub_key = CompressedPublicKey::new(view_key_bytes);
+        let spend_pub_key = CompressedPublicKey::new(spend_key_bytes);
+        
+        let address = DualAddress::new(
+            view_pub_key,
+            spend_pub_key,
+            Network::MainNet, // Default network
+            features.inner().clone(),
+            payment_id_data,
+        ).map_err(|e| PyWalletError::from_msg(&format!("Failed to create dual address: {}", e)))?;
+        
+        Ok(Self { inner: TariAddress::Dual(address) })
     }
 
     /// Get network
@@ -330,15 +406,16 @@ impl PyTariAddress {
         PyTariAddressFeatures { inner: self.inner.features() }
     }
 
-    /// Get public view key (returns None for single addresses)
-    pub fn public_view_key<'py>(&self, py: Python<'py>) -> Option<Bound<'py, PyBytes>> {
+    /// Get public view key as bytes
+    pub fn public_view_key<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
         self.inner.public_view_key()
-            .map(|key| PyBytes::new(py, key.as_bytes()))
+            .map(|key| PyBytes::new(py, &key.as_bytes()))
+            .unwrap_or_else(|| PyBytes::new(py, &[]))
     }
 
-    /// Get public spend key
+    /// Get public spend key as bytes
     pub fn public_spend_key<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new(py, self.inner.public_spend_key().as_bytes())
+        PyBytes::new(py, &self.inner.public_spend_key().as_bytes())
     }
 
     /// Check if this is a dual address
@@ -394,7 +471,7 @@ impl PyTariAddress {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
         let mut hasher = DefaultHasher::new();
-        self.inner.hash(&mut hasher);
+        self.to_hex().hash(&mut hasher);
         hasher.finish()
     }
 }
@@ -409,6 +486,13 @@ impl PyTariAddress {
     }
 }
 
+impl std::hash::Hash for PyTariAddress {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // Use the hex representation for hashing
+        self.to_hex().hash(state);
+    }
+}
+
 /// Native PyO3 wrapper for DualAddress
 #[pyclass(name = "DualAddress")]
 #[derive(Clone)]
@@ -419,13 +503,13 @@ pub struct PyDualAddress {
 #[pymethods]
 impl PyDualAddress {
     /// Create a new dual address
-    #[new]
+    #[staticmethod]
     pub fn new(
-        view_key: &PyBytes,
-        spend_key: &PyBytes,
+        view_key: Bound<'_, PyBytes>,
+        spend_key: Bound<'_, PyBytes>,
         network: &PyNetwork,
         features: &PyTariAddressFeatures,
-        payment_id: Option<&PyBytes>,
+        payment_id: Option<Bound<'_, PyBytes>>,
     ) -> PyResult<Self> {
         let view_key_bytes: [u8; 32] = view_key.as_bytes().try_into().map_err(|_| {
             PyWalletError::from_msg("View key must be exactly 32 bytes")
@@ -434,8 +518,8 @@ impl PyDualAddress {
             PyWalletError::from_msg("Spend key must be exactly 32 bytes")
         })?;
 
-        let view_key = lightweight_wallet_libs::data_structures::types::CompressedPublicKey::new(view_key_bytes);
-        let spend_key = lightweight_wallet_libs::data_structures::types::CompressedPublicKey::new(spend_key_bytes);
+        let view_key = CompressedPublicKey::new(view_key_bytes);
+        let spend_key = CompressedPublicKey::new(spend_key_bytes);
 
         let payment_id_data = payment_id.map(|bytes| bytes.as_bytes().to_vec());
 
@@ -468,9 +552,9 @@ impl PyDualAddress {
 
     /// Create from bytes
     #[staticmethod]
-    pub fn from_bytes(bytes: &PyBytes) -> PyResult<Self> {
+    pub fn from_bytes(bytes: Bound<'_, PyBytes>) -> PyResult<Self> {
         let inner = DualAddress::from_bytes(bytes.as_bytes())
-            .map_err(|e| PyWalletError::from(e))?;
+            .map_err(|e| PyWalletError::from_msg(&format!("Failed to parse dual address: {}", e)))?;
         Ok(Self { inner })
     }
 
@@ -484,14 +568,14 @@ impl PyDualAddress {
         PyTariAddressFeatures { inner: self.inner.features() }
     }
 
-    /// Get public view key
+    /// Get public view key as bytes
     pub fn public_view_key<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new(py, self.inner.public_view_key().as_bytes())
+        PyBytes::new(py, &self.inner.public_view_key().as_bytes())
     }
 
-    /// Get public spend key
+    /// Get public spend key as bytes
     pub fn public_spend_key<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new(py, self.inner.public_spend_key().as_bytes())
+        PyBytes::new(py, &self.inner.public_spend_key().as_bytes())
     }
 
     /// Get payment ID user data
@@ -538,9 +622,9 @@ pub struct PySingleAddress {
 #[pymethods]
 impl PySingleAddress {
     /// Create a new single address
-    #[new]
+    #[staticmethod]
     pub fn new(
-        spend_key: &PyBytes,
+        spend_key: Bound<'_, PyBytes>,
         network: &PyNetwork,
         features: &PyTariAddressFeatures,
     ) -> PyResult<Self> {
@@ -548,7 +632,7 @@ impl PySingleAddress {
             PyWalletError::from_msg("Spend key must be exactly 32 bytes")
         })?;
 
-        let spend_key = lightweight_wallet_libs::data_structures::types::CompressedPublicKey::new(spend_key_bytes);
+        let spend_key = CompressedPublicKey::new(spend_key_bytes);
 
         let inner = SingleAddress::new(
             spend_key,
@@ -577,9 +661,9 @@ impl PySingleAddress {
 
     /// Create from bytes
     #[staticmethod]
-    pub fn from_bytes(bytes: &PyBytes) -> PyResult<Self> {
+    pub fn from_bytes(bytes: Bound<'_, PyBytes>) -> PyResult<Self> {
         let inner = SingleAddress::from_bytes(bytes.as_bytes())
-            .map_err(|e| PyWalletError::from(e))?;
+            .map_err(|e| PyWalletError::from_msg(&format!("Failed to parse single address: {}", e)))?;
         Ok(Self { inner })
     }
 
@@ -593,9 +677,9 @@ impl PySingleAddress {
         PyTariAddressFeatures { inner: self.inner.features() }
     }
 
-    /// Get public spend key
+    /// Get public spend key as bytes
     pub fn public_spend_key<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new(py, self.inner.public_spend_key().as_bytes())
+        PyBytes::new(py, &self.inner.public_spend_key().as_bytes())
     }
 
     /// Convert to emoji string

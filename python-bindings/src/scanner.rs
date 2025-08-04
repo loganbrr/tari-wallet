@@ -63,10 +63,10 @@ impl TariScanner {
     ///     >>> scanner = TariScanner("http://localhost:18142", wallet)
     #[new]
     #[pyo3(signature = (base_node_url, wallet), text_signature = "(base_node_url, wallet)")]
-    fn new(base_node_url: String, wallet: &crate::TariWallet) -> PyResult<Self> {
+    fn new(base_node_url: String, wallet: &crate::wallet::PyTariWallet) -> PyResult<Self> {
         Ok(TariScanner {
             base_url: base_node_url,
-            wallet: Arc::clone(&wallet.inner),
+            wallet: Arc::clone(&wallet.inner()),
         })
     }
 

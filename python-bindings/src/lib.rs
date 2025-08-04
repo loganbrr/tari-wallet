@@ -54,31 +54,21 @@ use pyo3::prelude::*;
 
 // Import all modules
 mod address;
+mod balance;
 mod crypto;
-mod transaction;
-mod wallet;
 mod errors;
-
-// Re-export core types
-pub use address::{
-    PyTariAddress, PyTariAddressFeatures, PyNetwork, 
-    PyDualAddress, PySingleAddress
-};
-pub use crypto::{
-    PyPrivateKey, PyCompressedPublicKey, PyCompressedCommitment, 
-    PyFixedHash, PyMicroMinotari, PySafeArray, PySignatureResult, PyKeyPair
-};
-pub use transaction::{
-    PyTransactionOutput, PyOutputFeatures, PyOutputType, PyScript, 
-    PyCovenant, PySignature, PyRangeProof, PyEncryptedData
-};
-pub use wallet::{PyTariWallet, PyWalletGenerationResult};
-pub use errors::PyWalletError;
+mod extraction;
+mod extraction_batch;
+mod key_manager;
+mod runtime;
+mod scanner;
+mod storage;
+mod transaction;
+mod utils;
+mod wallet;
 
 // Legacy module compatibility (for existing integrations)
-mod scanner;
 mod types;
-mod runtime;
 mod error_hierarchy;
 mod secure_wrapper;
 mod hybrid_serialization;
@@ -86,43 +76,25 @@ mod crypto_types;
 #[macro_use]
 mod field_extraction_macros;
 mod transaction_utils;
-mod storage;
-mod balance;
 mod validation;
 mod key_derivation;
-mod key_manager;
 mod stealth_types;
 mod stealth_address;
-mod extraction;
-mod extraction_wrappers;
-mod extraction_batch;
-mod extraction_types;
-mod extraction_utils;
-mod utils;
 
-// Legacy exports (for backward compatibility)
-pub use scanner::{TariScanner, ScanResult, ScanProgress};
-pub use balance::TariBalance;
-pub use types::{WalletTransaction, AddressFeatures};
-pub use storage::TariWalletStorage;
-pub use validation::{
-    LightweightCommitmentValidator, LightweightEncryptedDataValidator, 
-    ValidationResult, BatchValidationResult
-};
+// Import all the PyO3 classes
+use crate::wallet::{PyTariWallet, PyWalletGenerationResult};
+use crate::address::{PyTariAddress, PyTariAddressFeatures, PyNetwork, PyDualAddress, PySingleAddress};
+use crate::crypto::{PyPrivateKey, PyCompressedPublicKey, PyCompressedCommitment, PyFixedHash, PyMicroMinotari, PySafeArray, PySignatureResult, PyKeyPair};
+use crate::transaction::{PyTransactionOutput, PyOutputFeatures, PyOutputType, PyScript, PyCovenant, PySignature, PyRangeProof, PyEncryptedData};
+use crate::errors::PyWalletError;
+
+// Legacy types removed - using native types only
+pub use validation::{BatchValidationResult};
 pub use key_derivation::KeyDerivationPath;
 pub use key_manager::TariKeyManager;
 pub use stealth_types::{StealthAddressInfo, StealthScanResult, StealthScanResultIterator};
 pub use stealth_address::TariStealthAddress;
 pub use extraction::PyExtractionConfig;
-pub use extraction_wrappers::{PyLightweightTransactionOutput, PyLightweightWalletOutput};
-pub use extraction_batch::{
-    PyBatchValidationOptions, PyOutputValidationResult, 
-    PyBatchValidationSummary, PyBatchValidationResult
-};
-pub use extraction_types::{
-    PyDecryptionOptions, PyDecryptionResult, 
-    PyPaymentIdMetadata, PyPaymentIdExtractionResult
-};
 
 /// Python module definition
 #[pymodule]
@@ -161,17 +133,17 @@ fn lightweight_wallet_libpy(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult
     // Error types
     m.add_class::<PyWalletError>()?;
     
-    // Legacy compatibility classes
-    m.add_class::<TariScanner>()?;
-    m.add_class::<ScanResult>()?;
-    m.add_class::<ScanProgress>()?;
-    m.add_class::<TariBalance>()?;
-    m.add_class::<WalletTransaction>()?;
-    m.add_class::<AddressFeatures>()?;
-    m.add_class::<TariWalletStorage>()?;
-    m.add_class::<LightweightCommitmentValidator>()?;
-    m.add_class::<LightweightEncryptedDataValidator>()?;
-    m.add_class::<ValidationResult>()?;
+    // Legacy compatibility classes removed - using native types only
+    // m.add_class::<TariScanner>()?;
+    // m.add_class::<ScanResult>()?;
+    // m.add_class::<ScanProgress>()?;
+    // m.add_class::<TariBalance>()?;
+    // m.add_class::<WalletTransaction>()?;
+    // m.add_class::<AddressFeatures>()?;
+    // m.add_class::<TariWalletStorage>()?;
+    // m.add_class::<LightweightCommitmentValidator>()?;
+    // m.add_class::<LightweightEncryptedDataValidator>()?;
+    // m.add_class::<ValidationResult>()?;
     m.add_class::<BatchValidationResult>()?;
     m.add_class::<KeyDerivationPath>()?;
     m.add_class::<TariKeyManager>()?;
@@ -180,52 +152,43 @@ fn lightweight_wallet_libpy(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult
     m.add_class::<StealthScanResultIterator>()?;
     m.add_class::<TariStealthAddress>()?;
     m.add_class::<PyExtractionConfig>()?;
-    m.add_class::<PyLightweightTransactionOutput>()?;
-    m.add_class::<PyLightweightWalletOutput>()?;
-    m.add_class::<PyBatchValidationOptions>()?;
-    m.add_class::<PyOutputValidationResult>()?;
-    m.add_class::<PyBatchValidationSummary>()?;
-    m.add_class::<PyBatchValidationResult>()?;
-    m.add_class::<PyDecryptionOptions>()?;
-    m.add_class::<PyDecryptionResult>()?;
-    m.add_class::<PyPaymentIdMetadata>()?;
-    m.add_class::<PyPaymentIdExtractionResult>()?;
+
 
     // Module metadata
     m.add("__version__", "0.3.0")?;
     m.add("__doc__", "Tari Lightweight Wallet Python Bindings with Native Object API")?;
     
     // Convenience aliases for the new API
-    m.add("TariWallet", py.get_type_bound::<PyTariWallet>())?;
-    m.add("WalletGenerationResult", py.get_type_bound::<PyWalletGenerationResult>())?;
-    m.add("TariAddress", py.get_type_bound::<PyTariAddress>())?;
-    m.add("TariAddressFeatures", py.get_type_bound::<PyTariAddressFeatures>())?;
-    m.add("Network", py.get_type_bound::<PyNetwork>())?;
-    m.add("DualAddress", py.get_type_bound::<PyDualAddress>())?;
-    m.add("SingleAddress", py.get_type_bound::<PySingleAddress>())?;
-    m.add("PrivateKey", py.get_type_bound::<PyPrivateKey>())?;
-    m.add("CompressedPublicKey", py.get_type_bound::<PyCompressedPublicKey>())?;
-    m.add("CompressedCommitment", py.get_type_bound::<PyCompressedCommitment>())?;
-    m.add("FixedHash", py.get_type_bound::<PyFixedHash>())?;
-    m.add("MicroMinotari", py.get_type_bound::<PyMicroMinotari>())?;
-    m.add("SafeArray", py.get_type_bound::<PySafeArray>())?;
-    m.add("SignatureResult", py.get_type_bound::<PySignatureResult>())?;
-    m.add("KeyPair", py.get_type_bound::<PyKeyPair>())?;
-    m.add("TransactionOutput", py.get_type_bound::<PyTransactionOutput>())?;
-    m.add("OutputFeatures", py.get_type_bound::<PyOutputFeatures>())?;
-    m.add("OutputType", py.get_type_bound::<PyOutputType>())?;
-    m.add("Script", py.get_type_bound::<PyScript>())?;
-    m.add("Covenant", py.get_type_bound::<PyCovenant>())?;
-    m.add("Signature", py.get_type_bound::<PySignature>())?;
-    m.add("RangeProof", py.get_type_bound::<PyRangeProof>())?;
-    m.add("EncryptedData", py.get_type_bound::<PyEncryptedData>())?;
+    m.add("TariWallet", py.get_type::<PyTariWallet>())?;
+    m.add("WalletGenerationResult", py.get_type::<PyWalletGenerationResult>())?;
+    m.add("TariAddress", py.get_type::<PyTariAddress>())?;
+    m.add("TariAddressFeatures", py.get_type::<PyTariAddressFeatures>())?;
+    m.add("Network", py.get_type::<PyNetwork>())?;
+    m.add("DualAddress", py.get_type::<PyDualAddress>())?;
+    m.add("SingleAddress", py.get_type::<PySingleAddress>())?;
+    m.add("PrivateKey", py.get_type::<PyPrivateKey>())?;
+    m.add("CompressedPublicKey", py.get_type::<PyCompressedPublicKey>())?;
+    m.add("CompressedCommitment", py.get_type::<PyCompressedCommitment>())?;
+    m.add("FixedHash", py.get_type::<PyFixedHash>())?;
+    m.add("MicroMinotari", py.get_type::<PyMicroMinotari>())?;
+    m.add("SafeArray", py.get_type::<PySafeArray>())?;
+    m.add("SignatureResult", py.get_type::<PySignatureResult>())?;
+    m.add("KeyPair", py.get_type::<PyKeyPair>())?;
+    m.add("TransactionOutput", py.get_type::<PyTransactionOutput>())?;
+    m.add("OutputFeatures", py.get_type::<PyOutputFeatures>())?;
+    m.add("OutputType", py.get_type::<PyOutputType>())?;
+    m.add("Script", py.get_type::<PyScript>())?;
+    m.add("Covenant", py.get_type::<PyCovenant>())?;
+    m.add("Signature", py.get_type::<PySignature>())?;
+    m.add("RangeProof", py.get_type::<PyRangeProof>())?;
+    m.add("EncryptedData", py.get_type::<PyEncryptedData>())?;
     
     Ok(())
 }
 
 /// Module constants and helpers
-#[pymodule] 
-fn constants(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
+#[pymodule]
+fn constants(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Network constants
     m.add("MAINNET", PyNetwork::mainnet())?;
     m.add("STAGENET", PyNetwork::stagenet())?;
@@ -249,33 +212,6 @@ fn constants(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     Ok(())
 }
 
-/// Helper functions module
-#[pymodule]
-fn utils(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
-    /// Validate a seed phrase
-    #[pyfn(m)]
-    fn validate_seed_phrase(seed_phrase: &str) -> bool {
-        PyTariWallet::validate_seed_phrase(seed_phrase)
-    }
-    
-    /// Verify a message signature  
-    #[pyfn(m)]
-    fn verify_message_signature(message: &str, signature: &str, public_key: &str) -> PyResult<bool> {
-        PyTariWallet::verify_message_signature(message, signature, public_key)
-    }
-    
-    /// Generate random entropy for wallet creation
-    #[pyfn(m)]
-    fn generate_entropy<'py>(py: Python<'py>) -> Bound<'py, pyo3::types::PyBytes> {
-        use rand::RngCore;
-        let mut entropy = [0u8; 16];
-        rand::thread_rng().fill_bytes(&mut entropy);
-        pyo3::types::PyBytes::new(py, &entropy)
-    }
-    
-    Ok(())
-}
-
 // Add sub-modules to main module
 #[pymodule]
 fn lightweight_wallet_libpy_full(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -283,8 +219,13 @@ fn lightweight_wallet_libpy_full(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyR
     lightweight_wallet_libpy(py, m)?;
     
     // Sub-modules
-    m.add_submodule(&constants(py, &PyModule::new_bound(py, "constants")?)?)?;
-    m.add_submodule(&utils(py, &PyModule::new_bound(py, "utils")?)?)?;
+    let constants_module = PyModule::new(py, "constants")?;
+    constants(py, &constants_module)?;
+    m.add_submodule(&constants_module)?;
+    
+    let utils_module = PyModule::new(py, "utils")?;
+    utils::utils_module(py, &utils_module)?;
+    m.add_submodule(&utils_module)?;
     
     Ok(())
 }

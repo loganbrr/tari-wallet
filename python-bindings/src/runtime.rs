@@ -13,6 +13,7 @@ use std::future::Future;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use crate::errors::{convert_to_pyerr, should_evict_connection};
+use crate::errors::PyWalletError;
 
 /// Global shared tokio runtime for all async operations
 static RUNTIME: Lazy<Runtime> = Lazy::new(|| {
@@ -98,7 +99,7 @@ where
     F: Future<Output = Result<R, LightweightWalletError>>,
 {
     RUNTIME.block_on(future)
-        .map_err(convert_to_pyerr)
+        .map_err(|e| convert_to_pyerr(e))
 }
 
 /// Execute an async future with timeout support
@@ -112,7 +113,7 @@ where
             .map_err(|_| LightweightWalletError::Timeout("Operation timed out".into()))?
     });
     
-    result.map_err(convert_to_pyerr)
+    result.map_err(|e| convert_to_pyerr(e))
 }
 
 /// Get or create a scanner for the given base URL with health validation and error recovery
@@ -243,7 +244,7 @@ async fn schedule_connection_cleanup(scanner: Arc<Mutex<HttpBlockchainScanner>>)
 #[allow(dead_code)]
 pub async fn report_connection_error(base_url: &str, error: &LightweightWalletError) -> Result<(), LightweightWalletError> {
     let error_string = format!("{}", error);
-    if should_evict_connection(&error_string) {
+    if should_evict_connection(&PyWalletError::from_msg(&error_string)) {
         let mut pool = SCANNER_POOL.lock()
             .map_err(|_| LightweightWalletError::ConversionError("Failed to lock scanner pool".into()))?;
         

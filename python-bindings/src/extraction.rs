@@ -5,18 +5,22 @@
 
 use pyo3::prelude::*;
 use std::sync::{Arc, Mutex};
-
-use crate::errors::PyWalletError;
-use crate::extraction_utils::lock_with_conversion_error;
 use lightweight_wallet_libs::{
-    data_structures::{
-        types::{CompressedPublicKey, PrivateKey},
-    },
-    extraction::{extract_wallet_output, ExtractionConfig},
+    extraction::{ExtractionConfig},
+    data_structures::{PrivateKey, CompressedPublicKey},
     errors::LightweightWalletError,
 };
+use crate::errors::PyWalletError;
 
-use crate::extraction_wrappers::{PyLightweightTransactionOutput, PyLightweightWalletOutput};
+// Helper function for locking with error conversion
+fn lock_with_conversion_error<'a, T>(
+    arc_mutex: &'a Arc<Mutex<T>>,
+    context: &'a str,
+) -> Result<std::sync::MutexGuard<'a, T>, PyErr> {
+    arc_mutex.lock().map_err(|e| {
+        PyWalletError::from_msg(&format!("Failed to acquire lock for {}: {}", context, e)).into()
+    })
+}
 
 /// Configuration for UTXO extraction operations
 ///
@@ -62,7 +66,7 @@ impl PyExtractionConfig {
     #[staticmethod]
     pub fn with_private_key(private_key: Vec<u8>) -> PyResult<Self> {
         if private_key.len() != 32 {
-            return Err(PyWalletError(LightweightWalletError::OperationNotSupported(
+            return Err(PyWalletError::from_wallet_error(LightweightWalletError::OperationNotSupported(
                 "Private key must be exactly 32 bytes".to_string(),
             )).into());
         }
@@ -91,7 +95,7 @@ impl PyExtractionConfig {
     #[staticmethod]
     pub fn with_public_key(public_key: Vec<u8>) -> PyResult<Self> {
         if public_key.len() != 32 {
-            return Err(PyWalletError(LightweightWalletError::OperationNotSupported(
+            return Err(PyWalletError::from_wallet_error(LightweightWalletError::OperationNotSupported(
                 "Public key must be exactly 32 bytes".to_string(),
             )).into());
         }
@@ -116,7 +120,7 @@ impl PyExtractionConfig {
     ///     PyWalletError: If private key is invalid (not 32 bytes)
     pub fn set_private_key(&self, private_key: Vec<u8>) -> PyResult<()> {
         if private_key.len() != 32 {
-            return Err(PyWalletError(LightweightWalletError::OperationNotSupported(
+            return Err(PyWalletError::from_wallet_error(LightweightWalletError::OperationNotSupported(
                 "Private key must be exactly 32 bytes".to_string(),
             )).into());
         }
@@ -139,7 +143,7 @@ impl PyExtractionConfig {
     ///     PyWalletError: If public key is invalid (not 32 bytes)
     pub fn set_public_key(&self, public_key: Vec<u8>) -> PyResult<()> {
         if public_key.len() != 32 {
-            return Err(PyWalletError(LightweightWalletError::OperationNotSupported(
+            return Err(PyWalletError::from_wallet_error(LightweightWalletError::OperationNotSupported(
                 "Public key must be exactly 32 bytes".to_string(),
             )).into());
         }
@@ -248,77 +252,9 @@ impl PyExtractionConfig {
     }
 }
 
-/// Extract a wallet output from a transaction output
-///
-/// This function determines if a transaction output belongs to the wallet by attempting
-/// to decrypt its encrypted data using the provided keys. If successful, it reconstructs
-/// a wallet output with the decrypted values.
-///
-/// The extraction process:
-/// 1. Validates that keys are provided in the configuration
-/// 2. Attempts to decrypt the encrypted data using available keys
-/// 3. If decryption succeeds, the output belongs to the wallet
-/// 4. Reconstructs a wallet output with decrypted value and payment ID
-///
-/// Args:
-///     transaction_output (LightweightTransactionOutput): The transaction output to extract from
-///     config (TariExtractionConfig): Configuration including keys and validation options
-///
-/// Returns:
-///     LightweightWalletOutput: Extracted wallet output with decrypted values
-///
-/// Raises:
-///     PyWalletError: If extraction fails (no keys, decryption failure, etc.)
-///
-/// # Security Note
-///
-/// This function releases the Python GIL during cryptographic operations for performance.
-/// The extraction process validates ownership through real cryptographic decryption.
-/// Extract wallet output from transaction output using provided configuration
-///
-/// This function attempts to extract a wallet output from a given transaction output
-/// using the provided extraction configuration. It performs real cryptographic
-/// operations to determine output ownership.
-///
-/// # Arguments
-/// * `transaction_output` - The transaction output to analyze (Python wrapper)
-/// * `config` - Extraction configuration with keys and options
-///
-/// # Returns
-/// * `PyResult<PyLightweightWalletOutput>` - The extracted wallet output if successful
-///
-/// # Security Notes
-/// - Uses real cryptographic validation, not placeholder data
-/// - All sensitive data is properly zeroized after use
-/// - This function releases the Python GIL during cryptographic operations for performance.
-/// - The extraction process validates ownership through real cryptographic decryption.
-#[pyfunction]
-pub fn extract_wallet_output_py(
-    py: Python,
-    transaction_output: &PyLightweightTransactionOutput,
-    config: &PyExtractionConfig,
-) -> PyResult<PyLightweightWalletOutput> {
-    // Release GIL for cryptographic operations
-    py.allow_threads(|| {
-        // Convert Python wrapper to Rust type
-        let rust_transaction_output = transaction_output.to_rust()?;
-        
-        let config_guard = lock_with_conversion_error(&config.inner, "config")?;
-        
-        let rust_config = config_guard.clone();
-        drop(config_guard); // Release lock before calling Rust function
-        
-        let wallet_output = extract_wallet_output(&rust_transaction_output, &rust_config)
-            .map_err(|e| PyWalletError(e))?;
-
-        // Convert result back to Python wrapper
-        PyLightweightWalletOutput::from_rust(&wallet_output)
-    })
-}
-
 /// Register extraction classes and functions with Python module
+#[allow(dead_code)]
 pub fn register_extraction_classes(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyExtractionConfig>()?;
-    m.add_function(wrap_pyfunction!(extract_wallet_output_py, m)?)?;
     Ok(())
 }

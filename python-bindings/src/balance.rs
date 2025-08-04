@@ -27,7 +27,7 @@ impl TariBalance {
     pub fn new(storage: &crate::storage::TariWalletStorage, wallet_id: u32) -> PyResult<Self> {
         // Load wallet state to get current running balance
         let storage_ref = storage.get_shared_storage()?;
-        let storage_ref_clone = Arc::clone(&storage_ref);
+        let storage_ref_clone: Arc<Mutex<Option<lightweight_wallet_libs::storage::sqlite::SqliteStorage>>> = Arc::clone(&storage_ref);
         let running_balance = execute_async(async move {
             let storage_guard = storage_ref_clone.lock()
                 .map_err(|_| LightweightWalletError::ConversionError("Failed to lock storage".into()))?;
