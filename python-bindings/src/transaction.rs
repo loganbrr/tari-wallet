@@ -1,415 +1,779 @@
-//! Transaction data structure exposure for Python bindings
+//! Native PyO3 transaction wrappers for Tari transaction types
 //!
-//! This module exposes existing rich transaction data structures
-//! (TransactionInput, TransactionOutput, TransactionKernel) as Python classes,
-//! providing access to existing serialization, validation, and metadata functionality.
+//! This module provides clean PyO3 wrapper classes that store native Rust types
+//! internally for transaction components. This improves performance and type safety
+//! compared to hex string serialization.
 
+use crate::crypto::{PyCompressedCommitment, PyCompressedPublicKey, PyFixedHash, PyMicroMinotari};
+use crate::errors::PyWalletError;
+use lightweight_wallet_libs::data_structures::{
+    encrypted_data::EncryptedData,
+    transaction_output::LightweightTransactionOutput,
+    wallet_output::{
+        LightweightCovenant, LightweightOutputFeatures, LightweightOutputType,
+        LightweightRangeProof, LightweightScript, LightweightSignature,
+    },
+};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyBytes};
+use pyo3::types::PyBytes;
 
-// CONSOLIDATION NOTE: This module provides read-only transaction data structures.
-// The core transaction handling functionality has been consolidated into storage.rs
-// to eliminate duplication. These structs remain for backward compatibility.
-
-/// Python wrapper for TransactionInput
-#[pyclass]
+/// Native PyO3 wrapper for LightweightOutputType
+#[pyclass(name = "OutputType")]
 #[derive(Clone)]
-pub struct TariTransactionInput {
-    #[pyo3(get)]
-    pub commitment_hex: String,
-    #[pyo3(get)]
-    pub script_hex: String,
-    #[pyo3(get)]
-    pub sender_offset_public_key_hex: String,
-    #[pyo3(get)]
-    pub metadata_signature_ephemeral_commitment_hex: String,
-    #[pyo3(get)]
-    pub metadata_signature_ephemeral_pubkey_hex: String,
-    #[pyo3(get)]
-    pub metadata_signature_u_a_hex: String,
-    #[pyo3(get)]
-    pub metadata_signature_u_x_hex: String,
-    #[pyo3(get)]
-    pub metadata_signature_u_y_hex: String,
-}
-
-/// Python wrapper for TransactionOutput
-#[pyclass]
-#[derive(Clone)]
-pub struct TariTransactionOutput {
-    #[pyo3(get)]
-    pub commitment_hex: String,
-    #[pyo3(get)]
-    pub range_proof_hex: Option<String>,
-    #[pyo3(get)]
-    pub script_hex: String,
-    #[pyo3(get)]
-    pub sender_offset_public_key_hex: String,
-    #[pyo3(get)]
-    pub metadata_signature_ephemeral_commitment_hex: String,
-    #[pyo3(get)]
-    pub metadata_signature_ephemeral_pubkey_hex: String,
-    #[pyo3(get)]
-    pub metadata_signature_u_a_hex: String,
-    #[pyo3(get)]
-    pub metadata_signature_u_x_hex: String,
-    #[pyo3(get)]
-    pub metadata_signature_u_y_hex: String,
-    #[pyo3(get)]
-    pub encrypted_data_hex: String,
-    #[pyo3(get)]
-    pub minimum_value_promise: u64,
-}
-
-/// Python wrapper for TransactionKernel
-#[pyclass]
-#[derive(Clone)]
-pub struct TariTransactionKernel {
-    #[pyo3(get)]
-    pub version: u32,
-    #[pyo3(get)]
-    pub features: u32,
-    #[pyo3(get)]
-    pub fee: u64,
-    #[pyo3(get)]
-    pub excess_hex: String,
-    #[pyo3(get)]
-    pub excess_sig_nonce_hex: String,
-    #[pyo3(get)]
-    pub excess_sig_signature_hex: String,
-}
-
-/// Enhanced transaction metadata
-#[pyclass]
-#[derive(Clone)]
-pub struct TariTransactionMetadata {
-    #[pyo3(get)]
-    pub inputs: Vec<TariTransactionInput>,
-    #[pyo3(get)]
-    pub outputs: Vec<TariTransactionOutput>,
-    #[pyo3(get)]
-    pub kernels: Vec<TariTransactionKernel>,
-    #[pyo3(get)]
-    pub total_fee: u64,
-    #[pyo3(get)]
-    pub total_input_value: u64,
-    #[pyo3(get)]
-    pub total_output_value: u64,
-    #[pyo3(get)]
-    pub input_count: usize,
-    #[pyo3(get)]
-    pub output_count: usize,
-    #[pyo3(get)]
-    pub kernel_count: usize,
+pub struct PyOutputType {
+    inner: LightweightOutputType,
 }
 
 #[pymethods]
-impl TariTransactionInput {
-    /// Create a new transaction input from raw data
-    /// 
-    /// This is a read-only constructor for existing transaction data
-    #[new]
-    fn new(
-        commitment_hex: String,
-        script_hex: String,
-        sender_offset_public_key_hex: String,
-        metadata_signature_ephemeral_commitment_hex: String,
-        metadata_signature_ephemeral_pubkey_hex: String,
-        metadata_signature_u_a_hex: String,
-        metadata_signature_u_x_hex: String,
-        metadata_signature_u_y_hex: String,
-    ) -> Self {
+impl PyOutputType {
+    /// Standard output type
+    #[staticmethod]
+    pub fn standard() -> Self {
         Self {
-            commitment_hex,
-            script_hex,
-            sender_offset_public_key_hex,
-            metadata_signature_ephemeral_commitment_hex,
-            metadata_signature_ephemeral_pubkey_hex,
-            metadata_signature_u_a_hex,
-            metadata_signature_u_x_hex,
-            metadata_signature_u_y_hex,
+            inner: LightweightOutputType::Standard,
         }
     }
 
-    /// Get input as dictionary
-    fn to_dict(&self) -> PyResult<PyObject> {
-        Python::with_gil(|py| {
-            let dict = PyDict::new(py);
-            dict.set_item("commitment_hex", &self.commitment_hex)?;
-            dict.set_item("script_hex", &self.script_hex)?;
-            dict.set_item("sender_offset_public_key_hex", &self.sender_offset_public_key_hex)?;
-            dict.set_item("metadata_signature_ephemeral_commitment_hex", &self.metadata_signature_ephemeral_commitment_hex)?;
-            dict.set_item("metadata_signature_ephemeral_pubkey_hex", &self.metadata_signature_ephemeral_pubkey_hex)?;
-            dict.set_item("metadata_signature_u_a_hex", &self.metadata_signature_u_a_hex)?;
-            dict.set_item("metadata_signature_u_x_hex", &self.metadata_signature_u_x_hex)?;
-            dict.set_item("metadata_signature_u_y_hex", &self.metadata_signature_u_y_hex)?;
-            Ok(dict.into())
-        })
+    /// Coinbase output type
+    #[staticmethod]
+    pub fn coinbase() -> Self {
+        Self {
+            inner: LightweightOutputType::Coinbase,
+        }
     }
 
-    /// Get commitment as bytes
-    fn commitment_bytes(&self) -> PyResult<PyObject> {
-        let bytes = hex::decode(&self.commitment_hex)
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Invalid hex: {}", e)))?;
-        Python::with_gil(|py| Ok(PyBytes::new(py, &bytes).into()))
+    /// Burn output type  
+    #[staticmethod]
+    pub fn burn() -> Self {
+        Self {
+            inner: LightweightOutputType::Burn,
+        }
     }
 
-    /// String representation
+    /// Validator node registration output type
+    #[staticmethod]
+    pub fn validator_node_registration() -> Self {
+        Self {
+            inner: LightweightOutputType::ValidatorNodeRegistration,
+        }
+    }
+
+    /// Code template registration output type
+    #[staticmethod]
+    pub fn code_template_registration() -> Self {
+        Self {
+            inner: LightweightOutputType::CodeTemplateRegistration,
+        }
+    }
+
+    /// Check if this is a standard output
+    pub fn is_standard(&self) -> bool {
+        matches!(self.inner, LightweightOutputType::Standard)
+    }
+
+    /// Check if this is a coinbase output
+    pub fn is_coinbase(&self) -> bool {
+        matches!(self.inner, LightweightOutputType::Coinbase)
+    }
+
+    /// Check if this is a burn output
+    pub fn is_burn(&self) -> bool {
+        matches!(self.inner, LightweightOutputType::Burn)
+    }
+
     fn __str__(&self) -> String {
-        format!("TariTransactionInput(commitment={}...)", 
-                &self.commitment_hex[..std::cmp::min(8, self.commitment_hex.len())])
-    }
-
-    /// Representation
-    fn __repr__(&self) -> String {
-        self.__str__()
-    }
-}
-
-#[pymethods]
-impl TariTransactionOutput {
-    /// Create a new transaction output from raw data
-    /// 
-    /// This is a read-only constructor for existing transaction data
-    #[new]
-    #[pyo3(signature = (commitment_hex, script_hex, sender_offset_public_key_hex, metadata_signature_ephemeral_commitment_hex, metadata_signature_ephemeral_pubkey_hex, metadata_signature_u_a_hex, metadata_signature_u_x_hex, metadata_signature_u_y_hex, encrypted_data_hex, minimum_value_promise, range_proof_hex=None))]
-    fn new(
-        commitment_hex: String,
-        script_hex: String,
-        sender_offset_public_key_hex: String,
-        metadata_signature_ephemeral_commitment_hex: String,
-        metadata_signature_ephemeral_pubkey_hex: String,
-        metadata_signature_u_a_hex: String,
-        metadata_signature_u_x_hex: String,
-        metadata_signature_u_y_hex: String,
-        encrypted_data_hex: String,
-        minimum_value_promise: u64,
-        range_proof_hex: Option<String>,
-    ) -> Self {
-        Self {
-            commitment_hex,
-            range_proof_hex,
-            script_hex,
-            sender_offset_public_key_hex,
-            metadata_signature_ephemeral_commitment_hex,
-            metadata_signature_ephemeral_pubkey_hex,
-            metadata_signature_u_a_hex,
-            metadata_signature_u_x_hex,
-            metadata_signature_u_y_hex,
-            encrypted_data_hex,
-            minimum_value_promise,
+        match self.inner {
+            LightweightOutputType::Standard => "Standard".to_string(),
+            LightweightOutputType::Coinbase => "Coinbase".to_string(),
+            LightweightOutputType::Burn => "Burn".to_string(),
+            LightweightOutputType::ValidatorNodeRegistration => "ValidatorNodeRegistration".to_string(),
+            LightweightOutputType::CodeTemplateRegistration => "CodeTemplateRegistration".to_string(),
         }
     }
 
-    /// Get output as dictionary
-    fn to_dict(&self) -> PyResult<PyObject> {
-        Python::with_gil(|py| {
-            let dict = PyDict::new(py);
-            dict.set_item("commitment_hex", &self.commitment_hex)?;
-            dict.set_item("range_proof_hex", &self.range_proof_hex)?;
-            dict.set_item("script_hex", &self.script_hex)?;
-            dict.set_item("sender_offset_public_key_hex", &self.sender_offset_public_key_hex)?;
-            dict.set_item("metadata_signature_ephemeral_commitment_hex", &self.metadata_signature_ephemeral_commitment_hex)?;
-            dict.set_item("metadata_signature_ephemeral_pubkey_hex", &self.metadata_signature_ephemeral_pubkey_hex)?;
-            dict.set_item("metadata_signature_u_a_hex", &self.metadata_signature_u_a_hex)?;
-            dict.set_item("metadata_signature_u_x_hex", &self.metadata_signature_u_x_hex)?;
-            dict.set_item("metadata_signature_u_y_hex", &self.metadata_signature_u_y_hex)?;
-            dict.set_item("encrypted_data_hex", &self.encrypted_data_hex)?;
-            dict.set_item("minimum_value_promise", self.minimum_value_promise)?;
-            Ok(dict.into())
-        })
+    fn __repr__(&self) -> String {
+        format!("OutputType.{}()", self.__str__())
     }
 
-    /// Get commitment as bytes
-    fn commitment_bytes(&self) -> PyResult<PyObject> {
-        let bytes = hex::decode(&self.commitment_hex)
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Invalid hex: {}", e)))?;
-        Python::with_gil(|py| Ok(PyBytes::new(py, &bytes).into()))
+    fn __eq__(&self, other: &Self) -> bool {
+        self.inner == other.inner
+    }
+}
+
+impl PyOutputType {
+    pub fn inner(&self) -> LightweightOutputType {
+        self.inner
+    }
+}
+
+/// Native PyO3 wrapper for LightweightOutputFeatures
+#[pyclass(name = "OutputFeatures")]
+#[derive(Clone)]
+pub struct PyOutputFeatures {
+    inner: LightweightOutputFeatures,
+}
+
+#[pymethods]
+impl PyOutputFeatures {
+    /// Create new output features
+    #[new]
+    pub fn new(
+        version: u8,
+        output_type: &PyOutputType,
+        maturity: u64,
+        recovery_byte: u8,
+        metadata: &PyBytes,
+    ) -> Self {
+        Self {
+            inner: LightweightOutputFeatures {
+                version,
+                output_type: output_type.inner(),
+                maturity,
+                recovery_byte,
+                metadata: metadata.as_bytes().to_vec(),
+            },
+        }
     }
 
-    /// Get encrypted data as bytes
-    fn encrypted_data_bytes(&self) -> PyResult<PyObject> {
-        let bytes = hex::decode(&self.encrypted_data_hex)
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Invalid hex: {}", e)))?;
-        Python::with_gil(|py| Ok(PyBytes::new(py, &bytes).into()))
+    /// Create standard output features
+    #[staticmethod]
+    pub fn standard(maturity: u64) -> Self {
+        Self {
+            inner: LightweightOutputFeatures {
+                version: 1,
+                output_type: LightweightOutputType::Standard,
+                maturity,
+                recovery_byte: 0,
+                metadata: Vec::new(),
+            },
+        }
     }
 
-    /// Check if output has range proof
-    fn has_range_proof(&self) -> bool {
-        self.range_proof_hex.is_some()
+    /// Create coinbase output features
+    #[staticmethod]
+    pub fn coinbase(maturity: u64) -> Self {
+        Self {
+            inner: LightweightOutputFeatures {
+                version: 1,
+                output_type: LightweightOutputType::Coinbase,
+                maturity,
+                recovery_byte: 0,
+                metadata: Vec::new(),
+            },
+        }
     }
 
-    /// String representation
+    /// Get version
+    #[getter]
+    pub fn version(&self) -> u8 {
+        self.inner.version
+    }
+
+    /// Get output type
+    #[getter]
+    pub fn output_type(&self) -> PyOutputType {
+        PyOutputType {
+            inner: self.inner.output_type,
+        }
+    }
+
+    /// Get maturity
+    #[getter]
+    pub fn maturity(&self) -> u64 {
+        self.inner.maturity
+    }
+
+    /// Get recovery byte
+    #[getter]
+    pub fn recovery_byte(&self) -> u8 {
+        self.inner.recovery_byte
+    }
+
+    /// Get metadata
+    pub fn metadata<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new_bound(py, &self.inner.metadata)
+    }
+
     fn __str__(&self) -> String {
-        format!("TariTransactionOutput(commitment={}..., value_promise={})", 
-                &self.commitment_hex[..std::cmp::min(8, self.commitment_hex.len())],
-                self.minimum_value_promise)
+        format!("OutputFeatures(type={}, maturity={})", 
+            self.output_type().__str__(), self.maturity())
     }
 
-    /// Representation
     fn __repr__(&self) -> String {
-        self.__str__()
+        format!("OutputFeatures(version={}, output_type={}, maturity={}, recovery_byte={})",
+            self.version(), self.output_type().__str__(), self.maturity(), self.recovery_byte())
     }
 }
 
+impl PyOutputFeatures {
+    pub fn inner(&self) -> &LightweightOutputFeatures {
+        &self.inner
+    }
+
+    pub fn into_inner(self) -> LightweightOutputFeatures {
+        self.inner
+    }
+}
+
+/// Native PyO3 wrapper for LightweightScript
+#[pyclass(name = "Script")]
+#[derive(Clone)]
+pub struct PyScript {
+    inner: LightweightScript,
+}
+
 #[pymethods]
-impl TariTransactionKernel {
-    /// Create a new transaction kernel from raw data
-    /// 
-    /// This is a read-only constructor for existing transaction data
-    #[new]
-    fn new(
-        version: u32,
-        features: u32,
-        fee: u64,
-        excess_hex: String,
-        excess_sig_nonce_hex: String,
-        excess_sig_signature_hex: String,
-    ) -> Self {
+impl PyScript {
+    /// Create from bytes
+    #[staticmethod]
+    pub fn from_bytes(bytes: &PyBytes) -> Self {
         Self {
-            version,
-            features,
-            fee,
-            excess_hex,
-            excess_sig_nonce_hex,
-            excess_sig_signature_hex,
+            inner: LightweightScript {
+                bytes: bytes.as_bytes().to_vec(),
+            },
         }
     }
 
-    /// Get kernel as dictionary
-    fn to_dict(&self) -> PyResult<PyObject> {
-        Python::with_gil(|py| {
-            let dict = PyDict::new(py);
-            dict.set_item("version", self.version)?;
-            dict.set_item("features", self.features)?;
-            dict.set_item("fee", self.fee)?;
-            dict.set_item("excess_hex", &self.excess_hex)?;
-            dict.set_item("excess_sig_nonce_hex", &self.excess_sig_nonce_hex)?;
-            dict.set_item("excess_sig_signature_hex", &self.excess_sig_signature_hex)?;
-            Ok(dict.into())
-        })
+    /// Create empty script
+    #[staticmethod]
+    pub fn empty() -> Self {
+        Self {
+            inner: LightweightScript { bytes: Vec::new() },
+        }
     }
 
-    /// Get excess as bytes
-    fn excess_bytes(&self) -> PyResult<PyObject> {
-        let bytes = hex::decode(&self.excess_hex)
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Invalid hex: {}", e)))?;
-        Python::with_gil(|py| Ok(PyBytes::new(py, &bytes).into()))
+    /// Get script bytes
+    pub fn to_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new_bound(py, &self.inner.bytes)
     }
 
-    /// String representation
+    /// Get script length
+    pub fn len(&self) -> usize {
+        self.inner.bytes.len()
+    }
+
+    /// Check if script is empty
+    pub fn is_empty(&self) -> bool {
+        self.inner.bytes.is_empty()
+    }
+
+    /// Convert to hex string
+    pub fn to_hex(&self) -> String {
+        hex::encode(&self.inner.bytes)
+    }
+
     fn __str__(&self) -> String {
-        format!("TariTransactionKernel(version={}, fee={}, features={})", 
-                self.version, self.fee, self.features)
+        if self.is_empty() {
+            "Script(empty)".to_string()
+        } else {
+            format!("Script({} bytes, {}...)", self.len(), &self.to_hex()[0..16.min(self.to_hex().len())])
+        }
     }
 
-    /// Representation
     fn __repr__(&self) -> String {
-        self.__str__()
+        format!("Script(bytes={})", self.to_hex())
+    }
+
+    fn __len__(&self) -> usize {
+        self.len()
     }
 }
 
+impl PyScript {
+    pub fn inner(&self) -> &LightweightScript {
+        &self.inner
+    }
+
+    pub fn into_inner(self) -> LightweightScript {
+        self.inner
+    }
+}
+
+/// Native PyO3 wrapper for LightweightCovenant
+#[pyclass(name = "Covenant")]
+#[derive(Clone)]
+pub struct PyCovenant {
+    inner: LightweightCovenant,
+}
+
 #[pymethods]
-impl TariTransactionMetadata {
-    /// Create new transaction metadata from components
-    #[new]
-    fn new(
-        inputs: Vec<TariTransactionInput>,
-        outputs: Vec<TariTransactionOutput>,
-        kernels: Vec<TariTransactionKernel>,
-    ) -> Self {
-        let total_fee = kernels.iter().map(|k| k.fee).sum();
-        let input_count = inputs.len();
-        let output_count = outputs.len();
-        let kernel_count = kernels.len();
-
-        // Note: Value calculations are placeholders for display purposes only
-        let total_input_value = 0u64;  // Display-only placeholder
-        let total_output_value = outputs.iter().map(|o| o.minimum_value_promise).sum();
-
+impl PyCovenant {
+    /// Create from bytes
+    #[staticmethod]
+    pub fn from_bytes(bytes: &PyBytes) -> Self {
         Self {
-            inputs,
-            outputs,
-            kernels,
-            total_fee,
-            total_input_value,
-            total_output_value,
-            input_count,
-            output_count,
-            kernel_count,
+            inner: LightweightCovenant {
+                bytes: bytes.as_bytes().to_vec(),
+            },
         }
     }
 
-    /// Get complete transaction as dictionary
-    fn to_dict(&self) -> PyResult<PyObject> {
-        Python::with_gil(|py| -> PyResult<PyObject> {
-            let dict = PyDict::new(py);
-            
-            // Convert inputs to Python list
-            let inputs_list = pyo3::types::PyList::empty(py);
-            for input in &self.inputs {
-                inputs_list.append(input.to_dict()?)?;
-            }
-            dict.set_item("inputs", inputs_list)?;
-            
-            // Convert outputs to Python list
-            let outputs_list = pyo3::types::PyList::empty(py);
-            for output in &self.outputs {
-                outputs_list.append(output.to_dict()?)?;
-            }
-            dict.set_item("outputs", outputs_list)?;
-            
-            // Convert kernels to Python list
-            let kernels_list = pyo3::types::PyList::empty(py);
-            for kernel in &self.kernels {
-                kernels_list.append(kernel.to_dict()?)?;
-            }
-            dict.set_item("kernels", kernels_list)?;
-            
-            // Add summary information
-            dict.set_item("total_fee", self.total_fee)?;
-            dict.set_item("total_input_value", self.total_input_value)?;
-            dict.set_item("total_output_value", self.total_output_value)?;
-            dict.set_item("input_count", self.input_count)?;
-            dict.set_item("output_count", self.output_count)?;
-            dict.set_item("kernel_count", self.kernel_count)?;
-            
-            Ok(dict.into())
-        })
+    /// Create empty covenant
+    #[staticmethod]
+    pub fn empty() -> Self {
+        Self {
+            inner: LightweightCovenant { bytes: Vec::new() },
+        }
     }
 
-    /// Validate transaction structure (basic checks)
-    fn validate(&self) -> PyResult<bool> {
-        // Basic validation checks
-        if self.inputs.is_empty() && self.outputs.is_empty() {
-            return Ok(false);
+    /// Get covenant bytes
+    pub fn to_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new_bound(py, &self.inner.bytes)
+    }
+
+    /// Get covenant length
+    pub fn len(&self) -> usize {
+        self.inner.bytes.len()
+    }
+
+    /// Check if covenant is empty
+    pub fn is_empty(&self) -> bool {
+        self.inner.bytes.is_empty()
+    }
+
+    /// Convert to hex string
+    pub fn to_hex(&self) -> String {
+        hex::encode(&self.inner.bytes)
+    }
+
+    fn __str__(&self) -> String {
+        if self.is_empty() {
+            "Covenant(empty)".to_string()
+        } else {
+            format!("Covenant({} bytes, {}...)", self.len(), &self.to_hex()[0..16.min(self.to_hex().len())])
         }
+    }
+
+    fn __repr__(&self) -> String {
+        format!("Covenant(bytes={})", self.to_hex())
+    }
+
+    fn __len__(&self) -> usize {
+        self.len()
+    }
+}
+
+impl PyCovenant {
+    pub fn inner(&self) -> &LightweightCovenant {
+        &self.inner
+    }
+
+    pub fn into_inner(self) -> LightweightCovenant {
+        self.inner
+    }
+}
+
+/// Native PyO3 wrapper for LightweightSignature
+#[pyclass(name = "Signature")]
+#[derive(Clone)]
+pub struct PySignature {
+    inner: LightweightSignature,
+}
+
+#[pymethods]
+impl PySignature {
+    /// Create from bytes
+    #[staticmethod]
+    pub fn from_bytes(bytes: &PyBytes) -> Self {
+        Self {
+            inner: LightweightSignature {
+                bytes: bytes.as_bytes().to_vec(),
+            },
+        }
+    }
+
+    /// Get signature bytes
+    pub fn to_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new_bound(py, &self.inner.bytes)
+    }
+
+    /// Get signature length
+    pub fn len(&self) -> usize {
+        self.inner.bytes.len()
+    }
+
+    /// Check if signature is empty
+    pub fn is_empty(&self) -> bool {
+        self.inner.bytes.is_empty()
+    }
+
+    /// Convert to hex string
+    pub fn to_hex(&self) -> String {
+        hex::encode(&self.inner.bytes)
+    }
+
+    fn __str__(&self) -> String {
+        format!("Signature({} bytes, {}...)", self.len(), &self.to_hex()[0..16.min(self.to_hex().len())])
+    }
+
+    fn __repr__(&self) -> String {
+        format!("Signature(bytes={})", self.to_hex())
+    }
+
+    fn __len__(&self) -> usize {
+        self.len()
+    }
+}
+
+impl PySignature {
+    pub fn inner(&self) -> &LightweightSignature {
+        &self.inner
+    }
+
+    pub fn into_inner(self) -> LightweightSignature {
+        self.inner
+    }
+}
+
+/// Native PyO3 wrapper for LightweightRangeProof
+#[pyclass(name = "RangeProof")]
+#[derive(Clone)]
+pub struct PyRangeProof {
+    inner: LightweightRangeProof,
+}
+
+#[pymethods]
+impl PyRangeProof {
+    /// Create from bytes
+    #[staticmethod]
+    pub fn from_bytes(bytes: &PyBytes) -> Self {
+        Self {
+            inner: LightweightRangeProof {
+                bytes: bytes.as_bytes().to_vec(),
+            },
+        }
+    }
+
+    /// Get range proof bytes
+    pub fn to_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new_bound(py, &self.inner.bytes)
+    }
+
+    /// Get range proof length
+    pub fn len(&self) -> usize {
+        self.inner.bytes.len()
+    }
+
+    /// Check if range proof is empty
+    pub fn is_empty(&self) -> bool {
+        self.inner.bytes.is_empty()
+    }
+
+    /// Convert to hex string
+    pub fn to_hex(&self) -> String {
+        hex::encode(&self.inner.bytes)
+    }
+
+    fn __str__(&self) -> String {
+        format!("RangeProof({} bytes, {}...)", self.len(), &self.to_hex()[0..16.min(self.to_hex().len())])
+    }
+
+    fn __repr__(&self) -> String {
+        format!("RangeProof(bytes={})", self.to_hex())
+    }
+
+    fn __len__(&self) -> usize {
+        self.len()
+    }
+}
+
+impl PyRangeProof {
+    pub fn inner(&self) -> &LightweightRangeProof {
+        &self.inner
+    }
+
+    pub fn into_inner(self) -> LightweightRangeProof {
+        self.inner
+    }
+}
+
+/// Native PyO3 wrapper for EncryptedData
+#[pyclass(name = "EncryptedData")]
+#[derive(Clone)]
+pub struct PyEncryptedData {
+    inner: EncryptedData,
+}
+
+#[pymethods]
+impl PyEncryptedData {
+    /// Create from raw data  
+    #[staticmethod]
+    pub fn from_data(data: &PyBytes, payment_id: &PyBytes) -> Self {
+        Self {
+            inner: EncryptedData {
+                data: data.as_bytes().to_vec(),
+                payment_id: payment_id.as_bytes().to_vec(),
+            },
+        }
+    }
+
+    /// Create empty encrypted data
+    #[staticmethod]
+    pub fn empty() -> Self {
+        Self {
+            inner: EncryptedData {
+                data: Vec::new(),
+                payment_id: Vec::new(),
+            },
+        }
+    }
+
+    /// Get encrypted data bytes
+    pub fn data<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new_bound(py, &self.inner.data)
+    }
+
+    /// Get payment ID bytes
+    pub fn payment_id<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new_bound(py, &self.inner.payment_id)
+    }
+
+    /// Get data length
+    pub fn data_len(&self) -> usize {
+        self.inner.data.len()
+    }
+
+    /// Get payment ID length
+    pub fn payment_id_len(&self) -> usize {
+        self.inner.payment_id.len()
+    }
+
+    /// Check if data is empty
+    pub fn is_empty(&self) -> bool {
+        self.inner.data.is_empty() && self.inner.payment_id.is_empty()
+    }
+
+    fn __str__(&self) -> String {
+        format!("EncryptedData(data={} bytes, payment_id={} bytes)", 
+            self.data_len(), self.payment_id_len())
+    }
+
+    fn __repr__(&self) -> String {
+        format!("EncryptedData(data={}, payment_id={})",
+            hex::encode(&self.inner.data), hex::encode(&self.inner.payment_id))
+    }
+}
+
+impl PyEncryptedData {
+    pub fn inner(&self) -> &EncryptedData {
+        &self.inner
+    }
+
+    pub fn into_inner(self) -> EncryptedData {
+        self.inner
+    }
+}
+
+/// Native PyO3 wrapper for LightweightTransactionOutput
+#[pyclass(name = "TransactionOutput")]
+#[derive(Clone)]
+pub struct PyTransactionOutput {
+    inner: LightweightTransactionOutput,
+}
+
+#[pymethods]
+impl PyTransactionOutput {
+    /// Create new transaction output
+    #[new]
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        version: u8,
+        features: &PyOutputFeatures,
+        commitment: &PyCompressedCommitment,
+        proof: Option<&PyRangeProof>,
+        script: &PyScript,
+        sender_offset_public_key: &PyCompressedPublicKey,
+        metadata_signature: &PySignature,
+        covenant: &PyCovenant,
+        encrypted_data: &PyEncryptedData,
+        minimum_value_promise: &PyMicroMinotari,
+    ) -> Self {
+        let rust_proof = proof.map(|p| p.inner().clone());
         
-        if self.kernels.is_empty() {
-            return Ok(false);
+        Self {
+            inner: LightweightTransactionOutput::new(
+                version,
+                features.inner().clone(),
+                commitment.inner().clone(),
+                rust_proof,
+                script.inner().clone(),
+                sender_offset_public_key.inner().clone(),
+                metadata_signature.inner().clone(),
+                covenant.inner().clone(),
+                encrypted_data.inner().clone(),
+                minimum_value_promise.inner(),
+            ),
         }
+    }
+
+    /// Create with current version (convenience method)
+    #[staticmethod]
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_current_version(
+        features: &PyOutputFeatures,
+        commitment: &PyCompressedCommitment,
+        proof: Option<&PyRangeProof>,
+        script: &PyScript,
+        sender_offset_public_key: &PyCompressedPublicKey,
+        metadata_signature: &PySignature,
+        covenant: &PyCovenant,
+        encrypted_data: &PyEncryptedData,
+        minimum_value_promise: &PyMicroMinotari,
+    ) -> Self {
+        let rust_proof = proof.map(|p| p.inner().clone());
         
-        // Additional validation could be added here
-        Ok(true)
+        Self {
+            inner: LightweightTransactionOutput::new_current_version(
+                features.inner().clone(),
+                commitment.inner().clone(),
+                rust_proof,
+                script.inner().clone(),
+                sender_offset_public_key.inner().clone(),
+                metadata_signature.inner().clone(),
+                covenant.inner().clone(),
+                encrypted_data.inner().clone(),
+                minimum_value_promise.inner(),
+            ),
+        }
     }
 
-    /// Calculate transaction weight (display-only estimation)
-    /// 
-    /// NOTE: This is a simplified estimation for display purposes only.
-    /// Real weight calculations should use the core library functions.
-    fn calculate_weight(&self) -> u64 {
-        // Display-only weight estimation - not for production use
-        (self.input_count * 100 + self.output_count * 200 + self.kernel_count * 50) as u64
+    /// Get version
+    #[getter]
+    pub fn version(&self) -> u8 {
+        self.inner.version()
     }
 
-    /// String representation
+    /// Get features
+    #[getter]
+    pub fn features(&self) -> PyOutputFeatures {
+        PyOutputFeatures {
+            inner: self.inner.features().clone(),
+        }
+    }
+
+    /// Get commitment
+    #[getter]
+    pub fn commitment(&self) -> PyCompressedCommitment {
+        PyCompressedCommitment {
+            inner: self.inner.commitment().clone(),
+        }
+    }
+
+    /// Get range proof (if present)
+    #[getter]
+    pub fn proof(&self) -> Option<PyRangeProof> {
+        self.inner.proof().map(|p| PyRangeProof {
+            inner: p.clone(),
+        })
+    }
+
+    /// Get script
+    #[getter]
+    pub fn script(&self) -> PyScript {
+        PyScript {
+            inner: self.inner.script().clone(),
+        }
+    }
+
+    /// Get sender offset public key
+    #[getter]
+    pub fn sender_offset_public_key(&self) -> PyCompressedPublicKey {
+        PyCompressedPublicKey {
+            inner: self.inner.sender_offset_public_key().clone(),
+        }
+    }
+
+    /// Get metadata signature
+    #[getter]
+    pub fn metadata_signature(&self) -> PySignature {
+        PySignature {
+            inner: self.inner.metadata_signature().clone(),
+        }
+    }
+
+    /// Get covenant
+    #[getter]
+    pub fn covenant(&self) -> PyCovenant {
+        PyCovenant {
+            inner: self.inner.covenant().clone(),
+        }
+    }
+
+    /// Get encrypted data
+    #[getter]
+    pub fn encrypted_data(&self) -> PyEncryptedData {
+        PyEncryptedData {
+            inner: self.inner.encrypted_data().clone(),
+        }
+    }
+
+    /// Get minimum value promise
+    #[getter]
+    pub fn minimum_value_promise(&self) -> PyMicroMinotari {
+        PyMicroMinotari::new(self.inner.minimum_value_promise().as_u64())
+    }
+
+    /// Calculate output hash
+    pub fn hash<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new_bound(py, &self.inner.hash())
+    }
+
+    /// Calculate SMT hash
+    pub fn smt_hash<'py>(&self, py: Python<'py>, mined_height: u64) -> Bound<'py, PyBytes> {
+        PyBytes::new_bound(py, &self.inner.smt_hash(mined_height))
+    }
+
+    /// Check if this is a coinbase output
+    pub fn is_coinbase(&self) -> bool {
+        self.inner.is_coinbase()
+    }
+
+    /// Check if this is a burned output
+    pub fn is_burned(&self) -> bool {
+        self.inner.is_burned()
+    }
+
+    /// Convert to hex representation
+    pub fn to_hex(&self) -> PyResult<String> {
+        borsh::to_vec(&self.inner)
+            .map(|bytes| hex::encode(bytes))
+            .map_err(|e| PyWalletError::from_msg(&format!("Serialization failed: {}", e)).into())
+    }
+
+    /// Create from hex representation
+    #[staticmethod]
+    pub fn from_hex(hex_str: &str) -> PyResult<Self> {
+        let bytes = hex::decode(hex_str)
+            .map_err(|e| PyWalletError::from_msg(&format!("Invalid hex: {}", e)))?;
+        
+        let inner = borsh::from_slice(&bytes)
+            .map_err(|e| PyWalletError::from_msg(&format!("Deserialization failed: {}", e)))?;
+        
+        Ok(Self { inner })
+    }
+
     fn __str__(&self) -> String {
-        format!("TariTransactionMetadata(inputs={}, outputs={}, kernels={}, fee={})", 
-                self.input_count, self.output_count, self.kernel_count, self.total_fee)
+        format!("TransactionOutput(version={}, commitment={}..., type={})",
+            self.version(),
+            &self.commitment().to_hex()[0..16],
+            self.features().output_type().__str__())
     }
 
-    /// Representation
     fn __repr__(&self) -> String {
-        self.__str__()
+        format!("TransactionOutput(hash={})", hex::encode(self.inner.hash()))
+    }
+
+    fn __eq__(&self, other: &Self) -> bool {
+        self.inner == other.inner
+    }
+}
+
+impl PyTransactionOutput {
+    pub fn inner(&self) -> &LightweightTransactionOutput {
+        &self.inner
+    }
+
+    pub fn into_inner(self) -> LightweightTransactionOutput {
+        self.inner
     }
 }
