@@ -582,18 +582,15 @@ impl PySignatureResult {
 
     /// Verify this signature result using actual cryptographic verification
     pub fn verify(&self) -> bool {
-        // Validate that all fields are present
-        if self.signature.is_empty() || self.nonce.is_empty() || self.public_key.is_empty() || self.message.is_empty() {
+        // Validate that all cryptographic fields are present
+        if self.signature.is_empty() || self.nonce.is_empty() || self.public_key.is_empty() {
             return false;
         }
-        
-        // Parse public key from hex
+        // message can be empty - proceed with verification
         let public_key_parsed = match tari_crypto::ristretto::RistrettoPublicKey::from_hex(&self.public_key) {
             Ok(key) => key,
             Err(_) => return false,
         };
-        
-        // Use the crypto verification function
         match lightweight_wallet_libs::crypto::signing::verify_message_from_hex(
             &public_key_parsed,
             &self.message,

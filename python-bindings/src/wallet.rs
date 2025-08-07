@@ -214,16 +214,13 @@ impl PyTariWallet {
         nonce: &str,
         public_key: &str,
     ) -> PyResult<bool> {
-        // Validate inputs
-        if message.is_empty() || signature.is_empty() || nonce.is_empty() || public_key.is_empty() {
-            return Ok(false);
+        // Only validate cryptographic components, not message content
+        if signature.is_empty() || nonce.is_empty() || public_key.is_empty() {
+            return Err(PyWalletError::from_msg("Cryptographic parameters cannot be empty").into());
         }
-        
-        // Parse public key from hex
+        // message can be empty - proceed with verification
         let public_key_parsed = tari_crypto::ristretto::RistrettoPublicKey::from_hex(public_key)
             .map_err(|_| PyWalletError::from_msg("Invalid public key hex format"))?;
-        
-        // Use GIL release for CPU-bound crypto operation
         Ok(pyo3::Python::with_gil(|py| {
             py.allow_threads(|| {
                 verify_message_from_hex(&public_key_parsed, message, signature, nonce)
@@ -240,7 +237,7 @@ impl PyTariWallet {
         nonce: &str,
         public_key: &str,
     ) -> PyResult<bool> {
-        // Delegate to the static method
+        // Delegate to the static method (logic is now correct)
         Self::verify_message_signature(message, signature, nonce, public_key)
     }
 
