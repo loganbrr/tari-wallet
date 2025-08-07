@@ -8,13 +8,24 @@ This module provides common fixtures and configuration for all test modules.
 import pytest
 import sys
 import os
+import gc
+import psutil
+import time
+import threading
+import concurrent.futures
+from typing import List, Tuple, Dict, Any
+from memory_profiler import profile
 
 # Add the parent directory to Python path to import the module
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
     import lightweight_wallet_libpy as wallet_lib
-    from lightweight_wallet_libpy import TariWallet, TariScanner, AddressFeatures
+    from lightweight_wallet_libpy import (
+        TariWallet, TariAddressFeatures, 
+        PrivateKey, CompressedCommitment, RangeProof,
+        PyWalletError, NativeCryptoStats
+    )
     WALLET_LIB_AVAILABLE = True
 except ImportError as e:
     WALLET_LIB_AVAILABLE = False
@@ -71,7 +82,7 @@ def address_features_interactive_only():
     if not WALLET_LIB_AVAILABLE:
         pytest.skip(f"Wallet library not available: {IMPORT_ERROR}")
     
-    return AddressFeatures.interactive_only()
+    return TariAddressFeatures.interactive_only()
 
 
 @pytest.fixture
@@ -80,7 +91,7 @@ def address_features_one_sided_only():
     if not WALLET_LIB_AVAILABLE:
         pytest.skip(f"Wallet library not available: {IMPORT_ERROR}")
     
-    return AddressFeatures.one_sided_only()
+    return TariAddressFeatures.one_sided_only()
 
 
 @pytest.fixture
@@ -89,7 +100,7 @@ def address_features_interactive_and_one_sided():
     if not WALLET_LIB_AVAILABLE:
         pytest.skip(f"Wallet library not available: {IMPORT_ERROR}")
     
-    return AddressFeatures.interactive_and_one_sided()
+    return TariAddressFeatures.interactive_and_one_sided()
 
 
 @pytest.fixture
@@ -253,9 +264,9 @@ def all_address_features():
         pytest.skip(f"Wallet library not available: {IMPORT_ERROR}")
     
     return [
-        AddressFeatures.interactive_only(),
-        AddressFeatures.one_sided_only(),
-        AddressFeatures.interactive_and_one_sided(),
+        TariAddressFeatures.interactive_only(),
+        TariAddressFeatures.one_sided_only(),
+        TariAddressFeatures.interactive_and_one_sided(),
     ]
 
 
@@ -296,3 +307,206 @@ def assert_different_addresses(*addresses):
 # Register custom assertion helpers with pytest
 pytest.assert_valid_hex_address = assert_valid_hex_address
 pytest.assert_different_addresses = assert_different_addresses
+
+
+# ========== Integration Testing Framework Fixtures ==========
+
+@pytest.fixture
+def crypto_test_data():
+    """Provide test data for crypto operations."""
+    if not WALLET_LIB_AVAILABLE:
+        pytest.skip(f"Wallet library not available: {IMPORT_ERROR}")
+    
+    return {
+        'private_key': PrivateKey.from_bytes(bytes([1] * 32)),
+        'test_values': [1000, 2000, 5000, 10000],
+        'test_commitments': [],
+        'test_range_proofs': []
+    }
+
+
+@pytest.fixture
+def performance_monitor():
+    """Fixture to monitor performance during tests."""
+    if not WALLET_LIB_AVAILABLE:
+        pytest.skip(f"Wallet library not available: {IMPORT_ERROR}")
+    
+    process = psutil.Process()
+    start_memory = process.memory_info().rss
+    start_time = time.time()
+    
+    yield {
+        'start_memory': start_memory,
+        'start_time': start_time,
+        'process': process
+    }
+    
+    end_time = time.time()
+    end_memory = process.memory_info().rss
+    
+    print(f"Performance metrics: {end_time - start_time:.3f}s, "
+          f"Memory change: {end_memory - start_memory} bytes")
+
+
+@pytest.fixture
+def security_monitor():
+    """Fixture to monitor security-related metrics during tests."""
+    if not WALLET_LIB_AVAILABLE:
+        pytest.skip(f"Wallet library not available: {IMPORT_ERROR}")
+    
+    process = psutil.Process()
+    start_memory = process.memory_info().rss
+    start_time = time.time()
+    
+    yield {
+        'start_memory': start_memory,
+        'start_time': start_time,
+        'process': process
+    }
+    
+    end_time = time.time()
+    end_memory = process.memory_info().rss
+    
+    print(f"Security metrics: {end_time - start_time:.3f}s, "
+          f"Memory change: {end_memory - start_memory} bytes")
+
+
+@pytest.fixture
+def memory_leak_detector():
+    """Fixture to detect memory leaks in tests."""
+    if not WALLET_LIB_AVAILABLE:
+        pytest.skip(f"Wallet library not available: {IMPORT_ERROR}")
+    
+    process = psutil.Process()
+    initial_memory = process.memory_info().rss
+    
+    yield {
+        'initial_memory': initial_memory,
+        'process': process
+    }
+    
+    # Force garbage collection
+    gc.collect()
+    
+    final_memory = process.memory_info().rss
+    memory_increase = final_memory - initial_memory
+    
+    if memory_increase > 1024 * 1024:  # 1MB threshold
+        print(f"⚠️  Potential memory leak detected: {memory_increase} bytes increase")
+
+
+@pytest.fixture
+def concurrent_test_executor():
+    """Fixture providing a thread pool executor for concurrent tests."""
+    if not WALLET_LIB_AVAILABLE:
+        pytest.skip(f"Wallet library not available: {IMPORT_ERROR}")
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        yield executor
+
+
+@pytest.fixture
+def benchmark_private_key():
+    """Fixture providing a private key for benchmarking."""
+    if not WALLET_LIB_AVAILABLE:
+        pytest.skip(f"Wallet library not available: {IMPORT_ERROR}")
+    
+    return PrivateKey.from_bytes(bytes([1] * 32))
+
+
+@pytest.fixture
+def test_commitment_data():
+    """Fixture providing test commitment data."""
+    if not WALLET_LIB_AVAILABLE:
+        pytest.skip(f"Wallet library not available: {IMPORT_ERROR}")
+    
+    private_key = PrivateKey.from_bytes(bytes([1] * 32))
+    commitment = wallet_lib.calculate_commitment_native(1000, private_key)
+    mock_proof = RangeProof.from_bytes(bytes([0x08] * 100))
+    
+    return {
+        'private_key': private_key,
+        'commitment': commitment,
+        'range_proof': mock_proof,
+        'value': 1000
+    }
+
+
+# ========== Memory Leak Detection Decorator ==========
+
+def check_memory_leak(func):
+    """Decorator to check for memory leaks in test functions."""
+    def wrapper(*args, **kwargs):
+        if not WALLET_LIB_AVAILABLE:
+            return func(*args, **kwargs)
+        
+        process = psutil.Process()
+        initial_memory = process.memory_info().rss
+        
+        result = func(*args, **kwargs)
+        
+        # Force garbage collection
+        gc.collect()
+        
+        final_memory = process.memory_info().rss
+        memory_increase = final_memory - initial_memory
+        
+        # Allow small memory increase (less than 1MB)
+        if memory_increase > 1024 * 1024:
+            pytest.fail(f"Potential memory leak detected: {memory_increase} bytes increase")
+        
+        return result
+    
+    return wrapper
+
+
+# ========== Performance Monitoring Decorator ==========
+
+def monitor_performance(threshold_ops_per_sec: float = 1000):
+    """Decorator to monitor performance of test functions."""
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            if not WALLET_LIB_AVAILABLE:
+                return func(*args, **kwargs)
+            
+            start_time = time.time()
+            result = func(*args, **kwargs)
+            end_time = time.time()
+            
+            duration = end_time - start_time
+            if duration > 0:
+                ops_per_sec = 1 / duration
+                if ops_per_sec < threshold_ops_per_sec:
+                    pytest.fail(f"Performance below threshold: {ops_per_sec:.1f} ops/sec (threshold: {threshold_ops_per_sec})")
+            
+            return result
+        return wrapper
+    return decorator
+
+
+# ========== Security Validation Decorator ==========
+
+def validate_security(func):
+    """Decorator to validate security properties of test functions."""
+    def wrapper(*args, **kwargs):
+        if not WALLET_LIB_AVAILABLE:
+            return func(*args, **kwargs)
+        
+        process = psutil.Process()
+        initial_memory = process.memory_info().rss
+        
+        result = func(*args, **kwargs)
+        
+        # Force garbage collection
+        gc.collect()
+        
+        final_memory = process.memory_info().rss
+        memory_increase = final_memory - initial_memory
+        
+        # Security check: memory increase should be minimal
+        if memory_increase > 5 * 1024 * 1024:  # 5MB threshold
+            pytest.fail(f"Security violation: excessive memory usage {memory_increase} bytes")
+        
+        return result
+    
+    return wrapper

@@ -12,7 +12,7 @@ import os
 # Add the python-bindings directory to the path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../src'))
 
-import tari_wallet_python
+import lightweight_wallet_libpy as tari_wallet_python
 
 # Test constants
 VALID_PRIVATE_KEY = b'a' * 32  # 32-byte private key

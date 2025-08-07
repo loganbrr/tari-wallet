@@ -293,6 +293,105 @@ def test_basic_error_functionality(test_wallet):
     assert wallet.birthday() >= 0
 
 
+class TestConsolidatedErrorTests:
+    """Consolidated error tests from other modules."""
+    
+    def test_validation_error_handling(self):
+        """Test validation errors from various modules."""
+        from lightweight_wallet_libpy import CompressedPublicKey, CompressedCommitment
+        
+        # Test public key validation errors
+        with pytest.raises(Exception):
+            CompressedPublicKey.from_hex("invalid_hex")
+        
+        with pytest.raises(Exception):
+            CompressedPublicKey.from_bytes(bytes([1] * 31))  # Wrong length
+        
+        # Test commitment validation errors
+        with pytest.raises(Exception):
+            CompressedCommitment.from_hex("invalid_hex")
+        
+        with pytest.raises(Exception):
+            CompressedCommitment.from_bytes(bytes([1] * 31))  # Wrong length
+    
+    def test_key_derivation_error_handling(self):
+        """Test key derivation error scenarios."""
+        from lightweight_wallet_libpy import TariWallet
+        
+        # Test invalid seed phrase
+        with pytest.raises(Exception):
+            TariWallet.generate_new_with_seed_phrase("invalid seed phrase with wrong length")
+        
+        # Test invalid network setting
+        wallet = TariWallet.generate_new_with_seed_phrase(None)
+        with pytest.raises(Exception):
+            wallet.set_network("INVALID_NETWORK")
+    
+    def test_extraction_error_handling(self):
+        """Test extraction module error scenarios."""
+        from lightweight_wallet_libpy import TariExtractionConfig
+        
+        # Test invalid private key
+        with pytest.raises(Exception):
+            TariExtractionConfig.with_private_key(bytes([1] * 31))  # Wrong length
+        
+        # Test invalid public key
+        with pytest.raises(Exception):
+            TariExtractionConfig.with_public_key(bytes([1] * 31))  # Wrong length
+    
+    def test_stealth_address_error_handling(self):
+        """Test stealth address error scenarios."""
+        from lightweight_wallet_libpy import TariWallet
+        
+        wallet = TariWallet.generate_new_with_seed_phrase(None)
+        
+        # Test invalid stealth address parameters
+        with pytest.raises(Exception):
+            wallet.get_stealth_address("invalid_features")
+        
+        # Test invalid payment ID format
+        with pytest.raises(Exception):
+            wallet.get_stealth_address(None, "invalid_payment_id")
+    
+    def test_crypto_error_handling(self):
+        """Test cryptographic operation error scenarios."""
+        from lightweight_wallet_libpy import PrivateKey, CompressedCommitment
+        
+        # Test invalid private key creation
+        with pytest.raises(Exception):
+            PrivateKey.from_bytes(bytes([1] * 31))  # Wrong length
+        
+        # Test invalid commitment creation
+        with pytest.raises(Exception):
+            CompressedCommitment.from_bytes(bytes([1] * 31))  # Wrong length
+        
+        # Test invalid hex strings
+        with pytest.raises(Exception):
+            PrivateKey.from_hex("invalid_hex_string")
+        
+        with pytest.raises(Exception):
+            CompressedCommitment.from_hex("invalid_hex_string")
+    
+    def test_comprehensive_error_categorization(self):
+        """Test that errors are properly categorized and handled."""
+        from lightweight_wallet_libpy import TariWallet, PrivateKey, CompressedCommitment
+        
+        # Test wallet creation errors
+        with pytest.raises(Exception) as exc_info:
+            TariWallet.generate_new_with_seed_phrase("invalid seed phrase")
+        assert "seed" in str(exc_info.value).lower() or "phrase" in str(exc_info.value).lower()
+        
+        # Test cryptographic errors
+        with pytest.raises(Exception) as exc_info:
+            PrivateKey.from_bytes(bytes([1] * 31))
+        assert "32" in str(exc_info.value) or "length" in str(exc_info.value).lower()
+        
+        # Test validation errors
+        with pytest.raises(Exception) as exc_info:
+            CompressedCommitment.from_hex("invalid")
+        assert "hex" in str(exc_info.value).lower() or "invalid" in str(exc_info.value).lower()
+
+
 if __name__ == "__main__":
     # Run tests when executed directly
     pytest.main([__file__, "-v"])

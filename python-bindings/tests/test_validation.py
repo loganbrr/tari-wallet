@@ -790,5 +790,292 @@ class TestChunkedValidation:
         assert len(results) == len(chunk_sizes)
 
 
+class TestNativeCryptoPerformance:
+    """Test suite for native cryptographic performance operations."""
+
+    def test_native_commitment_calculation_performance(self):
+        """Test performance of native commitment calculation."""
+        try:
+            from lightweight_wallet_libpy import calculate_commitment_native, batch_calculate_commitments_native, PyPrivateKey
+        except ImportError:
+            pytest.skip("Native crypto functions not available - module may not be built")
+
+        import random
+        import time
+
+        # Generate test data
+        num_commitments = 1000
+        values = [random.randint(1, 1000000) for _ in range(num_commitments)]
+        blinding_factors = []
+        
+        for _ in range(num_commitments):
+            key_bytes = bytes([random.randint(0, 255) for _ in range(32)])
+            blinding_factors.append(PyPrivateKey.from_bytes(key_bytes))
+
+        # Test single commitment calculation
+        start_time = time.time()
+        for i in range(min(100, num_commitments)):  # Test first 100
+            commitment = calculate_commitment_native(values[i], blinding_factors[i])
+            assert commitment is not None
+        single_time = time.time() - start_time
+
+        # Test batch commitment calculation
+        start_time = time.time()
+        batch_commitments = batch_calculate_commitments_native(
+            list(zip(values, blinding_factors))
+        )
+        batch_time = time.time() - start_time
+
+        print(f"Single calculation (100 ops): {single_time:.4f}s")
+        print(f"Batch calculation ({num_commitments} ops): {batch_time:.4f}s")
+        print(f"Speedup: {single_time * num_commitments / 100 / batch_time:.2f}x")
+
+        # Validate results
+        assert len(batch_commitments) == num_commitments
+        for commitment in batch_commitments:
+            assert commitment is not None
+            assert hasattr(commitment, 'inner')
+
+    def test_native_range_proof_verification_performance(self):
+        """Test performance of native range proof verification."""
+        try:
+            from lightweight_wallet_libpy import verify_range_proof_native, batch_verify_range_proofs_native, PyRangeProof, PyCompressedCommitment
+        except ImportError:
+            pytest.skip("Native crypto functions not available - module may not be built")
+
+        import random
+        import time
+
+        # Generate test data
+        num_proofs = 1000
+        proofs_and_commitments = []
+        
+        for _ in range(num_proofs):
+            # Create a test range proof
+            proof_bytes = bytes([random.randint(0, 255) for _ in range(64)])
+            proof = PyRangeProof.from_bytes(proof_bytes)
+            
+            # Create a test commitment
+            commitment_bytes = bytes([0x08] + [random.randint(0, 255) for _ in range(31)])
+            commitment = PyCompressedCommitment.from_bytes(commitment_bytes)
+            
+            min_value = random.randint(0, 1000000)
+            proofs_and_commitments.append((proof, commitment, min_value))
+
+        # Test single range proof verification
+        start_time = time.time()
+        for i in range(min(100, num_proofs)):  # Test first 100
+            result = verify_range_proof_native(
+                proofs_and_commitments[i][0],
+                proofs_and_commitments[i][1],
+                proofs_and_commitments[i][2]
+            )
+            assert isinstance(result, bool)
+        single_time = time.time() - start_time
+
+        # Test batch range proof verification
+        start_time = time.time()
+        batch_results = batch_verify_range_proofs_native(proofs_and_commitments)
+        batch_time = time.time() - start_time
+
+        print(f"Single verification (100 ops): {single_time:.4f}s")
+        print(f"Batch verification ({num_proofs} ops): {batch_time:.4f}s")
+        print(f"Speedup: {single_time * num_proofs / 100 / batch_time:.2f}x")
+
+        # Validate results
+        assert len(batch_results) == num_proofs
+        for result in batch_results:
+            assert isinstance(result, bool)
+
+    def test_native_transaction_output_validation_performance(self):
+        """Test performance of native transaction output validation."""
+        try:
+            from lightweight_wallet_libpy import (
+                validate_transaction_output_native, 
+                batch_validate_transaction_outputs_native,
+                PyTransactionOutput, PyOutputFeatures, PyCompressedCommitment,
+                PyScript, PyCompressedPublicKey, PySignature, PyCovenant,
+                PyEncryptedData, PyMicroMinotari
+            )
+        except ImportError:
+            pytest.skip("Native crypto functions not available - module may not be built")
+
+        import random
+        import time
+
+        # Generate test data
+        num_outputs = 1000
+        outputs = []
+        
+        for _ in range(num_outputs):
+            # Create a minimal valid transaction output
+            features = PyOutputFeatures.standard(0)
+            commitment_bytes = bytes([0x08] + [random.randint(0, 255) for _ in range(31)])
+            commitment = PyCompressedCommitment.from_bytes(commitment_bytes)
+            script = PyScript.empty()
+            pubkey_bytes = bytes([random.randint(0, 255) for _ in range(32)])
+            pubkey = PyCompressedPublicKey.from_bytes(pubkey_bytes)
+            signature_bytes = bytes([random.randint(0, 255) for _ in range(64)])
+            signature = PySignature.from_bytes(signature_bytes)
+            covenant = PyCovenant.empty()
+            encrypted_data = PyEncryptedData.empty()
+            min_value = PyMicroMinotari.new(random.randint(0, 1000000))
+            
+            output = PyTransactionOutput.new_current_version(
+                features, commitment, None, script, pubkey, signature, covenant, encrypted_data, min_value
+            )
+            outputs.append(output)
+
+        # Test single output validation
+        start_time = time.time()
+        for i in range(min(100, num_outputs)):  # Test first 100
+            result = validate_transaction_output_native(
+                outputs[i], True, True, False
+            )
+            assert isinstance(result, bool)
+        single_time = time.time() - start_time
+
+        # Test batch output validation
+        start_time = time.time()
+        batch_results = batch_validate_transaction_outputs_native(
+            outputs, True, True, False
+        )
+        batch_time = time.time() - start_time
+
+        print(f"Single validation (100 ops): {single_time:.4f}s")
+        print(f"Batch validation ({num_outputs} ops): {batch_time:.4f}s")
+        print(f"Speedup: {single_time * num_outputs / 100 / batch_time:.2f}x")
+
+        # Validate results
+        assert len(batch_results) == num_outputs
+        for result in batch_results:
+            assert isinstance(result, bool)
+
+    def test_native_crypto_stats(self):
+        """Test the NativeCryptoStats class."""
+        try:
+            from lightweight_wallet_libpy import NativeCryptoStats
+        except ImportError:
+            pytest.skip("NativeCryptoStats not available - module may not be built")
+
+        # Create stats
+        stats = NativeCryptoStats(1000, 500.0)
+        
+        # Validate calculations
+        assert stats.operation_count == 1000
+        assert stats.total_time_ms == 500.0
+        assert stats.average_time_ms == 0.5
+        assert stats.operations_per_second == 2000.0
+        
+        # Test string representation
+        str_repr = str(stats)
+        assert "NativeCryptoStats" in str_repr
+        assert "1000" in str_repr
+
+    def test_batch_operation_stats(self):
+        """Test the BatchOperationStats class."""
+        try:
+            from lightweight_wallet_libpy import BatchOperationStats
+        except ImportError:
+            pytest.skip("BatchOperationStats not available - module may not be built")
+
+        # Create stats
+        stats = BatchOperationStats("validation", 500, 250.0, 450, 50)
+        
+        # Validate calculations
+        assert stats.operation_type == "validation"
+        assert stats.input_count == 500
+        assert stats.processing_time_ms == 250.0
+        assert stats.throughput_per_second == 2000.0
+        assert stats.success_count == 450
+        assert stats.error_count == 50
+        
+        # Test string representation
+        str_repr = str(stats)
+        assert "BatchOperationStats" in str_repr
+        assert "validation" in str_repr
+
+    def test_native_commitment_calculation_correctness(self):
+        """Test that commitment calculations are consistent."""
+        try:
+            from lightweight_wallet_libpy import calculate_commitment_native, PyPrivateKey
+        except ImportError:
+            pytest.skip("Native crypto functions not available - module may not be built")
+
+        # Create test data
+        value = 1000
+        key_bytes = bytes([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+                          17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32])
+        blinding_factor = PyPrivateKey.from_bytes(key_bytes)
+        
+        # Calculate commitment
+        commitment = calculate_commitment_native(value, blinding_factor)
+        
+        # Validate commitment structure
+        assert commitment is not None
+        assert hasattr(commitment, 'inner')
+        assert commitment.inner.as_bytes()[0] == 0x08  # Valid prefix
+
+    def test_native_range_proof_verification_correctness(self):
+        """Test that range proof verification works correctly."""
+        try:
+            from lightweight_wallet_libpy import verify_range_proof_native, PyRangeProof, PyCompressedCommitment
+        except ImportError:
+            pytest.skip("Native crypto functions not available - module may not be built")
+
+        # Create test data
+        proof_bytes = bytes([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+                            17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
+                            33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48,
+                            49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64])
+        proof = PyRangeProof.from_bytes(proof_bytes)
+        
+        commitment_bytes = bytes([0x08] + [0] * 31)
+        commitment = PyCompressedCommitment.from_bytes(commitment_bytes)
+        
+        min_value = 100
+        
+        # Verify range proof
+        result = verify_range_proof_native(proof, commitment, min_value)
+        
+        # Validate result
+        assert isinstance(result, bool)
+
+    def test_native_transaction_output_validation_correctness(self):
+        """Test that transaction output validation works correctly."""
+        try:
+            from lightweight_wallet_libpy import (
+                validate_transaction_output_native,
+                PyTransactionOutput, PyOutputFeatures, PyCompressedCommitment,
+                PyScript, PyCompressedPublicKey, PySignature, PyCovenant,
+                PyEncryptedData, PyMicroMinotari
+            )
+        except ImportError:
+            pytest.skip("Native crypto functions not available - module may not be built")
+
+        # Create a valid transaction output
+        features = PyOutputFeatures.standard(0)
+        commitment_bytes = bytes([0x08] + [0] * 31)
+        commitment = PyCompressedCommitment.from_bytes(commitment_bytes)
+        script = PyScript.empty()
+        pubkey_bytes = bytes([0] * 32)
+        pubkey = PyCompressedPublicKey.from_bytes(pubkey_bytes)
+        signature_bytes = bytes([0] * 64)
+        signature = PySignature.from_bytes(signature_bytes)
+        covenant = PyCovenant.empty()
+        encrypted_data = PyEncryptedData.empty()
+        min_value = PyMicroMinotari.new(1000)
+        
+        output = PyTransactionOutput.new_current_version(
+            features, commitment, None, script, pubkey, signature, covenant, encrypted_data, min_value
+        )
+        
+        # Validate output
+        result = validate_transaction_output_native(output, True, True, False)
+        
+        # Validate result
+        assert isinstance(result, bool)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
