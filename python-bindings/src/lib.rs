@@ -117,7 +117,7 @@ mod transaction_utils;
 // mod storage; // Temporarily disabled due to async threading issues
 mod validation;
 mod key_derivation;
-// mod key_manager; // Temporarily disabled due to syntax issues
+mod key_manager; // Temporarily disabled due to syntax issues
 mod stealth_types;
 mod stealth_address;
 mod extraction;
@@ -126,7 +126,7 @@ mod utils;
 // Legacy types removed - using native types only
 pub use validation::{BatchValidationResult};
 pub use key_derivation::KeyDerivationPath;
-// pub use key_manager::TariKeyManager; // Temporarily disabled
+pub use key_manager::TariKeyManager;
 pub use stealth_types::{StealthAddressInfo, StealthScanResult, StealthScanResultIterator};
 pub use stealth_address::TariStealthAddress;
 pub use extraction::{
@@ -176,7 +176,7 @@ fn lightweight_wallet_libpy(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult
     // Legacy compatibility classes removed - using native types only
     m.add_class::<BatchValidationResult>()?;
     m.add_class::<KeyDerivationPath>()?;
-    // m.add_class::<TariKeyManager>()?; // Temporarily disabled
+    m.add_class::<TariKeyManager>()?;
     m.add_class::<StealthAddressInfo>()?;
     m.add_class::<StealthScanResult>()?;
     m.add_class::<StealthScanResultIterator>()?;
