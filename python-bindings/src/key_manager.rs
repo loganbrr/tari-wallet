@@ -13,6 +13,7 @@ use tari_utilities::ByteArray;
 use hex;
 
 use crate::secure_wrapper::{SecureData, SecureEntropy};
+use lightweight_wallet_libs::crypto::SecretKey; // for from_uniform_bytes
 
 use lightweight_wallet_libs::key_management::{
     key_derivation::{
@@ -23,7 +24,6 @@ use lightweight_wallet_libs::key_management::{
     stealth_address::StealthAddressService,
 };
 use lightweight_wallet_libs::data_structures::types::{PrivateKey, CompressedPublicKey};
-use lightweight_wallet_libs::crypto::{RistrettoSecretKey, SecretKey};
 use crate::key_derivation::KeyDerivationPath;
 use crate::stealth_types::StealthAddressInfo;
 
@@ -32,6 +32,7 @@ use crate::stealth_types::StealthAddressInfo;
 struct KeyManagerState {
     stealth_service: StealthAddressService,
     entropy: Option<SecureData<SecureEntropy>>, // Secure entropy storage with zeroization
+    current_key_index: u64,
 }
 
 impl KeyManagerState {
@@ -39,15 +40,17 @@ impl KeyManagerState {
         Self {
             stealth_service: StealthAddressService::new(),
             entropy: None,
+            current_key_index: 0,
         }
     }
 
-    fn with_entropy(entropy: [u8; 16]) -> Self {
-        Self {
-            stealth_service: StealthAddressService::new(),
-            entropy: Some(SecureData::new(SecureEntropy::from(entropy))),
-        }
-    }
+    // fn with_entropy(entropy: [u8; 16]) -> Self {
+    //     Self {
+    //         stealth_service: StealthAddressService::new(),
+    //         entropy: Some(SecureData::new(SecureEntropy::from(entropy))),
+    //         current_key_index: 0,
+    //     }
+    // }
 }
 
 /// Python wrapper for advanced key management and derivation
@@ -170,6 +173,105 @@ impl TariKeyManager {
             Some(Err(e)) => Err(e),
             None => Err(PyRuntimeError::new_err("Entropy data has been zeroized")),
         }
+    }
+
+    /// Derive a public key from a private key (hex)
+    fn derive_public_key(&self, private_key_hex: &str) -> PyResult<String> {
+        let private_key_bytes = hex::decode(private_key_hex)
+            .map_err(|e| PyValueError::new_err(format!("Invalid private key hex: {}", e)))?;
+        if private_key_bytes.len() != 32 {
+            return Err(PyValueError::new_err("Private key must be exactly 32 bytes"));
+        }
+        let sk = SecretKey::from_uniform_bytes(&private_key_bytes)
+            .map_err(|e| PyValueError::new_err(format!("Invalid private key: {}", e)))?;
+        let pk = derive_public_key_from_private(&sk)
+            .map_err(|e| PyRuntimeError::new_err(format!("Public key derivation failed: {}", e)))?;
+        Ok(hex::encode(pk.as_bytes()))
+    }
+
+    /// Get current key index
+    fn current_key_index(&self) -> PyResult<u64> {
+        let state = self.inner.lock()
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock key manager: {}", e)))?;
+        Ok(state.current_key_index)
+    }
+
+    /// Update current key index
+    fn update_key_index(&self, new_index: u64) -> PyResult<()> {
+        let mut state = self.inner.lock()
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock key manager: {}", e)))?;
+        state.current_key_index = new_index;
+        Ok(())
+    }
+
+    /// Derive a key pair at branch/index
+    /// Returns dict: { private_key, public_key, key_index, branch_seed }
+    fn derive_key_pair(&self, branch_seed: &str, key_index: u64) -> PyResult<PyObject> {
+        let state = self.inner.lock()
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock key manager: {}", e)))?;
+        let entropy_data = state.entropy.as_ref().ok_or_else(|| {
+            PyRuntimeError::new_err("No entropy set. Use set_entropy() or from_wallet() first.")
+        })?;
+
+        let result = entropy_data.with_data(|entropy| {
+            derive_private_key_from_entropy(entropy.as_bytes(), branch_seed, key_index)
+                .map_err(|e| PyRuntimeError::new_err(format!("Key derivation failed: {}", e)))
+        });
+
+        let private_key = match result {
+            Some(Ok(sk)) => sk,
+            Some(Err(e)) => return Err(e),
+            None => return Err(PyRuntimeError::new_err("Entropy data has been zeroized")),
+        };
+
+        let public_key = derive_public_key_from_private(&private_key)
+            .map_err(|e| PyRuntimeError::new_err(format!("Public key derivation failed: {}", e)))?;
+
+        Python::with_gil(|py| {
+            let dict = PyDict::new(py);
+            dict.set_item("private_key", hex::encode(private_key.as_bytes()))?;
+            dict.set_item("public_key", hex::encode(public_key.as_bytes()))?;
+            dict.set_item("key_index", key_index)?;
+            dict.set_item("branch_seed", branch_seed)?;
+            Ok(dict.into())
+        })
+    }
+
+    /// Get next key pair in sequence for a branch; increments internal index
+    fn next_key_pair(&self, branch_seed: &str) -> PyResult<PyObject> {
+        let mut state = self.inner.lock()
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock key manager: {}", e)))?;
+        let key_index = state.current_key_index;
+
+        let entropy_data = state.entropy.as_ref().ok_or_else(|| {
+            PyRuntimeError::new_err("No entropy set. Use set_entropy() or from_wallet() first.")
+        })?;
+
+        let result = entropy_data.with_data(|entropy| {
+            derive_private_key_from_entropy(entropy.as_bytes(), branch_seed, key_index)
+                .map_err(|e| PyRuntimeError::new_err(format!("Key derivation failed: {}", e)))
+        });
+
+        let private_key = match result {
+            Some(Ok(sk)) => sk,
+            Some(Err(e)) => return Err(e),
+            None => return Err(PyRuntimeError::new_err("Entropy data has been zeroized")),
+        };
+
+        let public_key = derive_public_key_from_private(&private_key)
+            .map_err(|e| PyRuntimeError::new_err(format!("Public key derivation failed: {}", e)))?;
+
+        // increment index after success
+        state.current_key_index = key_index.saturating_add(1);
+
+        Python::with_gil(|py| {
+            let dict = PyDict::new(py);
+            dict.set_item("private_key", hex::encode(private_key.as_bytes()))?;
+            dict.set_item("public_key", hex::encode(public_key.as_bytes()))?;
+            dict.set_item("key_index", key_index)?;
+            dict.set_item("branch_seed", branch_seed)?;
+            Ok(dict.into())
+        })
     }
 
     /// Generate a shared secret from private and public keys
