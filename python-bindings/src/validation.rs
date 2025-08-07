@@ -584,4 +584,75 @@ impl PyScriptPattern {
     }
 }
 
+/// Python wrapper for script pattern analysis functions
+#[pyclass(name = "ScriptPatternAnalyzer")]
+pub struct PyScriptPatternAnalyzer;
+
+#[pymethods]
+impl PyScriptPatternAnalyzer {
+    /// Analyze a script and determine which pattern it matches
+    #[staticmethod]
+    pub fn analyze_script_pattern(script: &PyScript) -> PyScriptPattern {
+        // Convert PyScript to TariScript for analysis
+        // Note: This is a simplified conversion - in a full implementation,
+        // we'd need to properly convert the script bytes to TariScript
+        let script_bytes = &script.inner().bytes;
+        
+        // For now, we'll use a simple heuristic based on script size and content
+        // This is a placeholder - the actual implementation would use tari_script::TariScript
+        if script_bytes.is_empty() {
+            return PyScriptPattern::Unknown;
+        }
+        
+        // Simple pattern detection based on script size
+        match script_bytes.len() {
+            1 if script_bytes[0] == 0x00 => PyScriptPattern::Standard, // Nop instruction
+            _ => PyScriptPattern::Unknown,
+        }
+    }
+
+    /// Check if a script matches the standard output pattern (single Nop instruction)
+    #[staticmethod]
+    pub fn is_standard_output(script: &PyScript) -> bool {
+        let script_bytes = &script.inner().bytes;
+        script_bytes.len() == 1 && script_bytes[0] == 0x00
+    }
+
+    /// Check if a script has the simple one-sided structure and return the key hex
+    #[staticmethod]
+    pub fn check_simple_one_sided_structure(script: &PyScript) -> Option<String> {
+        let script_bytes = &script.inner().bytes;
+        
+        // Simplified check - in full implementation would parse TariScript
+        if script_bytes.len() == 1 {
+            // This is a placeholder - actual implementation would check for PushPubKey
+            Some("placeholder_key_hex".to_string())
+        } else {
+            None
+        }
+    }
+
+    /// Check if a script has the stealth one-sided structure and return the nonce and key hex
+    #[staticmethod]
+    pub fn check_stealth_one_sided_structure(script: &PyScript) -> Option<(String, String)> {
+        let script_bytes = &script.inner().bytes;
+        
+        // Simplified check - in full implementation would parse TariScript
+        if script_bytes.len() == 3 {
+            // This is a placeholder - actual implementation would check for PushPubKey, Drop, PushPubKey pattern
+            Some(("placeholder_nonce_hex".to_string(), "placeholder_key_hex".to_string()))
+        } else {
+            None
+        }
+    }
+
+    /// Check if any of the script patterns indicate this output might belong to our wallet
+    #[staticmethod]
+    pub fn is_wallet_output(script: &PyScript) -> bool {
+        // For now, only standard outputs are considered wallet outputs
+        // This is a simplified implementation
+        Self::is_standard_output(script)
+    }
+}
+
 
