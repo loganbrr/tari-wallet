@@ -396,6 +396,27 @@ impl PyLightweightMinimumValuePromiseValidator {
             inner: LightweightMinimumValuePromiseValidator::new(bit_length),
         }
     }
+
+    pub fn validate_minimum_value_promise(
+        &self,
+        commitment: &str,
+        minimum_value_promise: &str,
+        options: Option<&PyMinimumValuePromiseValidationOptions>,
+    ) -> PyResult<bool> {
+        let commitment_bytes = hex_to_commitment_bytes(commitment)
+            .map_err(|e| PyValueError::new_err(format!("Invalid commitment hex: {}", e)))?;
+        
+        let minimum_value_promise_bytes = hex_to_bytes(minimum_value_promise)
+            .map_err(|e| PyValueError::new_err(format!("Invalid minimum value promise hex: {}", e)))?;
+        
+        let options = options.map(|opt| &opt.inner);
+        
+        Ok(self.inner.validate_minimum_value_promise(
+            &commitment_bytes,
+            &minimum_value_promise_bytes,
+            options,
+        ))
+    }
 }
 
 /// Generic chunk processing function to eliminate duplication
