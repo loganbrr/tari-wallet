@@ -14,9 +14,12 @@ use lightweight_wallet_libs::validation::{
 use lightweight_wallet_libs::data_structures::{
     types::CompressedCommitment,
     encrypted_data::EncryptedData,
+    wallet_output::LightweightRangeProofType,
 };
 use lightweight_wallet_libs::validation::minimum_value_promise::{MinimumValuePromiseValidationOptions, LightweightMinimumValuePromiseValidator};
 use crate::utils::{hex_to_bytes, hex_to_commitment_bytes};
+use crate::crypto::PyMicroMinotari;
+use crate::transaction::PyRangeProof;
 
 
 // ========== Constants ==========
@@ -390,7 +393,7 @@ pub struct PyLightweightMinimumValuePromiseValidator {
 #[pymethods]
 impl PyLightweightMinimumValuePromiseValidator {
     #[new]
-    pub fn new(bit_length: Option<u32>) -> Self {
+    pub fn new(bit_length: Option<usize>) -> Self {
         let bit_length = bit_length.unwrap_or(64);
         Self {
             inner: LightweightMinimumValuePromiseValidator::new(bit_length),
@@ -399,23 +402,29 @@ impl PyLightweightMinimumValuePromiseValidator {
 
     pub fn validate_minimum_value_promise(
         &self,
-        commitment: &str,
-        minimum_value_promise: &str,
-        options: Option<&PyMinimumValuePromiseValidationOptions>,
+        minimum_value_promise: &PyMicroMinotari,
+        range_proof: Option<&PyRangeProof>,
+        range_proof_type_str: &str,
+        options: &PyMinimumValuePromiseValidationOptions,
     ) -> PyResult<bool> {
-        let commitment_bytes = hex_to_commitment_bytes(commitment)
-            .map_err(|e| PyValueError::new_err(format!("Invalid commitment hex: {}", e)))?;
+        let range_proof = range_proof.map(|rp| rp.inner());
         
-        let minimum_value_promise_bytes = hex_to_bytes(minimum_value_promise)
-            .map_err(|e| PyValueError::new_err(format!("Invalid minimum value promise hex: {}", e)))?;
+        // Convert string to LightweightRangeProofType
+        let range_proof_type = match range_proof_type_str {
+            "BulletProofPlus" => LightweightRangeProofType::BulletProofPlus,
+            "RevealedValue" => LightweightRangeProofType::RevealedValue,
+            _ => return Err(PyValueError::new_err(format!("Invalid range proof type: {}", range_proof_type_str))),
+        };
         
-        let options = options.map(|opt| &opt.inner);
-        
-        Ok(self.inner.validate_minimum_value_promise(
-            &commitment_bytes,
-            &minimum_value_promise_bytes,
-            options,
-        ))
+        match self.inner.validate_minimum_value_promise(
+            minimum_value_promise.inner(),
+            range_proof,
+            &range_proof_type,
+            &options.inner,
+        ) {
+            Ok(()) => Ok(true),
+            Err(_) => Ok(false),
+        }
     }
 }
 
