@@ -190,6 +190,10 @@ fn lightweight_wallet_libpy(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult
     // Register batch operations functions
     crate::batch_operations::register_batch_operation_functions(py, m)?;
 
+    // Validation classes
+    m.add_class::<crate::validation::PyMinimumValuePromiseValidationOptions>()?;
+    m.add_class::<crate::validation::PyLightweightMinimumValuePromiseValidator>()?;
+
     // Module metadata
     m.add("__version__", "0.3.0")?;
     m.add("__doc__", "Tari Lightweight Wallet Python Bindings with Native Object API")?;
@@ -219,11 +223,15 @@ fn lightweight_wallet_libpy(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult
     m.add("RangeProof", py.get_type::<PyRangeProof>())?;
     m.add("EncryptedData", py.get_type::<PyEncryptedData>())?;
     
+    // Validation convenience aliases
+    m.add("MinimumValuePromiseValidationOptions", py.get_type::<crate::validation::PyMinimumValuePromiseValidationOptions>())?;
+    m.add("LightweightMinimumValuePromiseValidator", py.get_type::<crate::validation::PyLightweightMinimumValuePromiseValidator>())?;
+    
     Ok(())
 }
 
 /// Module constants and helpers
-#[pymodule] 
+#[pymodule]
 fn constants(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Network constants - temporarily disabled
     // m.add("MAINNET", PyNetwork::mainnet())?;
