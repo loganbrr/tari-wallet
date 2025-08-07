@@ -5,13 +5,13 @@
 //! performance and type safety while maintaining backward compatibility through
 //! optional conversion methods.
 
-use lightweight_wallet_libs::errors::LightweightWalletError;
 use lightweight_wallet_libs::data_structures::address::{
     DualAddress, Network, SingleAddress, TariAddress, TariAddressFeatures,
 };
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use lightweight_wallet_libs::data_structures::types::CompressedPublicKey;
+use crate::PyWalletError;
 
 /// Native PyO3 wrapper for TariAddressFeatures
 #[pyclass(name = "TariAddressFeatures")]

@@ -51,19 +51,49 @@
 //! ```
 
 use pyo3::prelude::*;
+use pyo3::exceptions::PyException;
+use lightweight_wallet_libs::errors::LightweightWalletError;
+
+// Simple error type for wallet operations
+#[derive(Debug, Clone)]
+pub struct PyWalletError {
+    message: String,
+}
+
+impl PyWalletError {
+    pub fn from_msg(message: &str) -> Self {
+        Self {
+            message: message.to_string(),
+        }
+    }
+}
+
+impl From<LightweightWalletError> for PyWalletError {
+    fn from(error: LightweightWalletError) -> Self {
+        Self {
+            message: error.to_string(),
+        }
+    }
+}
+
+impl From<PyWalletError> for PyErr {
+    fn from(error: PyWalletError) -> Self {
+        PyException::new_err(error.message)
+    }
+}
 
 // Import all modules
-// mod address; // Temporarily disabled due to PyWalletError issues
+mod address;
 mod crypto;
 mod transaction;
-// mod wallet; // Temporarily disabled due to PyWalletError issues
+mod wallet;
 // mod errors; // File was deleted
 
 // Re-export core types
-// pub use address::{ // Temporarily disabled
-//     PyTariAddress, PyTariAddressFeatures, PyNetwork, 
-//     PyDualAddress, PySingleAddress
-// };
+pub use address::{
+    PyTariAddress, PyTariAddressFeatures, PyNetwork, 
+    PyDualAddress, PySingleAddress
+};
 pub use crypto::{
     PyPrivateKey, PyCompressedPublicKey, PyCompressedCommitment, 
     PyFixedHash, PyMicroMinotari, PySafeArray, PySignatureResult, PyKeyPair,
@@ -73,8 +103,8 @@ pub use transaction::{
     PyTransactionOutput, PyOutputFeatures, PyOutputType, PyScript, 
     PyCovenant, PySignature, PyRangeProof, PyEncryptedData
 };
-// pub use wallet::{PyTariWallet, PyWalletGenerationResult}; // Temporarily disabled
-// pub use errors::PyWalletError; // Module was deleted
+pub use wallet::{PyTariWallet, PyWalletGenerationResult};
+// PyWalletError is defined in this module
 
 // Legacy module compatibility (for existing integrations)
 mod types;
@@ -107,16 +137,16 @@ pub use extraction::{
 /// Python module definition
 #[pymodule]
 fn lightweight_wallet_libpy(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
-    // Core native object classes - temporarily disabled
-    // m.add_class::<PyTariWallet>()?;
-    // m.add_class::<PyWalletGenerationResult>()?;
+    // Core native object classes
+    m.add_class::<PyTariWallet>()?;
+    m.add_class::<PyWalletGenerationResult>()?;
     
-    // Address types - temporarily disabled
-    // m.add_class::<PyTariAddress>()?;
-    // m.add_class::<PyTariAddressFeatures>()?;
-    // m.add_class::<PyNetwork>()?;
-    // m.add_class::<PyDualAddress>()?;
-    // m.add_class::<PySingleAddress>()?;
+    // Address types
+    m.add_class::<PyTariAddress>()?;
+    m.add_class::<PyTariAddressFeatures>()?;
+    m.add_class::<PyNetwork>()?;
+    m.add_class::<PyDualAddress>()?;
+    m.add_class::<PySingleAddress>()?;
     
     // Crypto types
     m.add_class::<PyPrivateKey>()?;
@@ -164,14 +194,14 @@ fn lightweight_wallet_libpy(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult
     m.add("__version__", "0.3.0")?;
     m.add("__doc__", "Tari Lightweight Wallet Python Bindings with Native Object API")?;
     
-    // Convenience aliases for the new API - temporarily disabled
-    // m.add("TariWallet", py.get_type::<PyTariWallet>())?;
-    // m.add("WalletGenerationResult", py.get_type::<PyWalletGenerationResult>())?;
-    // m.add("TariAddress", py.get_type::<PyTariAddress>())?;
-    // m.add("TariAddressFeatures", py.get_type::<PyTariAddressFeatures>())?;
-    // m.add("Network", py.get_type::<PyNetwork>())?;
-    // m.add("DualAddress", py.get_type::<PyDualAddress>())?;
-    // m.add("SingleAddress", py.get_type::<PySingleAddress>())?;
+    // Convenience aliases for the new API
+    m.add("TariWallet", py.get_type::<PyTariWallet>())?;
+    m.add("WalletGenerationResult", py.get_type::<PyWalletGenerationResult>())?;
+    m.add("TariAddress", py.get_type::<PyTariAddress>())?;
+    m.add("TariAddressFeatures", py.get_type::<PyTariAddressFeatures>())?;
+    m.add("Network", py.get_type::<PyNetwork>())?;
+    m.add("DualAddress", py.get_type::<PyDualAddress>())?;
+    m.add("SingleAddress", py.get_type::<PySingleAddress>())?;
     m.add("PrivateKey", py.get_type::<PyPrivateKey>())?;
     m.add("CompressedPublicKey", py.get_type::<PyCompressedPublicKey>())?;
     m.add("CompressedCommitment", py.get_type::<PyCompressedCommitment>())?;

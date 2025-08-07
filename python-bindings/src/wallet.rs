@@ -6,11 +6,13 @@
 
 use crate::address::{PyTariAddress, PyTariAddressFeatures, PyNetwork};
 use crate::crypto::{PyPrivateKey, PyCompressedPublicKey, PySignatureResult, PyKeyPair};
-use lightweight_wallet_libs::errors::LightweightWalletError;
+use crate::PyWalletError;
 use lightweight_wallet_libs::wallet::Wallet;
-use lightweight_wallet_libs::crypto::signing::sign_message_with_tari_wallet;
+use lightweight_wallet_libs::crypto::signing::{sign_message_with_tari_wallet, derive_tari_signing_key, verify_message_from_hex};
 use lightweight_wallet_libs::key_management::validate_seed_phrase;
 use lightweight_wallet_libs::data_structures::types::PrivateKey;
+use tari_utilities::hex::Hex;
+use tari_crypto::keys::PublicKey;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use std::sync::{Arc, Mutex};
@@ -190,11 +192,18 @@ impl PyTariWallet {
         let seed_phrase = wallet.export_seed_phrase()
             .map_err(|e| PyWalletError::from_msg(&format!("Failed to export seed phrase: {}", e)))?;
         
-        // Call with correct signature
-        let (signature, public_key) = sign_message_with_tari_wallet(&seed_phrase, message, None)
+        // Call sign_message_with_tari_wallet which returns (signature_hex, nonce_hex)
+        let (signature, nonce) = sign_message_with_tari_wallet(&seed_phrase, message, None)
             .map_err(|e| PyWalletError::from_msg(&format!("Signing failed: {}", e)))?;
         
-        Ok(PySignatureResult::new(signature, public_key, message.to_string()))
+        // Derive public key from signing key
+        let signing_key = derive_tari_signing_key(&seed_phrase, None)
+            .map_err(|e| PyWalletError::from_msg(&format!("Failed to derive signing key: {}", e)))?;
+        
+        let public_key = tari_crypto::ristretto::RistrettoPublicKey::from_secret_key(&signing_key);
+        let public_key_hex = Hex::to_hex(&public_key);
+        
+        Ok(PySignatureResult::new(signature, nonce, public_key_hex, message.to_string()))
     }
 
     /// Verify message signature
@@ -202,11 +211,37 @@ impl PyTariWallet {
     pub fn verify_message_signature(
         message: &str,
         signature: &str,
+        nonce: &str,
         public_key: &str,
     ) -> PyResult<bool> {
-        // For now, return true if all parameters are present
-        // TODO: Implement proper signature verification
-        Ok(!message.is_empty() && !signature.is_empty() && !public_key.is_empty())
+        // Validate inputs
+        if message.is_empty() || signature.is_empty() || nonce.is_empty() || public_key.is_empty() {
+            return Ok(false);
+        }
+        
+        // Parse public key from hex
+        let public_key_parsed = tari_crypto::ristretto::RistrettoPublicKey::from_hex(public_key)
+            .map_err(|_| PyWalletError::from_msg("Invalid public key hex format"))?;
+        
+        // Use GIL release for CPU-bound crypto operation
+        Ok(pyo3::Python::with_gil(|py| {
+            py.allow_threads(|| {
+                verify_message_from_hex(&public_key_parsed, message, signature, nonce)
+                    .unwrap_or(false)
+            })
+        }))
+    }
+
+    /// Verify message signature (instance method for test compatibility)
+    pub fn verify_message(
+        &self,
+        message: &str,
+        signature: &str,
+        nonce: &str,
+        public_key: &str,
+    ) -> PyResult<bool> {
+        // Delegate to the static method
+        Self::verify_message_signature(message, signature, nonce, public_key)
     }
 
     /// Get network for address generation

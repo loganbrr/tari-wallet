@@ -13,6 +13,7 @@ use pyo3::types::PyBytes;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use tari_utilities::hex::Hex;
 
 /// Native PyO3 wrapper for PrivateKey with automatic memory zeroing
 #[pyclass(name = "PrivateKey")]
@@ -560,6 +561,8 @@ pub struct PySignatureResult {
     #[pyo3(get)]
     pub signature: String,
     #[pyo3(get)]
+    pub nonce: String,
+    #[pyo3(get)]
     pub public_key: String,
     #[pyo3(get)]
     pub message: String,
@@ -568,30 +571,50 @@ pub struct PySignatureResult {
 #[pymethods]
 impl PySignatureResult {
     #[new]
-    pub fn new(signature: String, public_key: String, message: String) -> Self {
+    pub fn new(signature: String, nonce: String, public_key: String, message: String) -> Self {
         Self {
             signature,
+            nonce,
             public_key,
             message,
         }
     }
 
-    /// Verify this signature result
+    /// Verify this signature result using actual cryptographic verification
     pub fn verify(&self) -> bool {
-        // This would integrate with the actual signature verification logic
-        // For now, return true if all fields are present
-        !self.signature.is_empty() && !self.public_key.is_empty() && !self.message.is_empty()
+        // Validate that all fields are present
+        if self.signature.is_empty() || self.nonce.is_empty() || self.public_key.is_empty() || self.message.is_empty() {
+            return false;
+        }
+        
+        // Parse public key from hex
+        let public_key_parsed = match tari_crypto::ristretto::RistrettoPublicKey::from_hex(&self.public_key) {
+            Ok(key) => key,
+            Err(_) => return false,
+        };
+        
+        // Use the crypto verification function
+        match lightweight_wallet_libs::crypto::signing::verify_message_from_hex(
+            &public_key_parsed,
+            &self.message,
+            &self.signature,
+            &self.nonce,
+        ) {
+            Ok(is_valid) => is_valid,
+            Err(_) => false,
+        }
     }
 
     fn __str__(&self) -> String {
-        format!("SignatureResult(sig={}..., key={}...)", 
+        format!("SignatureResult(sig={}..., nonce={}..., key={}...)", 
             &self.signature[0..16.min(self.signature.len())],
+            &self.nonce[0..16.min(self.nonce.len())],
             &self.public_key[0..16.min(self.public_key.len())])
     }
 
         fn __repr__(&self) -> String {
-        format!("SignatureResult(signature='{}', public_key='{}', message='{}')", 
-                self.signature, self.public_key, self.message)
+        format!("SignatureResult(signature='{}', nonce='{}', public_key='{}', message='{}')", 
+                self.signature, self.nonce, self.public_key, self.message)
     }
 }
 
