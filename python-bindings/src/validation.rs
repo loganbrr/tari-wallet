@@ -15,7 +15,6 @@ use lightweight_wallet_libs::data_structures::{
     types::CompressedCommitment,
     encrypted_data::EncryptedData,
 };
-use crate::errors::convert_to_pyerr;
 use crate::utils::{hex_to_bytes, hex_to_commitment_bytes};
 
 
@@ -139,7 +138,7 @@ impl LightweightCommitmentValidator {
         
         match lightweight_wallet_libs::validation::LightweightCommitmentValidator::validate_structure(&commitment) {
             Ok(_) => Ok(true),
-            Err(e) => Err(convert_to_pyerr(e.into())),
+            Err(e) => Err(PyValueError::new_err(format!("Validation error: {}", e)).into()),
         }
     }
 
@@ -244,7 +243,7 @@ impl LightweightEncryptedDataValidator {
         let validator = self.inner.lock().unwrap();
         match validator.validate_integrity(&encrypted_data) {
             Ok(_) => Ok(true),
-            Err(e) => Err(convert_to_pyerr(e.into())),
+            Err(e) => Err(PyValueError::new_err(format!("Validation error: {}", e)).into()),
         }
     }
 

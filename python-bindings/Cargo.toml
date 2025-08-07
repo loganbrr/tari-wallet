@@ -15,6 +15,7 @@ pyo3-async-runtimes = { version = "0.25.0", features = ["tokio-runtime"] }
 tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
 tari_utilities = { version = "0.8", features = ["std"] }
 lightweight_wallet_libs = { path = "..", features = ["http", "storage"] }
+tari_crypto = { version = "0.22" }
 once_cell = "1.19"
 hex = "0.4"
 blake2b_simd = "1.0"
@@ -22,3 +23,9 @@ borsh = { version = "1.5.7", features = ["derive"] }
 paste = "1.0"
 zeroize = { version = "1.7", features = ["zeroize_derive"] }
 rand = "0.8"
+rayon = "1.8"
+
+[dev-dependencies]
+# Rust testing dependencies
+criterion = "0.5"
+proptest = "1.3"

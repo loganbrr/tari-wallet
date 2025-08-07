@@ -5,9 +5,18 @@
 
 use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
-use lightweight_wallet_libs::crypto::{RistrettoSecretKey, RistrettoPublicKey};
-use lightweight_wallet_libs::key_management::key_derivation;
-use lightweight_wallet_libs::errors::{LightweightWalletError, KeyManagementError};
+
+use std::sync::{Arc, Mutex};
+
+/// Lock a mutex with proper error conversion
+pub fn lock_with_conversion_error<'a, T>(
+    arc_mutex: &'a Arc<Mutex<T>>,
+    context: &'static str,
+) -> PyResult<std::sync::MutexGuard<'a, T>> {
+    arc_mutex.lock().map_err(|e| {
+        PyValueError::new_err(format!("Failed to lock {}: {}", context, e)).into()
+    })
+}
 
 /// Convert hex string to bytes with proper error handling
 pub fn hex_to_bytes(hex_str: &str) -> PyResult<Vec<u8>> {
@@ -29,29 +38,7 @@ pub fn hex_to_commitment_bytes(hex_str: &str) -> PyResult<[u8; 32]> {
     Ok(array)
 }
 
-/// Derive view and spend keys from wallet master key bytes
-/// 
-/// This consolidates the key derivation logic used across scanner and key_manager modules
-pub fn derive_view_spend_keys_from_master_key(master_key_bytes: &[u8]) -> Result<(RistrettoSecretKey, RistrettoSecretKey), LightweightWalletError> {
-    let mut entropy = [0u8; 16];
-    entropy.copy_from_slice(&master_key_bytes[0..16]);
-    key_derivation::derive_view_and_spend_keys_from_entropy(&entropy)
-        .map_err(|e: KeyManagementError| LightweightWalletError::KeyManagementError(e))
-}
 
-/// Get stealth address info from wallet master key bytes
-/// 
-/// Returns view and spend key pairs (both private and public)
-pub fn get_stealth_info_from_master_key(master_key_bytes: &[u8]) -> Result<(RistrettoSecretKey, RistrettoSecretKey, RistrettoPublicKey, RistrettoPublicKey), LightweightWalletError> {
-    let (view_key, spend_key) = derive_view_spend_keys_from_master_key(master_key_bytes)?;
-    
-    let view_public_key = key_derivation::derive_public_key_from_private(&view_key)
-        .map_err(|e: KeyManagementError| LightweightWalletError::KeyManagementError(e))?;
-    let spend_public_key = key_derivation::derive_public_key_from_private(&spend_key)
-        .map_err(|e: KeyManagementError| LightweightWalletError::KeyManagementError(e))?;
-    
-    Ok((view_key, spend_key, view_public_key, spend_public_key))
-}
 
 /// Utils module for Python
 #[pymodule]
@@ -74,4 +61,41 @@ pub fn utils_module(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     }
     
     Ok(())
+}
+
+/// Create batch validation options with default settings
+/// 
+/// This function provides a convenient way to create batch validation options
+/// with common default settings for testing and development.
+#[allow(dead_code)]
+pub fn create_batch_validation_options(
+    continue_on_error: bool,
+    validate_range_proofs: bool,
+    validate_signatures: bool,
+) -> lightweight_wallet_libs::extraction::batch_validation::BatchValidationOptions {
+    lightweight_wallet_libs::extraction::batch_validation::BatchValidationOptions {
+        continue_on_error,
+        max_errors_per_output: 5,
+        validate_range_proofs,
+        validate_signatures,
+        validate_commitments: true,
+    }
+}
+
+/// Simple async runtime executor for storage operations
+/// 
+/// This replaces the deleted runtime module functionality
+#[allow(dead_code)]
+pub fn execute_async<F, R>(future: F) -> PyResult<R>
+where
+    F: std::future::Future<Output = Result<R, lightweight_wallet_libs::errors::LightweightWalletError>> + Send + 'static,
+    R: Send + 'static,
+{
+    use tokio::runtime::Runtime;
+    
+    let rt = Runtime::new()
+        .map_err(|e| PyValueError::new_err(format!("Failed to create runtime: {}", e)))?;
+    
+    rt.block_on(future)
+        .map_err(|e| PyValueError::new_err(format!("Runtime error: {}", e)).into())
 }

@@ -5,7 +5,8 @@
 //! compared to hex string serialization.
 
 use crate::crypto::{PyCompressedCommitment, PyCompressedPublicKey, PyMicroMinotari};
-use crate::errors::PyWalletError;
+
+use pyo3::exceptions::PyValueError;
 use lightweight_wallet_libs::data_structures::{
     encrypted_data::EncryptedData,
     transaction_output::LightweightTransactionOutput,
@@ -27,9 +28,9 @@ pub struct PyOutputType {
 
 #[pymethods]
 impl PyOutputType {
-    /// Standard output type
+    /// Payment output type
     #[staticmethod]
-    pub fn standard() -> Self {
+    pub fn payment() -> Self {
         Self {
             inner: LightweightOutputType::Payment,
         }
@@ -67,8 +68,8 @@ impl PyOutputType {
         }
     }
 
-    /// Check if this is a standard output
-    pub fn is_standard(&self) -> bool {
+    /// Check if this is a payment output
+    pub fn is_payment(&self) -> bool {
         matches!(self.inner, LightweightOutputType::Payment)
     }
 
@@ -84,7 +85,7 @@ impl PyOutputType {
 
     fn __str__(&self) -> String {
         match self.inner {
-            LightweightOutputType::Payment => "Standard".to_string(),
+            LightweightOutputType::Payment => "Payment".to_string(),
             LightweightOutputType::Coinbase => "Coinbase".to_string(),
             LightweightOutputType::Burn => "Burn".to_string(),
             LightweightOutputType::ValidatorNodeRegistration => "ValidatorNodeRegistration".to_string(),
@@ -99,10 +100,11 @@ impl PyOutputType {
     fn __eq__(&self, other: &Self) -> bool {
         self.inner == other.inner
     }
+}
 
-    /// Get the inner LightweightOutputType as a string
-    pub fn inner_as_string(&self) -> String {
-        format!("{:?}", self.inner)
+impl PyOutputType {
+    pub fn inner(&self) -> LightweightOutputType {
+        self.inner.clone()
     }
 }
 
@@ -120,38 +122,19 @@ impl PyOutputFeatures {
     pub fn new(
         output_type: &PyOutputType,
         maturity: u64,
-        range_proof_type: u8,
     ) -> Self {
-        let range_proof = match range_proof_type {
-            0 => LightweightRangeProofType::BulletProofPlus,
-            1 => LightweightRangeProofType::RevealedValue,
-            _ => LightweightRangeProofType::BulletProofPlus,
-        };
-        
         Self {
             inner: LightweightOutputFeatures {
-                output_type: output_type.inner.clone(),
+                output_type: output_type.inner().clone(),
                 maturity,
-                range_proof_type: range_proof,
-            },
-        }
-    }
-
-    /// Create default output features
-    #[staticmethod]
-    pub fn default() -> Self {
-        Self {
-            inner: LightweightOutputFeatures {
-                output_type: LightweightOutputType::Payment,
-                maturity: 0,
                 range_proof_type: LightweightRangeProofType::BulletProofPlus,
             },
         }
     }
 
-    /// Create standard output features
+    /// Create payment output features
     #[staticmethod]
-    pub fn standard(maturity: u64) -> Self {
+    pub fn payment(maturity: u64) -> Self {
         Self {
             inner: LightweightOutputFeatures {
                 output_type: LightweightOutputType::Payment,
@@ -161,25 +144,35 @@ impl PyOutputFeatures {
         }
     }
 
-    /// Get the output type
+    /// Create coinbase output features
+    #[staticmethod]
+    pub fn coinbase(maturity: u64) -> Self {
+        Self {
+            inner: LightweightOutputFeatures {
+                output_type: LightweightOutputType::Coinbase,
+                maturity,
+                range_proof_type: LightweightRangeProofType::BulletProofPlus,
+            },
+        }
+    }
+
+
+
+    /// Get output type
+    #[getter]
     pub fn output_type(&self) -> PyOutputType {
         PyOutputType {
             inner: self.inner.output_type.clone(),
         }
     }
 
-    /// Get the maturity height
+    /// Get maturity
+    #[getter]
     pub fn maturity(&self) -> u64 {
         self.inner.maturity
     }
 
-    /// Get the range proof type
-    pub fn range_proof_type(&self) -> u8 {
-        match self.inner.range_proof_type {
-            LightweightRangeProofType::BulletProofPlus => 0,
-            LightweightRangeProofType::RevealedValue => 1,
-        }
-    }
+
 
     fn __str__(&self) -> String {
         format!("OutputFeatures(type={}, maturity={})", 
@@ -187,8 +180,8 @@ impl PyOutputFeatures {
     }
 
     fn __repr__(&self) -> String {
-        format!("OutputFeatures(output_type={}, maturity={}, range_proof_type={})",
-            self.output_type().__str__(), self.maturity(), self.range_proof_type())
+        format!("OutputFeatures(output_type={}, maturity={})",
+            self.output_type().__str__(), self.maturity())
     }
 }
 
@@ -483,12 +476,12 @@ pub struct PyEncryptedData {
 
 #[pymethods]
 impl PyEncryptedData {
-    /// Create new encrypted data
-    #[new]
-    pub fn new(data: Bound<'_, PyBytes>) -> Self {
+    /// Create from raw data  
+    #[staticmethod]
+    pub fn from_data(data: Bound<'_, PyBytes>) -> Self {
         Self {
             inner: EncryptedData::from_bytes(data.as_bytes())
-                .unwrap_or_else(|_| EncryptedData::from_bytes(&[]).unwrap()),
+                .unwrap_or_else(|_| EncryptedData::default()),
         }
     }
 
@@ -496,37 +489,31 @@ impl PyEncryptedData {
     #[staticmethod]
     pub fn empty() -> Self {
         Self {
-            inner: EncryptedData::from_bytes(&[])
-                .unwrap_or_else(|_| EncryptedData::from_bytes(&[]).unwrap()),
+            inner: EncryptedData::default(),
         }
     }
 
-    /// Get the encrypted data bytes
+    /// Get encrypted data bytes
     pub fn data<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new(py, self.inner.as_bytes())
+        PyBytes::new(py, &self.inner.as_bytes())
     }
 
-    /// Get the data length
-    pub fn len(&self) -> usize {
+    /// Get data length
+    pub fn data_len(&self) -> usize {
         self.inner.as_bytes().len()
     }
 
-    /// Check if the data is empty
+    /// Check if data is empty
     pub fn is_empty(&self) -> bool {
         self.inner.as_bytes().is_empty()
     }
 
-    /// Get hex representation
-    pub fn to_hex(&self) -> String {
-        format!("data: {}", hex::encode(self.inner.as_bytes()))
-    }
-
     fn __str__(&self) -> String {
-        format!("EncryptedData(data={} bytes)", self.len())
+        format!("EncryptedData(data={} bytes)", self.data_len())
     }
 
     fn __repr__(&self) -> String {
-        format!("EncryptedData(len={})", self.len())
+        format!("EncryptedData(data={})", hex::encode(self.inner.as_bytes()))
     }
 }
 
@@ -627,7 +614,8 @@ impl PyTransactionOutput {
         }
     }
 
-    /// Get the commitment
+    /// Get commitment
+    #[getter]
     pub fn commitment(&self) -> PyCompressedCommitment {
         PyCompressedCommitment {
             inner: self.inner.commitment().clone(),
@@ -650,7 +638,8 @@ impl PyTransactionOutput {
         }
     }
 
-    /// Get the sender offset public key
+    /// Get sender offset public key
+    #[getter]
     pub fn sender_offset_public_key(&self) -> PyCompressedPublicKey {
         PyCompressedPublicKey {
             inner: self.inner.sender_offset_public_key().clone(),
@@ -711,17 +700,17 @@ impl PyTransactionOutput {
     pub fn to_hex(&self) -> PyResult<String> {
         borsh::to_vec(&self.inner)
             .map(|bytes| hex::encode(bytes))
-            .map_err(|e| PyWalletError::from_msg(&format!("Serialization failed: {}", e)).into())
+            .map_err(|e| PyValueError::new_err(format!("Serialization failed: {}", e)).into())
     }
 
     /// Create from hex representation
     #[staticmethod]
     pub fn from_hex(hex_str: &str) -> PyResult<Self> {
         let bytes = hex::decode(hex_str)
-            .map_err(|e| PyWalletError::from_msg(&format!("Invalid hex: {}", e)))?;
+            .map_err(|e| PyValueError::new_err(format!("Invalid hex: {}", e)))?;
         
         let inner = borsh::from_slice(&bytes)
-            .map_err(|e| PyWalletError::from_msg(&format!("Deserialization failed: {}", e)))?;
+            .map_err(|e| PyValueError::new_err(format!("Deserialization failed: {}", e)))?;
         
         Ok(Self { inner })
     }
@@ -750,4 +739,10 @@ impl PyTransactionOutput {
     pub fn into_inner(self) -> LightweightTransactionOutput {
         self.inner
     }
+
+    pub fn to_rust(&self) -> Result<LightweightTransactionOutput, PyValueError> {
+        Ok(self.inner.clone())
+    }
 }
+
+

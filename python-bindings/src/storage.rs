@@ -25,7 +25,8 @@ use lightweight_wallet_libs::data_structures::{
     transaction::{TransactionDirection, TransactionStatus},
     payment_id::PaymentId,
 };
-use crate::runtime::execute_async;
+use crate::utils::execute_async;
+
 
 /// PyO3 wrapper for SQLite storage backend
 #[pyclass]

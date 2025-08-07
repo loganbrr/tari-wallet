@@ -6,7 +6,7 @@
 
 use crate::address::{PyTariAddress, PyTariAddressFeatures, PyNetwork};
 use crate::crypto::{PyPrivateKey, PyCompressedPublicKey, PySignatureResult, PyKeyPair};
-use crate::errors::PyWalletError;
+use lightweight_wallet_libs::errors::LightweightWalletError;
 use lightweight_wallet_libs::wallet::Wallet;
 use lightweight_wallet_libs::crypto::signing::sign_message_with_tari_wallet;
 use lightweight_wallet_libs::key_management::validate_seed_phrase;

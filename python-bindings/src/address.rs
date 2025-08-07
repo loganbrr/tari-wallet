@@ -5,7 +5,7 @@
 //! performance and type safety while maintaining backward compatibility through
 //! optional conversion methods.
 
-use crate::errors::PyWalletError;
+use lightweight_wallet_libs::errors::LightweightWalletError;
 use lightweight_wallet_libs::data_structures::address::{
     DualAddress, Network, SingleAddress, TariAddress, TariAddressFeatures,
 };

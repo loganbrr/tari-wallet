@@ -53,62 +53,70 @@
 use pyo3::prelude::*;
 
 // Import all modules
-mod address;
-mod balance;
+// mod address; // Temporarily disabled due to PyWalletError issues
 mod crypto;
-mod errors;
-mod extraction;
-mod extraction_batch;
-mod key_manager;
-mod runtime;
-mod scanner;
-mod storage;
 mod transaction;
-mod utils;
-mod wallet;
+// mod wallet; // Temporarily disabled due to PyWalletError issues
+// mod errors; // File was deleted
+
+// Re-export core types
+// pub use address::{ // Temporarily disabled
+//     PyTariAddress, PyTariAddressFeatures, PyNetwork, 
+//     PyDualAddress, PySingleAddress
+// };
+pub use crypto::{
+    PyPrivateKey, PyCompressedPublicKey, PyCompressedCommitment, 
+    PyFixedHash, PyMicroMinotari, PySafeArray, PySignatureResult, PyKeyPair,
+    PyEnhancedSignature, PyEnhancedRangeProof
+};
+pub use transaction::{
+    PyTransactionOutput, PyOutputFeatures, PyOutputType, PyScript, 
+    PyCovenant, PySignature, PyRangeProof, PyEncryptedData
+};
+// pub use wallet::{PyTariWallet, PyWalletGenerationResult}; // Temporarily disabled
+// pub use errors::PyWalletError; // Module was deleted
 
 // Legacy module compatibility (for existing integrations)
 mod types;
 mod error_hierarchy;
 mod secure_wrapper;
-mod hybrid_serialization;
-mod crypto_types;
+
 #[macro_use]
 mod field_extraction_macros;
 mod transaction_utils;
+// mod storage; // Temporarily disabled due to async threading issues
 mod validation;
 mod key_derivation;
+// mod key_manager; // Temporarily disabled due to syntax issues
 mod stealth_types;
 mod stealth_address;
-
-// Import all the PyO3 classes
-use crate::wallet::{PyTariWallet, PyWalletGenerationResult};
-use crate::address::{PyTariAddress, PyTariAddressFeatures, PyNetwork, PyDualAddress, PySingleAddress};
-use crate::crypto::{PyPrivateKey, PyCompressedPublicKey, PyCompressedCommitment, PyFixedHash, PyMicroMinotari, PySafeArray, PySignatureResult, PyKeyPair};
-use crate::transaction::{PyTransactionOutput, PyOutputFeatures, PyOutputType, PyScript, PyCovenant, PySignature, PyRangeProof, PyEncryptedData};
-use crate::errors::PyWalletError;
-
+mod extraction;
+mod batch_operations;
+mod utils;
 // Legacy types removed - using native types only
 pub use validation::{BatchValidationResult};
 pub use key_derivation::KeyDerivationPath;
-pub use key_manager::TariKeyManager;
+// pub use key_manager::TariKeyManager; // Temporarily disabled
 pub use stealth_types::{StealthAddressInfo, StealthScanResult, StealthScanResultIterator};
 pub use stealth_address::TariStealthAddress;
-pub use extraction::PyExtractionConfig;
+pub use extraction::{
+    PyExtractionConfig, PyBatchValidationOptions, PyOutputValidationResult, 
+    PyBatchValidationSummary, PyBatchValidationResult
+};
 
 /// Python module definition
 #[pymodule]
 fn lightweight_wallet_libpy(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
-    // Core native object classes
-    m.add_class::<PyTariWallet>()?;
-    m.add_class::<PyWalletGenerationResult>()?;
+    // Core native object classes - temporarily disabled
+    // m.add_class::<PyTariWallet>()?;
+    // m.add_class::<PyWalletGenerationResult>()?;
     
-    // Address types
-    m.add_class::<PyTariAddress>()?;
-    m.add_class::<PyTariAddressFeatures>()?;
-    m.add_class::<PyNetwork>()?;
-    m.add_class::<PyDualAddress>()?;
-    m.add_class::<PySingleAddress>()?;
+    // Address types - temporarily disabled
+    // m.add_class::<PyTariAddress>()?;
+    // m.add_class::<PyTariAddressFeatures>()?;
+    // m.add_class::<PyNetwork>()?;
+    // m.add_class::<PyDualAddress>()?;
+    // m.add_class::<PySingleAddress>()?;
     
     // Crypto types
     m.add_class::<PyPrivateKey>()?;
@@ -119,6 +127,9 @@ fn lightweight_wallet_libpy(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult
     m.add_class::<PySafeArray>()?;
     m.add_class::<PySignatureResult>()?;
     m.add_class::<PyKeyPair>()?;
+    m.add_class::<PyEnhancedSignature>()?;
+    m.add_class::<PyEnhancedRangeProof>()?;
+
     
     // Transaction types
     m.add_class::<PyTransactionOutput>()?;
@@ -130,42 +141,37 @@ fn lightweight_wallet_libpy(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult
     m.add_class::<PyRangeProof>()?;
     m.add_class::<PyEncryptedData>()?;
     
-    // Error types
-    m.add_class::<PyWalletError>()?;
+    // Error types - PyWalletError removed
     
     // Legacy compatibility classes removed - using native types only
-    // m.add_class::<TariScanner>()?;
-    // m.add_class::<ScanResult>()?;
-    // m.add_class::<ScanProgress>()?;
-    // m.add_class::<TariBalance>()?;
-    // m.add_class::<WalletTransaction>()?;
-    // m.add_class::<AddressFeatures>()?;
-    // m.add_class::<TariWalletStorage>()?;
-    // m.add_class::<LightweightCommitmentValidator>()?;
-    // m.add_class::<LightweightEncryptedDataValidator>()?;
-    // m.add_class::<ValidationResult>()?;
     m.add_class::<BatchValidationResult>()?;
     m.add_class::<KeyDerivationPath>()?;
-    m.add_class::<TariKeyManager>()?;
+    // m.add_class::<TariKeyManager>()?; // Temporarily disabled
     m.add_class::<StealthAddressInfo>()?;
     m.add_class::<StealthScanResult>()?;
     m.add_class::<StealthScanResultIterator>()?;
     m.add_class::<TariStealthAddress>()?;
     m.add_class::<PyExtractionConfig>()?;
+    m.add_class::<PyBatchValidationOptions>()?;
+    m.add_class::<PyOutputValidationResult>()?;
+    m.add_class::<PyBatchValidationSummary>()?;
+    m.add_class::<PyBatchValidationResult>()?;
 
+    // Register batch operations functions
+    crate::batch_operations::register_batch_operation_functions(py, m)?;
 
     // Module metadata
     m.add("__version__", "0.3.0")?;
     m.add("__doc__", "Tari Lightweight Wallet Python Bindings with Native Object API")?;
     
-    // Convenience aliases for the new API
-    m.add("TariWallet", py.get_type::<PyTariWallet>())?;
-    m.add("WalletGenerationResult", py.get_type::<PyWalletGenerationResult>())?;
-    m.add("TariAddress", py.get_type::<PyTariAddress>())?;
-    m.add("TariAddressFeatures", py.get_type::<PyTariAddressFeatures>())?;
-    m.add("Network", py.get_type::<PyNetwork>())?;
-    m.add("DualAddress", py.get_type::<PyDualAddress>())?;
-    m.add("SingleAddress", py.get_type::<PySingleAddress>())?;
+    // Convenience aliases for the new API - temporarily disabled
+    // m.add("TariWallet", py.get_type::<PyTariWallet>())?;
+    // m.add("WalletGenerationResult", py.get_type::<PyWalletGenerationResult>())?;
+    // m.add("TariAddress", py.get_type::<PyTariAddress>())?;
+    // m.add("TariAddressFeatures", py.get_type::<PyTariAddressFeatures>())?;
+    // m.add("Network", py.get_type::<PyNetwork>())?;
+    // m.add("DualAddress", py.get_type::<PyDualAddress>())?;
+    // m.add("SingleAddress", py.get_type::<PySingleAddress>())?;
     m.add("PrivateKey", py.get_type::<PyPrivateKey>())?;
     m.add("CompressedPublicKey", py.get_type::<PyCompressedPublicKey>())?;
     m.add("CompressedCommitment", py.get_type::<PyCompressedCommitment>())?;
@@ -187,23 +193,23 @@ fn lightweight_wallet_libpy(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult
 }
 
 /// Module constants and helpers
-#[pymodule]
+#[pymodule] 
 fn constants(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
-    // Network constants
-    m.add("MAINNET", PyNetwork::mainnet())?;
-    m.add("STAGENET", PyNetwork::stagenet())?;
-    m.add("NEXTNET", PyNetwork::nextnet())?;
-    m.add("LOCALNET", PyNetwork::localnet())?;
-    m.add("IGOR", PyNetwork::igor())?;
-    m.add("ESMERALDA", PyNetwork::esmeralda())?;
+    // Network constants - temporarily disabled
+    // m.add("MAINNET", PyNetwork::mainnet())?;
+    // m.add("STAGENET", PyNetwork::stagenet())?;
+    // m.add("NEXTNET", PyNetwork::nextnet())?;
+    // m.add("LOCALNET", PyNetwork::localnet())?;
+    // m.add("IGOR", PyNetwork::igor())?;
+    // m.add("ESMERALDA", PyNetwork::esmeralda())?;
     
-    // Feature constants
-    m.add("INTERACTIVE_ONLY", PyTariAddressFeatures::interactive_only())?;
-    m.add("ONE_SIDED_ONLY", PyTariAddressFeatures::one_sided_only())?;
-    m.add("INTERACTIVE_AND_ONE_SIDED", PyTariAddressFeatures::interactive_and_one_sided())?;
+    // Feature constants - temporarily disabled
+    // m.add("INTERACTIVE_ONLY", PyTariAddressFeatures::interactive_only())?;
+    // m.add("ONE_SIDED_ONLY", PyTariAddressFeatures::one_sided_only())?;
+    // m.add("INTERACTIVE_AND_ONE_SIDED", PyTariAddressFeatures::interactive_and_one_sided())?;
     
     // Output type constants
-    m.add("OUTPUT_STANDARD", PyOutputType::standard())?;
+    m.add("OUTPUT_PAYMENT", PyOutputType::payment())?;
     m.add("OUTPUT_COINBASE", PyOutputType::coinbase())?;
     m.add("OUTPUT_BURN", PyOutputType::burn())?;
     m.add("OUTPUT_VALIDATOR_REGISTRATION", PyOutputType::validator_node_registration())?;

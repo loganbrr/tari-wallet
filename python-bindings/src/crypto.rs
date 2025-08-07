@@ -4,18 +4,21 @@
 //! with automatic memory zeroing and native type storage. All sensitive data
 //! is handled securely with zeroization on drop.
 
-use crate::errors::PyWalletError;
+use pyo3::exceptions::PyValueError;
 use lightweight_wallet_libs::data_structures::types::{
     CompressedCommitment, CompressedPublicKey, FixedHash, MicroMinotari, PrivateKey, SafeArray,
 };
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use zeroize::{Zeroize, ZeroizeOnDrop};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
-/// Native PyO3 wrapper for PrivateKey
+/// Native PyO3 wrapper for PrivateKey with automatic memory zeroing
 #[pyclass(name = "PrivateKey")]
 #[derive(Clone, ZeroizeOnDrop)]
 pub struct PyPrivateKey {
+    #[zeroize(skip)]  // PrivateKey handles its own zeroization
     inner: PrivateKey,
 }
 
@@ -33,7 +36,7 @@ impl PyPrivateKey {
     #[staticmethod]
     pub fn from_bytes(bytes: Bound<'_, PyBytes>) -> PyResult<Self> {
         let key_bytes: [u8; 32] = bytes.as_bytes().try_into().map_err(|_| {
-            PyWalletError::from_msg("Private key must be exactly 32 bytes")
+            PyValueError::new_err("Private key must be exactly 32 bytes")
         })?;
         Ok(Self {
             inner: PrivateKey::new(key_bytes),
@@ -44,7 +47,7 @@ impl PyPrivateKey {
     #[staticmethod]
     pub fn from_hex(hex_str: &str) -> PyResult<Self> {
         let inner = PrivateKey::from_hex(hex_str)
-            .map_err(|e| PyWalletError::from_msg(&format!("Invalid hex: {}", e)))?;
+            .map_err(|e| PyValueError::new_err(format!("Invalid hex: {}", e)))?;
         Ok(Self { inner })
     }
 
@@ -84,7 +87,6 @@ impl PyPrivateKey {
         &self.inner
     }
     
-    /// Get the inner PrivateKey
     pub fn into_inner(self) -> PrivateKey {
         self.inner.clone()
     }
@@ -103,7 +105,7 @@ impl PyCompressedPublicKey {
     #[staticmethod]
     pub fn from_bytes(bytes: Bound<'_, PyBytes>) -> PyResult<Self> {
         let key_bytes: [u8; 32] = bytes.as_bytes().try_into().map_err(|_| {
-            PyWalletError::from_msg("Public key must be exactly 32 bytes")
+            PyValueError::new_err("Public key must be exactly 32 bytes")
         })?;
         Ok(Self {
             inner: CompressedPublicKey::new(key_bytes),
@@ -114,7 +116,7 @@ impl PyCompressedPublicKey {
     #[staticmethod]
     pub fn from_hex(hex_str: &str) -> PyResult<Self> {
         let inner = CompressedPublicKey::from_hex(hex_str)
-            .map_err(|e| PyWalletError::from_msg(&format!("Invalid hex: {}", e)))?;
+            .map_err(|e| PyValueError::new_err(format!("Invalid hex: {}", e)))?;
         Ok(Self { inner })
     }
 
@@ -134,6 +136,35 @@ impl PyCompressedPublicKey {
     /// Convert to hex string
     pub fn to_hex(&self) -> String {
         self.inner.to_hex()
+    }
+
+    /// Enhanced: Get raw bytes as Vec<u8>
+    pub fn bytes(&self) -> Vec<u8> {
+        self.inner.as_bytes().to_vec()
+    }
+
+    /// Enhanced: Check if this is a valid public key (basic validation)
+    pub fn is_valid(&self) -> bool {
+        // Basic check - not all zeros
+        !self.inner.as_bytes().iter().all(|&b| b == 0)
+    }
+
+    /// Enhanced: Create from hex string with validation
+    #[staticmethod]
+    pub fn from_hex_validated(hex_str: &str) -> PyResult<Self> {
+        let bytes = hex::decode(hex_str)
+            .map_err(|e| PyValueError::new_err(format!("Invalid hex: {}", e)))?;
+        
+        if bytes.len() != 32 {
+            return Err(PyValueError::new_err("Public key must be exactly 32 bytes"));
+        }
+        
+        let mut key_array = [0u8; 32];
+        key_array.copy_from_slice(&bytes);
+        
+        Ok(Self {
+            inner: CompressedPublicKey::new(key_array),
+        })
     }
 
     fn __str__(&self) -> String {
@@ -180,7 +211,7 @@ impl PyCompressedCommitment {
     #[staticmethod]
     pub fn from_bytes(bytes: Bound<'_, PyBytes>) -> PyResult<Self> {
         let commitment_bytes: [u8; 32] = bytes.as_bytes().try_into().map_err(|_| {
-            PyWalletError::from_msg("Commitment must be exactly 32 bytes")
+            PyValueError::new_err("Commitment must be exactly 32 bytes")
         })?;
         Ok(Self {
             inner: CompressedCommitment::new(commitment_bytes),
@@ -191,7 +222,7 @@ impl PyCompressedCommitment {
     #[staticmethod]
     pub fn from_hex(hex_str: &str) -> PyResult<Self> {
         let inner = CompressedCommitment::from_hex(hex_str)
-            .map_err(|e| PyWalletError::from_msg(&format!("Invalid hex: {}", e)))?;
+            .map_err(|e| PyValueError::new_err(format!("Invalid hex: {}", e)))?;
         Ok(Self { inner })
     }
 
@@ -203,6 +234,35 @@ impl PyCompressedCommitment {
     /// Convert to hex string
     pub fn to_hex(&self) -> String {
         self.inner.to_hex()
+    }
+
+    /// Enhanced: Get raw bytes as Vec<u8>
+    pub fn bytes(&self) -> Vec<u8> {
+        self.inner.as_bytes().to_vec()
+    }
+
+    /// Enhanced: Check if this is a valid commitment (basic validation)
+    pub fn is_valid(&self) -> bool {
+        // Basic check - not all zeros
+        !self.inner.as_bytes().iter().all(|&b| b == 0)
+    }
+
+    /// Enhanced: Create from hex string with validation
+    #[staticmethod]
+    pub fn from_hex_validated(hex_str: &str) -> PyResult<Self> {
+        let bytes = hex::decode(hex_str)
+            .map_err(|e| PyValueError::new_err(format!("Invalid hex: {}", e)))?;
+        
+        if bytes.len() != 32 {
+            return Err(PyValueError::new_err("Commitment must be exactly 32 bytes"));
+        }
+        
+        let mut commitment_array = [0u8; 32];
+        commitment_array.copy_from_slice(&bytes);
+        
+        Ok(Self {
+            inner: CompressedCommitment::new(commitment_array),
+        })
     }
 
     fn __str__(&self) -> String {
@@ -249,7 +309,7 @@ impl PyFixedHash {
     #[staticmethod]
     pub fn from_bytes(bytes: Bound<'_, PyBytes>) -> PyResult<Self> {
         let hash_bytes: [u8; 32] = bytes.as_bytes().try_into().map_err(|_| {
-            PyWalletError::from_msg("Hash must be exactly 32 bytes")
+            PyValueError::new_err("Hash must be exactly 32 bytes")
         })?;
         Ok(Self {
             inner: FixedHash::new(hash_bytes),
@@ -260,7 +320,7 @@ impl PyFixedHash {
     #[staticmethod]
     pub fn from_hex(hex_str: &str) -> PyResult<Self> {
         let inner = FixedHash::from_hex(hex_str)
-            .map_err(|e| PyWalletError::from_msg(&format!("Invalid hex: {}", e)))?;
+            .map_err(|e| PyValueError::new_err(format!("Invalid hex: {}", e)))?;
         Ok(Self { inner })
     }
 
@@ -430,7 +490,7 @@ impl PySafeArray {
     #[staticmethod]
     pub fn from_bytes(bytes: Bound<'_, PyBytes>) -> PyResult<Self> {
         let array_bytes: [u8; 32] = bytes.as_bytes().try_into().map_err(|_| {
-            PyWalletError::from_msg("Array must be exactly 32 bytes")
+            PyValueError::new_err("Array must be exactly 32 bytes")
         })?;
         Ok(Self {
             inner: SafeArray::new(array_bytes),
@@ -441,12 +501,12 @@ impl PySafeArray {
     #[staticmethod]
     pub fn from_hex(hex_str: &str) -> PyResult<Self> {
         let inner = SafeArray::from_hex(hex_str)
-            .map_err(|e| PyWalletError::from_msg(&format!("Invalid hex: {}", e)))?;
+            .map_err(|e| PyValueError::new_err(format!("Invalid hex: {}", e)))?;
         Ok(Self { inner })
     }
 
-    /// Get bytes
-    pub fn bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+    /// Get the array bytes (returns copy for security)
+    pub fn to_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
         PyBytes::new(py, self.inner.as_bytes())
     }
 
@@ -488,7 +548,6 @@ impl PySafeArray {
         &self.inner
     }
 
-    /// Get the inner SafeArray
     pub fn into_inner(self) -> SafeArray<32> {
         self.inner.clone()
     }
@@ -530,15 +589,84 @@ impl PySignatureResult {
             &self.public_key[0..16.min(self.public_key.len())])
     }
 
-    fn __repr__(&self) -> String {
-        format!("SignatureResult(signature='{}', public_key='{}', message='{}')",
-            self.signature, self.public_key, self.message)
+        fn __repr__(&self) -> String {
+        format!("SignatureResult(signature='{}', public_key='{}', message='{}')", 
+                self.signature, self.public_key, self.message)
+    }
+}
+
+/// Enhanced signature wrapper with additional functionality
+#[pyclass(name = "EnhancedSignature")]
+#[derive(Clone)]
+pub struct PyEnhancedSignature {
+    /// Signature bytes (64 bytes for EdDSA)
+    pub signature_bytes: Vec<u8>,
+}
+
+#[pymethods]
+impl PyEnhancedSignature {
+    /// Create from hex string
+    #[new]
+    pub fn new(hex_str: &str) -> PyResult<Self> {
+        let bytes = hex::decode(hex_str)
+            .map_err(|e| PyValueError::new_err(format!("Invalid hex: {}", e)))?;
+        
+        if bytes.len() != 64 {
+            return Err(PyValueError::new_err("Signature must be exactly 64 bytes"));
+        }
+        
+        Ok(Self { signature_bytes: bytes })
+    }
+    
+    /// Get as hex string
+    #[getter]
+    pub fn hex(&self) -> String {
+        hex::encode(&self.signature_bytes)
+    }
+    
+    /// Get raw bytes
+    #[getter] 
+    pub fn bytes(&self) -> Vec<u8> {
+        self.signature_bytes.clone()
+    }
+    
+    /// Get signature components (R and S values)
+    pub fn components(&self) -> PyResult<(String, String)> {
+        if self.signature_bytes.len() != 64 {
+            return Err(PyValueError::new_err("Invalid signature length"));
+        }
+        
+        let r_bytes = &self.signature_bytes[0..32];
+        let s_bytes = &self.signature_bytes[32..64];
+        
+        Ok((hex::encode(r_bytes), hex::encode(s_bytes)))
+    }
+    
+    /// String representation
+    pub fn __str__(&self) -> String {
+        format!("EnhancedSignature({}...)", &self.hex()[..16])
+    }
+    
+    /// Representation
+    pub fn __repr__(&self) -> String {
+        format!("EnhancedSignature('{}')", self.hex())
+    }
+    
+    /// Equality comparison
+    pub fn __eq__(&self, other: &Self) -> bool {
+        self.signature_bytes == other.signature_bytes
+    }
+    
+    /// Hash for use in collections
+    pub fn __hash__(&self) -> isize {
+        let mut hasher = DefaultHasher::new();
+        self.signature_bytes.hash(&mut hasher);
+        hasher.finish() as isize
     }
 }
 
 /// Key pair wrapper for related private/public key operations
 #[pyclass(name = "KeyPair")]
-#[derive(Clone)]
 pub struct PyKeyPair {
     private_key: PyPrivateKey,
     public_key: PyCompressedPublicKey,
@@ -591,5 +719,74 @@ impl PyKeyPair {
 
     fn __repr__(&self) -> String {
         format!("KeyPair(private=[REDACTED], public={})", self.public_key.to_hex())
+    }
+}
+
+/// Enhanced range proof wrapper with additional functionality
+#[pyclass(name = "EnhancedRangeProof")]
+#[derive(Clone)]
+pub struct PyEnhancedRangeProof {
+    /// Range proof bytes (variable length)
+    pub proof_bytes: Vec<u8>,
+}
+
+#[pymethods]
+impl PyEnhancedRangeProof {
+    /// Create from hex string
+    #[new]
+    pub fn new(hex_str: &str) -> PyResult<Self> {
+        let bytes = hex::decode(hex_str)
+            .map_err(|e| PyValueError::new_err(format!("Invalid hex: {}", e)))?;
+        
+        if bytes.is_empty() {
+            return Err(PyValueError::new_err("Range proof cannot be empty"));
+        }
+        
+        Ok(Self { proof_bytes: bytes })
+    }
+    
+    /// Get as hex string
+    #[getter]
+    pub fn hex(&self) -> String {
+        hex::encode(&self.proof_bytes)
+    }
+    
+    /// Get raw bytes
+    #[getter] 
+    pub fn bytes(&self) -> Vec<u8> {
+        self.proof_bytes.clone()
+    }
+    
+    /// Get proof size in bytes
+    pub fn size(&self) -> usize {
+        self.proof_bytes.len()
+    }
+    
+    /// Check if proof is empty
+    pub fn is_empty(&self) -> bool {
+        self.proof_bytes.is_empty()
+    }
+    
+    /// String representation
+    pub fn __str__(&self) -> String {
+        format!("EnhancedRangeProof({} bytes, {}...)", 
+                self.size(), &self.hex()[..16])
+    }
+    
+    /// Representation
+    pub fn __repr__(&self) -> String {
+        format!("EnhancedRangeProof('{}')", self.hex())
+    }
+    
+    /// Equality comparison
+    pub fn __eq__(&self, other: &Self) -> bool {
+        self.proof_bytes == other.proof_bytes
+    }
+    
+    /// Hash for use in collections
+    pub fn __hash__(&self) -> isize {
+        let mut hasher = DefaultHasher::new();
+        self.proof_bytes.hash(&mut hasher);
+        hasher.finish() as isize
     }
 }

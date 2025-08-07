@@ -13,6 +13,7 @@ use lightweight_wallet_libs::data_structures::{
 use lightweight_wallet_libs::storage::storage_trait::StoredWallet;
 
 /// Parse transaction direction from string
+#[allow(dead_code)]
 pub fn parse_transaction_direction(direction_str: &str) -> Result<TransactionDirection, String> {
     match direction_str {
         "inbound" => Ok(TransactionDirection::Inbound),
@@ -22,6 +23,7 @@ pub fn parse_transaction_direction(direction_str: &str) -> Result<TransactionDir
 }
 
 /// Parse transaction status from string
+#[allow(dead_code)]
 pub fn parse_transaction_status(status_str: &str) -> Result<TransactionStatus, String> {
     match status_str {
         "minedconfirmed" => Ok(TransactionStatus::MinedConfirmed),

@@ -12,6 +12,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 pub struct SecureEntropy([u8; 16]);
 
 impl SecureEntropy {
+    #[allow(dead_code)]
     pub fn as_bytes(&self) -> &[u8; 16] {
         &self.0
     }
@@ -50,6 +51,7 @@ where
     T: Zeroize + ZeroizeOnDrop + Clone
 {
     /// Create new secure data container
+    #[allow(dead_code)]
     pub fn new(data: T) -> Self {
         Self {
             inner: Some(data),
@@ -58,6 +60,7 @@ where
     }
     
     /// Access data with a closure, ensuring no data escapes
+    #[allow(dead_code)]
     pub fn with_data<R, F>(&self, f: F) -> Option<R>
     where
         F: FnOnce(&T) -> R,

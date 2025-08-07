@@ -10,7 +10,8 @@ use std::sync::{Arc, Mutex};
 use std::convert::TryInto;
 use std::str::FromStr;
 use tari_utilities::ByteArray;
-use crate::errors::{lock_error, PyWalletError};
+use hex;
+
 use crate::secure_wrapper::{SecureData, SecureEntropy};
 
 use lightweight_wallet_libs::key_management::{
@@ -100,19 +101,19 @@ impl TariKeyManager {
     /// Returns:
     ///     TariKeyManager: Key manager with derived entropy from master key
     #[staticmethod]
-    fn from_wallet(wallet: &crate::wallet::PyTariWallet) -> PyResult<Self> {
-        // Extract master key from wallet
-        let wallet_guard = wallet.inner().lock().map_err(lock_error("wallet"))?;
-        
-        // Get the master key bytes and use first 16 bytes as entropy
-        let master_key_bytes = wallet_guard.master_key_bytes();
-        let mut entropy = [0u8; 16];
-        entropy.copy_from_slice(&master_key_bytes[0..16]);
+    // fn from_wallet(wallet: &crate::wallet::PyTariWallet) -> PyResult<Self> { // Temporarily disabled
+    //     // Extract master key from wallet
+    //     let wallet_guard = wallet.inner().lock().map_err(lock_error("wallet"))?;
+    //     
+    //     // Get the master key bytes and use first 16 bytes as entropy
+    //     let master_key_bytes = wallet_guard.master_key_bytes();
+    //     let mut entropy = [0u8; 16];
+    //     entropy.copy_from_slice(&master_key_bytes[0..16]);
 
-        Ok(Self {
-            inner: Arc::new(Mutex::new(KeyManagerState::with_entropy(entropy))),
-        })
-    }
+    //     Ok(Self {
+    //         inner: Arc::new(Mutex::new(KeyManagerState::with_entropy(entropy))),
+    //     })
+    // }
 
     /// Set entropy for key derivation operations
     /// 
@@ -126,12 +127,12 @@ impl TariKeyManager {
             return Err(PyValueError::new_err("Entropy must be exactly 32 hex characters (16 bytes)"));
         }
 
-        let entropy_bytes = hex::decode(entropy_hex).map_err(|e| PyWalletError::from_msg(&format!("Invalid hex: {}", e)))?;
+        let entropy_bytes = hex::decode(entropy_hex).map_err(|e| PyValueError::new_err(format!("Invalid hex: {}", e)))?;
 
         let entropy: [u8; 16] = entropy_bytes.try_into()
             .map_err(|_| PyValueError::new_err("Entropy must be exactly 16 bytes"))?;
 
-        let mut state = self.inner.lock().map_err(lock_error("key manager"))?;
+        let mut state = self.inner.lock().map_err(|e| PyValueError::new_err(format!("Failed to lock key manager: {}", e)))?;
         
         state.entropy = Some(SecureData::new(SecureEntropy::from(entropy)));
         Ok(())
@@ -370,13 +371,13 @@ impl TariKeyManager {
     /// 
     /// Returns:
     ///     bool: True if entropy is available for key derivation
-    #[getter]
-    fn has_entropy(&self) -> PyResult<bool> {
-        let state = self.inner.lock()
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock key manager: {}", e)))?;
-        
-        Ok(state.entropy.as_ref().map_or(false, |entropy| entropy.is_available()))
-    }
+    // #[pyo3(get)]
+    // fn has_entropy(&self) -> PyResult<bool> {
+    //     let state = self.inner.lock()
+    //         .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock key manager: {}", e)))?;
+    //     
+    //     Ok(state.entropy.as_ref().map_or(false, |entropy| entropy.is_available()))
+    // }
 
     /// Get string representation
     fn __repr__(&self) -> String {
