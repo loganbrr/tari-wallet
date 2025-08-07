@@ -15,7 +15,7 @@ use lightweight_wallet_libs::data_structures::{
     types::CompressedCommitment,
     encrypted_data::EncryptedData,
 };
-use lightweight_wallet_libs::validation::minimum_value_promise::MinimumValuePromiseValidationOptions;
+use lightweight_wallet_libs::validation::minimum_value_promise::{MinimumValuePromiseValidationOptions, LightweightMinimumValuePromiseValidator};
 use crate::utils::{hex_to_bytes, hex_to_commitment_bytes};
 
 
@@ -379,6 +379,22 @@ impl PyMinimumValuePromiseValidationOptions {
     #[setter]
     pub fn set_max_allowed_value(&mut self, value: Option<u64>) {
         self.inner.max_allowed_value = value;
+    }
+}
+
+#[pyclass(name = "LightweightMinimumValuePromiseValidator")]
+pub struct PyLightweightMinimumValuePromiseValidator {
+    pub inner: LightweightMinimumValuePromiseValidator,
+}
+
+#[pymethods]
+impl PyLightweightMinimumValuePromiseValidator {
+    #[new]
+    pub fn new(bit_length: Option<u32>) -> Self {
+        let bit_length = bit_length.unwrap_or(64);
+        Self {
+            inner: LightweightMinimumValuePromiseValidator::new(bit_length),
+        }
     }
 }
 
