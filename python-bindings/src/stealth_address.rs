@@ -321,6 +321,29 @@ impl TariStealthAddress {
         Ok(hex::encode(shared_secret))
     }
 
+    /// Derive an output encryption key from a shared secret
+    /// 
+    /// Args:
+    ///     shared_secret_hex: Shared secret as hex string
+    /// 
+    /// Returns:
+    ///     str: Output encryption key as hex string
+    /// 
+    /// Example:
+    ///     encryption_key = stealth.shared_secret_to_output_encryption_key(shared_secret)
+    fn shared_secret_to_output_encryption_key(&self, shared_secret_hex: &str) -> PyResult<String> {
+        let service = self.inner.lock()
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock stealth service: {}", e)))?;
+
+        let shared_secret = hex::decode(shared_secret_hex)
+            .map_err(|e| PyValueError::new_err(format!("Invalid shared secret hex: {}", e)))?;
+
+        let encryption_key = service.shared_secret_to_output_encryption_key(&shared_secret)
+            .map_err(|e| PyRuntimeError::new_err(format!("Encryption key derivation failed: {}", e)))?;
+
+        Ok(hex::encode(encryption_key.as_bytes()))
+    }
+
     /// String representation
     fn __repr__(&self) -> String {
         "TariStealthAddress()".to_string()
