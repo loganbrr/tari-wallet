@@ -17,9 +17,10 @@ use lightweight_wallet_libs::data_structures::{
     wallet_output::LightweightRangeProofType,
 };
 use lightweight_wallet_libs::validation::minimum_value_promise::{MinimumValuePromiseValidationOptions, LightweightMinimumValuePromiseValidator};
+use lightweight_wallet_libs::validation::script_pattern::{ScriptPattern, analyze_script_pattern, is_wallet_output, is_standard_output, check_simple_one_sided_structure, check_stealth_one_sided_structure, get_simple_key_hex, get_stealth_keys};
 use crate::utils::{hex_to_bytes, hex_to_commitment_bytes};
 use crate::crypto::PyMicroMinotari;
-use crate::transaction::PyRangeProof;
+use crate::transaction::{PyRangeProof, PyScript};
 
 
 // ========== Constants ==========
@@ -452,6 +453,135 @@ where
     }
     
     Ok(all_results)
+}
+
+/// Python wrapper for ScriptPattern enum
+#[pyclass(name = "ScriptPattern")]
+#[derive(Clone, PartialEq)]
+pub enum PyScriptPattern {
+    /// Standard output with single Nop instruction
+    Standard,
+    /// Simple one-sided output: PushPubKey(scanned_pk) where we might own the key
+    SimpleOneSided { key_hex: String },
+    /// Stealth one-sided output: PushPubKey(nonce), Drop, PushPubKey(scanned_pk) where we might own the scanned key
+    StealthOneSided { nonce_hex: String, key_hex: String },
+    /// Unrecognized one-sided pattern (has PushPubKey but we don't check ownership)
+    UnrecognizedOneSided,
+    /// Unrecognized stealth pattern (has the right structure)
+    UnrecognizedStealth,
+    /// Unknown or unsupported pattern
+    Unknown,
+}
+
+#[pymethods]
+impl PyScriptPattern {
+    #[new]
+    pub fn new() -> Self {
+        PyScriptPattern::Standard
+    }
+
+    /// Create a Standard pattern
+    #[staticmethod]
+    pub fn standard() -> Self {
+        PyScriptPattern::Standard
+    }
+
+    /// Create a SimpleOneSided pattern with key hex
+    #[staticmethod]
+    pub fn simple_one_sided(key_hex: String) -> Self {
+        PyScriptPattern::SimpleOneSided { key_hex }
+    }
+
+    /// Create a StealthOneSided pattern with nonce and key hex
+    #[staticmethod]
+    pub fn stealth_one_sided(nonce_hex: String, key_hex: String) -> Self {
+        PyScriptPattern::StealthOneSided { nonce_hex, key_hex }
+    }
+
+    /// Create an UnrecognizedOneSided pattern
+    #[staticmethod]
+    pub fn unrecognized_one_sided() -> Self {
+        PyScriptPattern::UnrecognizedOneSided
+    }
+
+    /// Create an UnrecognizedStealth pattern
+    #[staticmethod]
+    pub fn unrecognized_stealth() -> Self {
+        PyScriptPattern::UnrecognizedStealth
+    }
+
+    /// Create an Unknown pattern
+    #[staticmethod]
+    pub fn unknown() -> Self {
+        PyScriptPattern::Unknown
+    }
+
+    /// Get the key hex for simple one-sided outputs
+    pub fn get_simple_key_hex(&self) -> Option<String> {
+        match self {
+            PyScriptPattern::SimpleOneSided { key_hex } => Some(key_hex.clone()),
+            _ => None,
+        }
+    }
+
+    /// Get the nonce and key hex for stealth outputs
+    pub fn get_stealth_keys(&self) -> Option<(String, String)> {
+        match self {
+            PyScriptPattern::StealthOneSided { nonce_hex, key_hex } => {
+                Some((nonce_hex.clone(), key_hex.clone()))
+            }
+            _ => None,
+        }
+    }
+
+    /// Check if this is a standard pattern
+    pub fn is_standard(&self) -> bool {
+        matches!(self, PyScriptPattern::Standard)
+    }
+
+    /// Check if this is a simple one-sided pattern
+    pub fn is_simple_one_sided(&self) -> bool {
+        matches!(self, PyScriptPattern::SimpleOneSided { .. })
+    }
+
+    /// Check if this is a stealth one-sided pattern
+    pub fn is_stealth_one_sided(&self) -> bool {
+        matches!(self, PyScriptPattern::StealthOneSided { .. })
+    }
+
+    /// Check if this is an unrecognized one-sided pattern
+    pub fn is_unrecognized_one_sided(&self) -> bool {
+        matches!(self, PyScriptPattern::UnrecognizedOneSided)
+    }
+
+    /// Check if this is an unrecognized stealth pattern
+    pub fn is_unrecognized_stealth(&self) -> bool {
+        matches!(self, PyScriptPattern::UnrecognizedStealth)
+    }
+
+    /// Check if this is an unknown pattern
+    pub fn is_unknown(&self) -> bool {
+        matches!(self, PyScriptPattern::Unknown)
+    }
+
+    fn __str__(&self) -> String {
+        match self {
+            PyScriptPattern::Standard => "ScriptPattern.Standard".to_string(),
+            PyScriptPattern::SimpleOneSided { key_hex } => {
+                format!("ScriptPattern.SimpleOneSided(key_hex='{}')", key_hex)
+            }
+            PyScriptPattern::StealthOneSided { nonce_hex, key_hex } => {
+                format!("ScriptPattern.StealthOneSided(nonce_hex='{}', key_hex='{}')", nonce_hex, key_hex)
+            }
+            PyScriptPattern::UnrecognizedOneSided => "ScriptPattern.UnrecognizedOneSided".to_string(),
+            PyScriptPattern::UnrecognizedStealth => "ScriptPattern.UnrecognizedStealth".to_string(),
+            PyScriptPattern::Unknown => "ScriptPattern.Unknown".to_string(),
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        self.__str__()
+    }
 }
 
 
