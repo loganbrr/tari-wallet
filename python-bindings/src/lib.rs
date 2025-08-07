@@ -193,7 +193,11 @@ fn lightweight_wallet_libpy(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult
     // Validation classes
     m.add_class::<crate::validation::PyMinimumValuePromiseValidationOptions>()?;
     m.add_class::<crate::validation::PyLightweightMinimumValuePromiseValidator>()?;
-
+    
+    // Script pattern classes
+    m.add_class::<crate::validation::PyScriptPattern>()?;
+    m.add_class::<crate::validation::PyScriptPatternAnalyzer>()?;
+    
     // Module metadata
     m.add("__version__", "0.3.0")?;
     m.add("__doc__", "Tari Lightweight Wallet Python Bindings with Native Object API")?;
@@ -226,6 +230,10 @@ fn lightweight_wallet_libpy(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult
     // Validation convenience aliases
     m.add("MinimumValuePromiseValidationOptions", py.get_type::<crate::validation::PyMinimumValuePromiseValidationOptions>())?;
     m.add("LightweightMinimumValuePromiseValidator", py.get_type::<crate::validation::PyLightweightMinimumValuePromiseValidator>())?;
+    
+    // Script pattern convenience aliases
+    m.add("ScriptPattern", py.get_type::<crate::validation::PyScriptPattern>())?;
+    m.add("ScriptPatternAnalyzer", py.get_type::<crate::validation::PyScriptPatternAnalyzer>())?;
     
     Ok(())
 }
