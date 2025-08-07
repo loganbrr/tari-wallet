@@ -171,6 +171,106 @@ impl TariKeyManager {
             None => Err(PyRuntimeError::new_err("Entropy data has been zeroized")),
         }
     }
+
+    /// Generate a shared secret from private and public keys
+    /// 
+    /// Args:
+    ///     private_key_hex: Private key as hex string
+    ///     public_key_hex: Public key as hex string
+    /// 
+    /// Returns:
+    ///     str: Shared secret as hex string
+    /// 
+    /// Example:
+    ///     secret = manager.generate_shared_secret(priv_key, pub_key)
+    fn generate_shared_secret(&self, private_key_hex: &str, public_key_hex: &str) -> PyResult<String> {
+        let state = self.inner.lock()
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock key manager: {}", e)))?;
+
+        // Decode private key
+        let private_key_bytes = hex::decode(private_key_hex)
+            .map_err(|e| PyValueError::new_err(format!("Invalid private key hex: {}", e)))?;
+        
+        if private_key_bytes.len() != 32 {
+            return Err(PyValueError::new_err("Private key must be exactly 32 bytes"));
+        }
+
+        let mut private_key_array = [0u8; 32];
+        private_key_array.copy_from_slice(&private_key_bytes);
+        let private_key = PrivateKey::new(private_key_array);
+
+        // Decode public key
+        let public_key_bytes = hex::decode(public_key_hex)
+            .map_err(|e| PyValueError::new_err(format!("Invalid public key hex: {}", e)))?;
+        
+        if public_key_bytes.len() != 32 {
+            return Err(PyValueError::new_err("Public key must be exactly 32 bytes"));
+        }
+
+        let mut public_key_array = [0u8; 32];
+        public_key_array.copy_from_slice(&public_key_bytes);
+        let public_key = CompressedPublicKey::new(public_key_array);
+
+        let shared_secret = state.stealth_service.generate_shared_secret(&private_key, &public_key)
+            .map_err(|e| PyRuntimeError::new_err(format!("Shared secret generation failed: {}", e)))?;
+
+        Ok(hex::encode(shared_secret))
+    }
+
+    /// Create a stealth address using derived keys
+    /// 
+    /// Args:
+    ///     sender_private_key_hex: Sender's private key as hex string
+    /// 
+    /// Returns:
+    ///     StealthAddressInfo: Generated stealth address using wallet's view and spend keys
+    /// 
+    /// Example:
+    ///     stealth_addr = manager.create_stealth_address(sender_key)
+    fn create_stealth_address(&self, sender_private_key_hex: &str) -> PyResult<StealthAddressInfo> {
+        let state = self.inner.lock()
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock key manager: {}", e)))?;
+
+        let entropy_data = state.entropy.as_ref().ok_or_else(|| {
+            PyRuntimeError::new_err("No entropy set. Use set_entropy() or from_wallet() first.")
+        })?;
+
+        // Derive view and spend keys from entropy using secure data
+        let (view_key, spend_key) = entropy_data.with_data(|entropy| {
+            derive_view_and_spend_keys_from_entropy(entropy.as_bytes())
+        }).ok_or_else(|| PyRuntimeError::new_err("Entropy data has been zeroized"))?
+        .map_err(|e| PyRuntimeError::new_err(format!("Key derivation failed: {}", e)))?;
+
+        // Convert spend key to public key
+        let spend_public_key = CompressedPublicKey::from_private_key(&PrivateKey::from_canonical_bytes(spend_key.as_bytes())
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to convert spend key: {}", e)))?);
+
+        // Decode sender private key
+        let sender_key_bytes = hex::decode(sender_private_key_hex)
+            .map_err(|e| PyValueError::new_err(format!("Invalid sender key hex: {}", e)))?;
+        if sender_key_bytes.len() != 32 {
+            return Err(PyValueError::new_err("Sender key must be exactly 32 bytes"));
+        }
+        let mut sender_key_array = [0u8; 32];
+        sender_key_array.copy_from_slice(&sender_key_bytes);
+        let sender_private_key = PrivateKey::new(sender_key_array);
+
+        // Generate stealth address
+        let stealth_address = state.stealth_service.generate_stealth_address(
+            &PrivateKey::from_canonical_bytes(view_key.as_bytes())
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to convert view key: {}", e)))?,
+            &spend_public_key,
+            &sender_private_key,
+        ).map_err(|e| PyRuntimeError::new_err(format!("Stealth address generation failed: {}", e)))?;
+
+        // Convert to Python-friendly format
+        Ok(StealthAddressInfo::new(
+            hex::encode(stealth_address.view_public_key().as_bytes()),
+            hex::encode(stealth_address.spend_public_key().as_bytes()),
+            hex::encode(stealth_address.stealth_spending_key().as_bytes()),
+            hex::encode(stealth_address.sender_offset_public_key().as_bytes()),
+        ))
+    }
 }
 
 #[cfg(test)]
