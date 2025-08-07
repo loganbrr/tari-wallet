@@ -15,6 +15,7 @@ use lightweight_wallet_libs::data_structures::{
     types::CompressedCommitment,
     encrypted_data::EncryptedData,
 };
+use lightweight_wallet_libs::validation::minimum_value_promise::MinimumValuePromiseValidationOptions;
 use crate::utils::{hex_to_bytes, hex_to_commitment_bytes};
 
 
@@ -306,6 +307,78 @@ impl LightweightEncryptedDataValidator {
         process_validation_in_chunks(hexes, chunk_size, |hex| {
             self.validate_encrypted_data_detailed(hex)
         })
+    }
+}
+
+#[pyclass(name = "MinimumValuePromiseValidationOptions")]
+pub struct PyMinimumValuePromiseValidationOptions {
+    pub inner: MinimumValuePromiseValidationOptions,
+}
+
+#[pymethods]
+impl PyMinimumValuePromiseValidationOptions {
+    #[new]
+    pub fn new(
+        validate_range_proof_bounds: Option<bool>,
+        validate_revealed_value_consistency: Option<bool>,
+        validate_bulletproof_consistency: Option<bool>,
+        allow_zero_values: Option<bool>,
+        max_allowed_value: Option<u64>,
+    ) -> Self {
+        Self {
+            inner: MinimumValuePromiseValidationOptions {
+                validate_range_proof_bounds: validate_range_proof_bounds.unwrap_or(true),
+                validate_revealed_value_consistency: validate_revealed_value_consistency.unwrap_or(true),
+                validate_bulletproof_consistency: validate_bulletproof_consistency.unwrap_or(true),
+                allow_zero_values: allow_zero_values.unwrap_or(true),
+                max_allowed_value,
+            },
+        }
+    }
+
+    #[getter]
+    pub fn validate_range_proof_bounds(&self) -> bool {
+        self.inner.validate_range_proof_bounds
+    }
+    #[setter]
+    pub fn set_validate_range_proof_bounds(&mut self, value: bool) {
+        self.inner.validate_range_proof_bounds = value;
+    }
+
+    #[getter]
+    pub fn validate_revealed_value_consistency(&self) -> bool {
+        self.inner.validate_revealed_value_consistency
+    }
+    #[setter]
+    pub fn set_validate_revealed_value_consistency(&mut self, value: bool) {
+        self.inner.validate_revealed_value_consistency = value;
+    }
+
+    #[getter]
+    pub fn validate_bulletproof_consistency(&self) -> bool {
+        self.inner.validate_bulletproof_consistency
+    }
+    #[setter]
+    pub fn set_validate_bulletproof_consistency(&mut self, value: bool) {
+        self.inner.validate_bulletproof_consistency = value;
+    }
+
+    #[getter]
+    pub fn allow_zero_values(&self) -> bool {
+        self.inner.allow_zero_values
+    }
+    #[setter]
+    pub fn set_allow_zero_values(&mut self, value: bool) {
+        self.inner.allow_zero_values = value;
+    }
+
+    #[getter]
+    pub fn max_allowed_value(&self) -> Option<u64> {
+        self.inner.max_allowed_value
+    }
+    #[setter]
+    pub fn set_max_allowed_value(&mut self, value: Option<u64>) {
+        self.inner.max_allowed_value = value;
     }
 }
 
