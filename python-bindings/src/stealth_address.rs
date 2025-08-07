@@ -344,6 +344,35 @@ impl TariStealthAddress {
         Ok(hex::encode(encryption_key.as_bytes()))
     }
 
+    /// Derive an output encryption key from a secret key
+    /// 
+    /// Args:
+    ///     secret_key_hex: Secret key as hex string
+    /// 
+    /// Returns:
+    ///     str: Output encryption key as hex string
+    /// 
+    /// Example:
+    ///     encryption_key = stealth.secret_key_to_output_encryption_key(secret_key)
+    fn secret_key_to_output_encryption_key(&self, secret_key_hex: &str) -> PyResult<String> {
+        let service = self.inner.lock()
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to lock stealth service: {}", e)))?;
+
+        let secret_key_bytes = hex::decode(secret_key_hex)
+            .map_err(|e| PyValueError::new_err(format!("Invalid secret key hex: {}", e)))?;
+        if secret_key_bytes.len() != 32 {
+            return Err(PyValueError::new_err("Secret key must be exactly 32 bytes"));
+        }
+        let mut secret_key_array = [0u8; 32];
+        secret_key_array.copy_from_slice(&secret_key_bytes);
+        let secret_key = PrivateKey::new(secret_key_array);
+
+        let encryption_key = service.secret_key_to_output_encryption_key(&secret_key)
+            .map_err(|e| PyRuntimeError::new_err(format!("Encryption key derivation failed: {}", e)))?;
+
+        Ok(hex::encode(encryption_key.as_bytes()))
+    }
+
     /// String representation
     fn __repr__(&self) -> String {
         "TariStealthAddress()".to_string()
