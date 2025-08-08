@@ -170,6 +170,12 @@ fn lightweight_wallet_libpy(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult
     m.add_class::<PySignature>()?;
     m.add_class::<PyRangeProof>()?;
     m.add_class::<PyEncryptedData>()?;
+    // Phase 1.2
+    m.add_class::<crate::transaction::PyExecutionStack>()?;
+    m.add_class::<crate::transaction::PyTransactionInput>()?;
+    m.add_class::<crate::transaction::PyTransactionKernel>()?;
+    m.add_class::<crate::transaction::PyBlock>()?;
+    m.add_class::<crate::transaction::PyBlockSummary>()?;
     
     // Error types - PyWalletError removed
     

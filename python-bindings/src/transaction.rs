@@ -15,6 +15,9 @@ use lightweight_wallet_libs::data_structures::{
         LightweightRangeProof, LightweightScript, LightweightSignature,
         LightweightRangeProofType,
     },
+    transaction_input::{TransactionInput as CoreTransactionInput, LightweightExecutionStack as CoreExecutionStack},
+    transaction_kernel::TransactionKernel as CoreTransactionKernel,
+    block::{Block as CoreBlock, BlockSummary as CoreBlockSummary},
 };
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
@@ -744,5 +747,202 @@ impl PyTransactionOutput {
         Ok(self.inner.clone())
     }
 }
+
+/// Python wrapper for LightweightExecutionStack
+#[pyclass(name = "ExecutionStack")]
+#[derive(Clone)]
+pub struct PyExecutionStack { inner: CoreExecutionStack }
+
+#[pymethods]
+impl PyExecutionStack {
+    #[new]
+    pub fn new() -> Self { Self { inner: CoreExecutionStack { items: Vec::new() } } }
+
+    #[staticmethod]
+    pub fn from_items(items: Vec<Bound<'_, PyBytes>>) -> Self {
+        let mut stack = CoreExecutionStack { items: Vec::new() };
+        for b in items { stack.items.push(b.as_bytes().to_vec()); }
+        Self { inner: stack }
+    }
+
+    pub fn push(&mut self, item: Bound<'_, PyBytes>) { self.inner.items.push(item.as_bytes().to_vec()); }
+    pub fn len(&self) -> usize { self.inner.items.len() }
+    pub fn is_empty(&self) -> bool { self.inner.items.is_empty() }
+
+    pub fn items<'py>(&self, py: Python<'py>) -> Vec<Bound<'py, PyBytes>> {
+        self.inner.items.iter().map(|v| PyBytes::new(py, v)).collect()
+    }
+
+    fn __repr__(&self) -> String { format!("ExecutionStack(len={})", self.len()) }
+}
+
+impl PyExecutionStack { pub fn inner(&self) -> &CoreExecutionStack { &self.inner } }
+
+/// Python wrapper for TransactionInput
+#[pyclass(name = "TransactionInput")]
+#[derive(Clone)]
+pub struct PyTransactionInput { inner: CoreTransactionInput }
+
+#[pymethods]
+impl PyTransactionInput {
+    #[new]
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        version: u8,
+        features: u8,
+        commitment_hex: &str,
+        script_signature_hex: &str,
+        sender_offset_public_key: &PyCompressedPublicKey,
+        covenant: &PyCovenant,
+        input_stack: &PyExecutionStack,
+        output_hash_hex: &str,
+        output_features: u8,
+        output_metadata_signature_hex: &str,
+        maturity: u64,
+        value: &PyMicroMinotari,
+    ) -> PyResult<Self> {
+        let commitment = hex::decode(commitment_hex).map_err(|e| PyValueError::new_err(format!("Invalid commitment hex: {}", e)))?;
+        let script_sig = hex::decode(script_signature_hex).map_err(|e| PyValueError::new_err(format!("Invalid script signature hex: {}", e)))?;
+        let output_hash = hex::decode(output_hash_hex).map_err(|e| PyValueError::new_err(format!("Invalid output hash hex: {}", e)))?;
+        let output_meta_sig = hex::decode(output_metadata_signature_hex).map_err(|e| PyValueError::new_err(format!("Invalid metadata signature hex: {}", e)))?;
+
+        if commitment.len() != 32 { return Err(PyValueError::new_err("commitment must be 32 bytes")); }
+        if script_sig.len() != 64 { return Err(PyValueError::new_err("script_signature must be 64 bytes")); }
+        if output_hash.len() != 32 { return Err(PyValueError::new_err("output_hash must be 32 bytes")); }
+        if output_meta_sig.len() != 64 { return Err(PyValueError::new_err("output_metadata_signature must be 64 bytes")); }
+
+        let mut commitment_arr = [0u8;32]; commitment_arr.copy_from_slice(&commitment);
+        let mut script_sig_arr = [0u8;64]; script_sig_arr.copy_from_slice(&script_sig);
+        let mut output_hash_arr = [0u8;32]; output_hash_arr.copy_from_slice(&output_hash);
+        let mut output_meta_sig_arr = [0u8;64]; output_meta_sig_arr.copy_from_slice(&output_meta_sig);
+
+        Ok(Self { inner: CoreTransactionInput {
+            version,
+            features,
+            commitment: commitment_arr,
+            script_signature: script_sig_arr,
+            sender_offset_public_key: sender_offset_public_key.inner().clone(),
+            covenant: covenant.inner().bytes.clone(),
+            input_data: input_stack.inner().clone(),
+            output_hash: output_hash_arr,
+            output_features,
+            output_metadata_signature: output_meta_sig_arr,
+            maturity,
+            value: lightweight_wallet_libs::data_structures::types::MicroMinotari::new(value.inner().into()),
+        }})
+    }
+
+    #[getter]
+    pub fn version(&self) -> u8 { self.inner.version }
+    #[getter]
+    pub fn features(&self) -> u8 { self.inner.features }
+
+    pub fn commitment_hex(&self) -> String { hex::encode(self.inner.commitment) }
+    pub fn script_signature_hex(&self) -> String { hex::encode(self.inner.script_signature) }
+    pub fn output_hash_hex(&self) -> String { hex::encode(self.inner.output_hash) }
+    pub fn output_metadata_signature_hex(&self) -> String { hex::encode(self.inner.output_metadata_signature) }
+    pub fn maturity(&self) -> u64 { self.inner.maturity }
+    pub fn value(&self) -> PyMicroMinotari { PyMicroMinotari::new(self.inner.value.as_u64()) }
+
+    pub fn validate_lengths(&self) -> PyResult<()> {
+        if self.inner.commitment.len() != 32 { return Err(PyValueError::new_err("Invalid commitment length")); }
+        Ok(())
+    }
+
+    fn __repr__(&self) -> String { format!("TransactionInput(version={}, maturity={}, value={})", self.version(), self.maturity(), self.value().inner()) }
+}
+
+impl PyTransactionInput { pub fn inner(&self) -> &CoreTransactionInput { &self.inner } }
+
+/// Python wrapper for TransactionKernel
+#[pyclass(name = "TransactionKernel")]
+#[derive(Clone)]
+pub struct PyTransactionKernel { inner: CoreTransactionKernel }
+
+#[pymethods]
+impl PyTransactionKernel {
+    #[new]
+    pub fn new(
+        version: u8,
+        features: u8,
+        fee: &PyMicroMinotari,
+        lock_height: u64,
+        excess: &PyCompressedPublicKey,
+        excess_sig_hex: &str,
+        hash_type: u8,
+        burn_commitment: Option<&PyCompressedCommitment>,
+    ) -> PyResult<Self> {
+        let excess_sig = hex::decode(excess_sig_hex).map_err(|e| PyValueError::new_err(format!("Invalid excess_sig hex: {}", e)))?;
+        if excess_sig.len() != 64 { return Err(PyValueError::new_err("excess_sig must be 64 bytes")); }
+        let mut sig_arr = [0u8;64]; sig_arr.copy_from_slice(&excess_sig);
+        Ok(Self { inner: CoreTransactionKernel {
+            version,
+            features,
+            fee: lightweight_wallet_libs::data_structures::types::MicroMinotari::new(fee.inner().into()),
+            lock_height,
+            excess: excess.inner().clone(),
+            excess_sig: sig_arr,
+            hash_type,
+            burn_commitment: burn_commitment.map(|c| c.inner().clone()),
+        }})
+    }
+
+    pub fn to_hex(&self) -> PyResult<String> { borsh::to_vec(&self.inner).map(|b| hex::encode(b)).map_err(|e| PyValueError::new_err(format!("Serialization failed: {}", e))) }
+    #[staticmethod]
+    pub fn from_hex(hex_str: &str) -> PyResult<Self> {
+        let bytes = hex::decode(hex_str).map_err(|e| PyValueError::new_err(format!("Invalid hex: {}", e)))?;
+        let inner: CoreTransactionKernel = borsh::from_slice(&bytes).map_err(|e| PyValueError::new_err(format!("Deserialization failed: {}", e)))?;
+        Ok(Self { inner })
+    }
+
+    fn __repr__(&self) -> String { format!("TransactionKernel(version={}, fee={}, lock_height={})", self.inner.version, self.inner.fee.as_u64(), self.inner.lock_height) }
+}
+
+impl PyTransactionKernel { pub fn inner(&self) -> &CoreTransactionKernel { &self.inner } }
+
+/// Python wrapper for BlockSummary
+#[pyclass(name = "BlockSummary")]
+#[derive(Clone)]
+pub struct PyBlockSummary { inner: CoreBlockSummary }
+
+#[pymethods]
+impl PyBlockSummary {
+    #[getter]
+    pub fn height(&self) -> u64 { self.inner.height }
+    #[getter]
+    pub fn timestamp(&self) -> u64 { self.inner.timestamp }
+    pub fn output_count(&self) -> usize { self.inner.output_count }
+    pub fn input_count(&self) -> usize { self.inner.input_count }
+    pub fn hash_hex(&self) -> String { hex::encode(&self.inner.hash) }
+    fn __repr__(&self) -> String { format!("BlockSummary(height={}, outputs={}, inputs={})", self.height(), self.output_count(), self.input_count()) }
+}
+
+/// Python wrapper for Block
+#[pyclass(name = "Block")]
+pub struct PyBlock { inner: CoreBlock }
+
+#[pymethods]
+impl PyBlock {
+    #[new]
+    pub fn new(height: u64, hash_hex: &str, timestamp: u64, outputs: Vec<PyTransactionOutput>, inputs: Vec<PyTransactionInput>) -> PyResult<Self> {
+        let hash = hex::decode(hash_hex).map_err(|e| PyValueError::new_err(format!("Invalid hash hex: {}", e)))?;
+        let inner = CoreBlock::new(
+            height,
+            hash,
+            timestamp,
+            outputs.into_iter().map(|o| o.into_inner()).collect(),
+            inputs.into_iter().map(|i| i.inner.clone()).collect(),
+        );
+        Ok(Self { inner })
+    }
+
+    pub fn output_count(&self) -> usize { self.inner.output_count() }
+    pub fn input_count(&self) -> usize { self.inner.input_count() }
+    pub fn summary(&self) -> PyBlockSummary { PyBlockSummary { inner: self.inner.summary() } }
+
+    fn __repr__(&self) -> String { format!("Block(height={}, outputs={}, inputs={})", self.inner.height, self.inner.outputs.len(), self.inner.inputs.len()) }
+}
+
+impl PyBlock { pub fn inner(&self) -> &CoreBlock { &self.inner } }
 
 
