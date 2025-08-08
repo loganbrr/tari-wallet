@@ -6,11 +6,12 @@
 
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
+use pyo3::PyObject;
 use std::sync::{Arc, Mutex};
 use std::path::PathBuf;
 
 // Import macros and utilities to reduce boilerplate
-use crate::{extract_required_field, extract_optional_field, extract_filter_param};
+use crate::{extract_required_field, extract_optional_field};
 use crate::transaction_utils::{
     parse_transaction_direction, parse_transaction_status
 };
@@ -31,7 +32,7 @@ use crate::utils::execute_async;
 /// PyO3 wrapper for SQLite storage backend
 #[pyclass]
 pub struct TariWalletStorage {
-    inner: Arc<Mutex<Option<SqliteStorage>>>,
+    inner: Arc<Mutex<Option<Arc<SqliteStorage>>>>,
     path: Option<PathBuf>,
 }
 
@@ -74,7 +75,7 @@ impl TariWalletStorage {
                             "Failed to lock storage".into()
                         )
                     )?;
-                *storage_guard = Some(storage);
+                *storage_guard = Some(Arc::new(storage));
             }
 
             Ok(())
@@ -86,14 +87,18 @@ impl TariWalletStorage {
         let storage_arc = Arc::clone(&self.inner);
         
         execute_async(async move {
-            let mut storage_guard = storage_arc.lock()
-                .map_err(|_| 
-                    lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
-                        "Failed to lock storage".into()
-                    )
-                )?;
+            // Take ownership so we don't hold the lock across await
+            let storage_opt = {
+                let mut storage_guard = storage_arc.lock()
+                    .map_err(|_| 
+                        lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
+                            "Failed to lock storage".into()
+                        )
+                    )?;
+                storage_guard.take()
+            };
 
-            if let Some(storage) = storage_guard.take() {
+            if let Some(storage) = storage_opt {
                 storage.close().await?;
             }
 
@@ -117,8 +122,7 @@ impl TariWalletStorage {
     ///     int: Wallet ID assigned by storage
     fn save_wallet(&self, wallet_data: &Bound<'_, PyDict>) -> PyResult<u32> {
         let storage_arc = Arc::clone(&self.inner);
-        
-        // Extract data from dictionary using macros
+        // Extract data before async
         let name = extract_required_field!(wallet_data, "name", String);
         let seed_phrase = extract_optional_field!(wallet_data, "seed_phrase", String);
         let view_key_hex = extract_required_field!(wallet_data, "view_key_hex", String);
@@ -126,20 +130,18 @@ impl TariWalletStorage {
         let birthday_block = extract_required_field!(wallet_data, "birthday_block", u64);
 
         execute_async(async move {
-            let storage_guard = storage_arc.lock()
-                .map_err(|_| {
-                    lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
+            let storage = {
+                let storage_guard = storage_arc.lock()
+                    .map_err(|_| lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
                         "Failed to lock storage".into()
-                    )
-                })?;
-            
-            let storage = storage_guard.as_ref()
-                .ok_or_else(|| {
+                    ))?;
+                storage_guard.as_ref().cloned().ok_or_else(||
                     lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
                         "Storage not initialized - call initialize() first".into()
                     )
-                })?;
-
+                )?
+            };
+            
             // Create StoredWallet from data
             let stored_wallet = if let Some(seed) = seed_phrase {
                 // Parse keys from hex
@@ -262,19 +264,17 @@ impl TariWalletStorage {
         let storage_arc = Arc::clone(&self.inner);
         
         execute_async(async move {
-            let storage_guard = storage_arc.lock()
-                .map_err(|_| {
-                    lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
+            let storage = {
+                let storage_guard = storage_arc.lock()
+                    .map_err(|_| lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
                         "Failed to lock storage".into()
-                    )
-                })?;
-            
-            let storage = storage_guard.as_ref()
-                .ok_or_else(|| {
+                    ))?;
+                storage_guard.as_ref().cloned().ok_or_else(||
                     lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
                         "Storage not initialized - call initialize() first".into()
                     )
-                })?;
+                )?
+            };
 
             let wallet = storage.get_wallet_by_id(wallet_id).await?;
 
@@ -315,19 +315,17 @@ impl TariWalletStorage {
         let storage_arc = Arc::clone(&self.inner);
         
         execute_async(async move {
-            let storage_guard = storage_arc.lock()
-                .map_err(|_| {
-                    lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
+            let storage = {
+                let storage_guard = storage_arc.lock()
+                    .map_err(|_| lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
                         "Failed to lock storage".into()
-                    )
-                })?;
-            
-            let storage = storage_guard.as_ref()
-                .ok_or_else(|| {
+                    ))?;
+                storage_guard.as_ref().cloned().ok_or_else(||
                     lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
                         "Storage not initialized - call initialize() first".into()
                     )
-                })?;
+                )?
+            };
 
             let wallet = storage.get_wallet_by_name(&name).await?;
 
@@ -365,19 +363,17 @@ impl TariWalletStorage {
         let storage_arc = Arc::clone(&self.inner);
         
         execute_async(async move {
-            let storage_guard = storage_arc.lock()
-                .map_err(|_| {
-                    lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
+            let storage = {
+                let storage_guard = storage_arc.lock()
+                    .map_err(|_| lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
                         "Failed to lock storage".into()
-                    )
-                })?;
-            
-            let storage = storage_guard.as_ref()
-                .ok_or_else(|| {
+                    ))?;
+                storage_guard.as_ref().cloned().ok_or_else(||
                     lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
                         "Storage not initialized - call initialize() first".into()
                     )
-                })?;
+                )?
+            };
 
             let wallets = storage.list_wallets().await?;
 
@@ -418,19 +414,17 @@ impl TariWalletStorage {
         let storage_arc = Arc::clone(&self.inner);
         
         execute_async(async move {
-            let storage_guard = storage_arc.lock()
-                .map_err(|_| {
-                    lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
+            let storage = {
+                let storage_guard = storage_arc.lock()
+                    .map_err(|_| lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
                         "Failed to lock storage".into()
-                    )
-                })?;
-            
-            let storage = storage_guard.as_ref()
-                .ok_or_else(|| {
+                    ))?;
+                storage_guard.as_ref().cloned().ok_or_else(||
                     lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
                         "Storage not initialized - call initialize() first".into()
                     )
-                })?;
+                )?
+            };
 
             let deleted = storage.delete_wallet(wallet_id).await?;
 
@@ -449,19 +443,17 @@ impl TariWalletStorage {
         let storage_arc = Arc::clone(&self.inner);
         
         execute_async(async move {
-            let storage_guard = storage_arc.lock()
-                .map_err(|_| {
-                    lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
+            let storage = {
+                let storage_guard = storage_arc.lock()
+                    .map_err(|_| lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
                         "Failed to lock storage".into()
-                    )
-                })?;
-            
-            let storage = storage_guard.as_ref()
-                .ok_or_else(|| {
+                    ))?;
+                storage_guard.as_ref().cloned().ok_or_else(||
                     lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
                         "Storage not initialized - call initialize() first".into()
                     )
-                })?;
+                )?
+            };
 
             let exists = storage.wallet_name_exists(&name).await?;
 
@@ -491,72 +483,29 @@ impl TariWalletStorage {
     ///     None
     fn save_transaction(&self, wallet_id: u32, tx_data: &Bound<'_, PyDict>) -> PyResult<()> {
         let storage_arc = Arc::clone(&self.inner);
-        
-        // Extract transaction data from dictionary
-        let block_height = match tx_data.get_item("block_height")? {
-            Some(v) => v.extract::<u64>()?,
-            None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: block_height")),
-        };
-        
-        let output_index = match tx_data.get_item("output_index")? {
-            Some(v) if !v.is_none() => Some(v.extract::<usize>()?),
-            _ => None,
-        };
-        
-        let input_index = match tx_data.get_item("input_index")? {
-            Some(v) if !v.is_none() => Some(v.extract::<usize>()?),
-            _ => None,
-        };
-        
-        let commitment_hex = match tx_data.get_item("commitment_hex")? {
-            Some(v) => v.extract::<String>()?,
-            None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: commitment_hex")),
-        };
-        
-        let output_hash_hex = match tx_data.get_item("output_hash_hex")? {
-            Some(v) if !v.is_none() => Some(v.extract::<String>()?),
-            _ => None,
-        };
-        
-        let value = match tx_data.get_item("value")? {
-            Some(v) => v.extract::<u64>()?,
-            None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: value")),
-        };
-        
-        let _payment_id_data = match tx_data.get_item("payment_id")? {
-            Some(_v) => {}, // Ignore for now, using Empty
-            None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: payment_id")),
-        };
-        
-        let transaction_status_str = match tx_data.get_item("transaction_status")? {
-            Some(v) => v.extract::<String>()?,
-            None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: transaction_status")),
-        };
-        
-        let transaction_direction_str = match tx_data.get_item("transaction_direction")? {
-            Some(v) => v.extract::<String>()?,
-            None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: transaction_direction")),
-        };
-        
-        let is_mature = match tx_data.get_item("is_mature")? {
-            Some(v) => v.extract::<bool>()?,
-            None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: is_mature")),
-        };
+        // Extract python data before async
+        let block_height = tx_data.get_item("block_height")?.ok_or_else(|| PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: block_height"))?.extract::<u64>()?;
+        let output_index = match tx_data.get_item("output_index")? { Some(v) if !v.is_none() => Some(v.extract::<usize>()?), _ => None };
+        let input_index = match tx_data.get_item("input_index")? { Some(v) if !v.is_none() => Some(v.extract::<usize>()?), _ => None };
+        let commitment_hex = tx_data.get_item("commitment_hex")?.ok_or_else(|| PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: commitment_hex"))?.extract::<String>()?;
+        let output_hash_hex = match tx_data.get_item("output_hash_hex")? { Some(v) if !v.is_none() => Some(v.extract::<String>()?), _ => None };
+        let value = tx_data.get_item("value")?.ok_or_else(|| PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: value"))?.extract::<u64>()?;
+        let transaction_status_str = tx_data.get_item("transaction_status")?.ok_or_else(|| PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: transaction_status"))?.extract::<String>()?;
+        let transaction_direction_str = tx_data.get_item("transaction_direction")?.ok_or_else(|| PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: transaction_direction"))?.extract::<String>()?;
+        let is_mature = tx_data.get_item("is_mature")?.ok_or_else(|| PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: is_mature"))?.extract::<bool>()?;
 
         execute_async(async move {
-            let storage_guard = storage_arc.lock()
-                .map_err(|_| {
-                    lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
+            let storage = {
+                let storage_guard = storage_arc.lock()
+                    .map_err(|_| lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
                         "Failed to lock storage".into()
-                    )
-                })?;
-            
-            let storage = storage_guard.as_ref()
-                .ok_or_else(|| {
+                    ))?;
+                storage_guard.as_ref().cloned().ok_or_else(||
                     lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
                         "Storage not initialized - call initialize() first".into()
                     )
-                })?;
+                )?
+            };
 
             // Parse commitment from hex
             let commitment_bytes = hex::decode(&commitment_hex)
@@ -653,75 +602,57 @@ impl TariWalletStorage {
     ///     list: List of transaction dictionaries
     fn get_transactions(&self, wallet_id: Option<u32>, filter_data: Option<&Bound<'_, PyDict>>) -> PyResult<PyObject> {
         let storage_arc = Arc::clone(&self.inner);
-        
+        // Build TransactionFilter on Python thread using PyErr, not LightweightWalletError
+        let mut filter = TransactionFilter::new();
+        if let Some(wid) = wallet_id { filter = filter.with_wallet_id(wid); }
+        if let Some(filter_dict) = filter_data {
+            if let Some(range_obj) = filter_dict.get_item("block_height_range")? {
+                let tuple: (u64, u64) = range_obj.extract()?;
+                filter = filter.with_block_range(tuple.0, tuple.1);
+            }
+            if let Some(dir_obj) = filter_dict.get_item("direction")? {
+                let direction_str: String = dir_obj.extract()?;
+                let direction = parse_transaction_direction(&direction_str)
+                    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))?;
+                filter = filter.with_direction(direction);
+            }
+            if let Some(status_obj) = filter_dict.get_item("status")? {
+                let status_str: String = status_obj.extract()?;
+                let status = parse_transaction_status(&status_str)
+                    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))?;
+                filter = filter.with_status(status);
+            }
+            if let Some(spent_obj) = filter_dict.get_item("is_spent")? {
+                let is_spent: bool = spent_obj.extract()?;
+                filter = filter.with_spent_status(is_spent);
+            }
+            if let Some(mature_obj) = filter_dict.get_item("is_mature")? {
+                let is_mature: bool = mature_obj.extract()?;
+                filter = filter.with_maturity(is_mature);
+            }
+            if let Some(limit_obj) = filter_dict.get_item("limit")? {
+                let limit: usize = limit_obj.extract()?;
+                filter = filter.with_limit(limit);
+            }
+            if let Some(offset_obj) = filter_dict.get_item("offset")? {
+                let offset: usize = offset_obj.extract()?;
+                filter = filter.with_offset(offset);
+            }
+        }
+
         execute_async(async move {
-            let storage_guard = storage_arc.lock()
-                .map_err(|_| {
-                    lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
+            let storage = {
+                let storage_guard = storage_arc.lock()
+                    .map_err(|_| lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
                         "Failed to lock storage".into()
-                    )
-                })?;
-            
-            let storage = storage_guard.as_ref()
-                .ok_or_else(|| {
+                    ))?;
+                storage_guard.as_ref().cloned().ok_or_else(||
                     lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
                         "Storage not initialized - call initialize() first".into()
                     )
-                })?;
+                )?
+            };
 
-            // Build filter
-            let mut filter = TransactionFilter::new();
-            
-            if let Some(wid) = wallet_id {
-                filter = filter.with_wallet_id(wid);
-            }
-            
-            if let Some(filter_dict) = filter_data {
-                // Parse filter parameters using macro for conciseness
-                if let Some((start, end)) = extract_filter_param!(filter_dict, "block_height_range", (u64, u64))? {
-                    filter = filter.with_block_range(start, end);
-                }
-                
-                if let Some(direction_str) = extract_filter_param!(filter_dict, "direction", String)? {
-                    let direction = parse_transaction_direction(&direction_str).map_err(|e| {
-                        lightweight_wallet_libs::errors::LightweightWalletError::InvalidArgument {
-                            argument: "direction".into(),
-                            value: direction_str,
-                            message: e,
-                        }
-                    })?;
-                    filter = filter.with_direction(direction);
-                }
-                
-                if let Some(status_str) = extract_filter_param!(filter_dict, "status", String)? {
-                    let status = parse_transaction_status(&status_str).map_err(|e| {
-                        lightweight_wallet_libs::errors::LightweightWalletError::InvalidArgument {
-                            argument: "status".into(),
-                            value: status_str,
-                            message: e,
-                        }
-                    })?;
-                    filter = filter.with_status(status);
-                }
-                
-                if let Some(is_spent) = extract_filter_param!(filter_dict, "is_spent", bool)? {
-                    filter = filter.with_spent_status(is_spent);
-                }
-                
-                if let Some(is_mature) = extract_filter_param!(filter_dict, "is_mature", bool)? {
-                    filter = filter.with_maturity(is_mature);
-                }
-                
-                if let Some(limit) = extract_filter_param!(filter_dict, "limit", usize)? {
-                    filter = filter.with_limit(limit);
-                }
-                
-                if let Some(offset) = extract_filter_param!(filter_dict, "offset", usize)? {
-                    filter = filter.with_offset(offset);
-                }
-            }
-
-            // Get transactions from storage
             let transactions = storage.get_transactions(Some(filter)).await?;
 
             // Convert to Python objects
@@ -768,19 +699,18 @@ impl TariWalletStorage {
         let storage_arc = Arc::clone(&self.inner);
         
         execute_async(async move {
-            let storage_guard = storage_arc.lock()
-                .map_err(|_| {
-                    lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
+            let storage = {
+                let storage_guard = storage_arc.lock()
+                    .map_err(|_| lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
                         "Failed to lock storage".into()
-                    )
-                })?;
+                    ))?;
             
-            let storage = storage_guard.as_ref()
-                .ok_or_else(|| {
+                storage_guard.as_ref().cloned().ok_or_else(||
                     lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
                         "Storage not initialized - call initialize() first".into()
                     )
-                })?;
+                )?
+            };
 
             // Parse commitment from hex
             let commitment_bytes = hex::decode(&commitment_hex)
@@ -818,19 +748,17 @@ impl TariWalletStorage {
         let storage_arc = Arc::clone(&self.inner);
         
         execute_async(async move {
-            let storage_guard = storage_arc.lock()
-                .map_err(|_| {
-                    lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
+            let storage = {
+                let storage_guard = storage_arc.lock()
+                    .map_err(|_| lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
                         "Failed to lock storage".into()
-                    )
-                })?;
-            
-            let storage = storage_guard.as_ref()
-                .ok_or_else(|| {
+                    ))?;
+                storage_guard.as_ref().cloned().ok_or_else(||
                     lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
                         "Storage not initialized - call initialize() first".into()
                     )
-                })?;
+                )?
+            };
 
             // Load wallet state
             let wallet_state = storage.load_wallet_state(wallet_id).await?;
@@ -908,141 +836,67 @@ impl TariWalletStorage {
         let storage_arc = Arc::clone(&self.inner);
         
         // Extract required fields from dictionary
-        let wallet_id = match output_data.get_item("wallet_id")? {
-            Some(v) => v.extract::<u32>()?,
-            None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: wallet_id")),
-        };
+        let wallet_id = match output_data.get_item("wallet_id")? { Some(v) => v.extract::<u32>()?, None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: wallet_id")), };
         
-        let commitment_hex = match output_data.get_item("commitment_hex")? {
-            Some(v) => v.extract::<String>()?,
-            None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: commitment_hex")),
-        };
+        let commitment_hex = match output_data.get_item("commitment_hex")? { Some(v) => v.extract::<String>()?, None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: commitment_hex")), };
         
-        let hash_hex = match output_data.get_item("hash_hex")? {
-            Some(v) => v.extract::<String>()?,
-            None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: hash_hex")),
-        };
+        let hash_hex = match output_data.get_item("hash_hex")? { Some(v) => v.extract::<String>()?, None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: hash_hex")), };
         
-        let value = match output_data.get_item("value")? {
-            Some(v) => v.extract::<u64>()?,
-            None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: value")),
-        };
+        let value = match output_data.get_item("value")? { Some(v) => v.extract::<u64>()?, None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: value")), };
         
-        let spending_key_hex = match output_data.get_item("spending_key_hex")? {
-            Some(v) => v.extract::<String>()?,
-            None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: spending_key_hex")),
-        };
+        let spending_key_hex = match output_data.get_item("spending_key_hex")? { Some(v) => v.extract::<String>()?, None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: spending_key_hex")), };
         
-        let script_private_key_hex = match output_data.get_item("script_private_key_hex")? {
-            Some(v) => v.extract::<String>()?,
-            None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: script_private_key_hex")),
-        };
+        let script_private_key_hex = match output_data.get_item("script_private_key_hex")? { Some(v) => v.extract::<String>()?, None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: script_private_key_hex")), };
 
-        let script_hex = match output_data.get_item("script_hex")? {
-            Some(v) => v.extract::<String>()?,
-            None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: script_hex")),
-        };
+        let script_hex = match output_data.get_item("script_hex")? { Some(v) => v.extract::<String>()?, None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: script_hex")), };
 
-        let input_data_hex = match output_data.get_item("input_data_hex")? {
-            Some(v) => v.extract::<String>()?,
-            None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: input_data_hex")),
-        };
+        let input_data_hex = match output_data.get_item("input_data_hex")? { Some(v) => v.extract::<String>()?, None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: input_data_hex")), };
 
-        let covenant_hex = match output_data.get_item("covenant_hex")? {
-            Some(v) => v.extract::<String>()?,
-            None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: covenant_hex")),
-        };
+        let covenant_hex = match output_data.get_item("covenant_hex")? { Some(v) => v.extract::<String>()?, None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: covenant_hex")), };
 
-        let output_type = match output_data.get_item("output_type")? {
-            Some(v) => v.extract::<u32>()?,
-            None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: output_type")),
-        };
+        let output_type = match output_data.get_item("output_type")? { Some(v) => v.extract::<u32>()?, None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: output_type")), };
 
-        let features_json = match output_data.get_item("features_json")? {
-            Some(v) => v.extract::<String>()?,
-            None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: features_json")),
-        };
+        let features_json = match output_data.get_item("features_json")? { Some(v) => v.extract::<String>()?, None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: features_json")), };
 
-        let maturity = match output_data.get_item("maturity")? {
-            Some(v) => v.extract::<u64>()?,
-            None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: maturity")),
-        };
+        let maturity = match output_data.get_item("maturity")? { Some(v) => v.extract::<u64>()?, None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: maturity")), };
 
-        let script_lock_height = match output_data.get_item("script_lock_height")? {
-            Some(v) => v.extract::<u64>()?,
-            None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: script_lock_height")),
-        };
+        let script_lock_height = match output_data.get_item("script_lock_height")? { Some(v) => v.extract::<u64>()?, None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: script_lock_height")), };
 
         // Extract metadata signature components
-        let sender_offset_public_key_hex = match output_data.get_item("sender_offset_public_key_hex")? {
-            Some(v) => v.extract::<String>()?,
-            None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: sender_offset_public_key_hex")),
-        };
+        let sender_offset_public_key_hex = match output_data.get_item("sender_offset_public_key_hex")? { Some(v) => v.extract::<String>()?, None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: sender_offset_public_key_hex")), };
 
-        let metadata_signature_ephemeral_commitment_hex = match output_data.get_item("metadata_signature_ephemeral_commitment_hex")? {
-            Some(v) => v.extract::<String>()?,
-            None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: metadata_signature_ephemeral_commitment_hex")),
-        };
+        let metadata_signature_ephemeral_commitment_hex = match output_data.get_item("metadata_signature_ephemeral_commitment_hex")? { Some(v) => v.extract::<String>()?, None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: metadata_signature_ephemeral_commitment_hex")), };
 
-        let metadata_signature_ephemeral_pubkey_hex = match output_data.get_item("metadata_signature_ephemeral_pubkey_hex")? {
-            Some(v) => v.extract::<String>()?,
-            None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: metadata_signature_ephemeral_pubkey_hex")),
-        };
+        let metadata_signature_ephemeral_pubkey_hex = match output_data.get_item("metadata_signature_ephemeral_pubkey_hex")? { Some(v) => v.extract::<String>()?, None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: metadata_signature_ephemeral_pubkey_hex")), };
 
-        let metadata_signature_u_a_hex = match output_data.get_item("metadata_signature_u_a_hex")? {
-            Some(v) => v.extract::<String>()?,
-            None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: metadata_signature_u_a_hex")),
-        };
+        let metadata_signature_u_a_hex = match output_data.get_item("metadata_signature_u_a_hex")? { Some(v) => v.extract::<String>()?, None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: metadata_signature_u_a_hex")), };
 
-        let metadata_signature_u_x_hex = match output_data.get_item("metadata_signature_u_x_hex")? {
-            Some(v) => v.extract::<String>()?,
-            None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: metadata_signature_u_x_hex")),
-        };
+        let metadata_signature_u_x_hex = match output_data.get_item("metadata_signature_u_x_hex")? { Some(v) => v.extract::<String>()?, None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: metadata_signature_u_x_hex")), };
 
-        let metadata_signature_u_y_hex = match output_data.get_item("metadata_signature_u_y_hex")? {
-            Some(v) => v.extract::<String>()?,
-            None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: metadata_signature_u_y_hex")),
-        };
+        let metadata_signature_u_y_hex = match output_data.get_item("metadata_signature_u_y_hex")? { Some(v) => v.extract::<String>()?, None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: metadata_signature_u_y_hex")), };
 
-        let encrypted_data_hex = match output_data.get_item("encrypted_data_hex")? {
-            Some(v) => v.extract::<String>()?,
-            None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: encrypted_data_hex")),
-        };
+        let encrypted_data_hex = match output_data.get_item("encrypted_data_hex")? { Some(v) => v.extract::<String>()?, None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: encrypted_data_hex")), };
 
-        let minimum_value_promise = match output_data.get_item("minimum_value_promise")? {
-            Some(v) => v.extract::<u64>()?,
-            None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: minimum_value_promise")),
-        };
+        let minimum_value_promise = match output_data.get_item("minimum_value_promise")? { Some(v) => v.extract::<u64>()?, None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: minimum_value_promise")), };
 
-        let rangeproof_hex = match output_data.get_item("rangeproof_hex")? {
-            Some(v) if !v.is_none() => Some(v.extract::<String>()?),
-            _ => None,
-        };
+        let rangeproof_hex = match output_data.get_item("rangeproof_hex")? { Some(v) if !v.is_none() => Some(v.extract::<String>()?), _ => None };
 
-        let status = match output_data.get_item("status")? {
-            Some(v) => v.extract::<u32>()?,
-            None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: status")),
-        };
+        let status = match output_data.get_item("status")? { Some(v) => v.extract::<u32>()?, None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing required field: status")), };
 
-        let mined_height = match output_data.get_item("mined_height")? {
-            Some(v) if !v.is_none() => Some(v.extract::<u64>()?),
-            _ => None,
-        };
+        let mined_height = match output_data.get_item("mined_height")? { Some(v) if !v.is_none() => Some(v.extract::<u64>()?), _ => None };
 
         execute_async(async move {
-            let storage_guard = storage_arc.lock()
-                .map_err(|_| {
-                    lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
+            let storage = {
+                let storage_guard = storage_arc.lock()
+                    .map_err(|_| lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
                         "Failed to lock storage".into()
-                    )
-                })?;
-            
-            let storage = storage_guard.as_ref()
-                .ok_or_else(|| {
+                    ))?;
+                storage_guard.as_ref().cloned().ok_or_else(||
                     lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
                         "Storage not initialized - call initialize() first".into()
                     )
-                })?;
+                )?
+            };
 
             // Parse hex fields to bytes
             let commitment = hex::decode(&commitment_hex)
@@ -1171,91 +1025,52 @@ impl TariWalletStorage {
     ///     list: List of output dictionaries
     fn get_outputs(&self, filter_data: Option<&Bound<'_, PyDict>>) -> PyResult<PyObject> {
         let storage_arc = Arc::clone(&self.inner);
-        
+        // Build OutputFilter on Python thread using PyErr-based extraction
+        let mut filter = OutputFilter::new();
+        if let Some(filter_dict) = filter_data {
+            if let Some(wallet_id_val) = filter_dict.get_item("wallet_id")? {
+                let wallet_id: u32 = wallet_id_val.extract()?;
+                filter = filter.with_wallet_id(wallet_id);
+            }
+            if let Some(status_val) = filter_dict.get_item("status")? {
+                let status_int: u32 = status_val.extract()?;
+                let status = OutputStatus::from(status_int);
+                filter = filter.with_status(status);
+            }
+            if let Some(min_val) = filter_dict.get_item("min_value")? {
+                let min_value: u64 = min_val.extract()?;
+                if let Some(max_val) = filter_dict.get_item("max_value")? {
+                    let max_value: u64 = max_val.extract()?;
+                    filter = filter.with_value_range(min_value, max_value);
+                }
+            }
+            if let Some(spendable_val) = filter_dict.get_item("spendable_at_height")? {
+                let spendable_height: u64 = spendable_val.extract()?;
+                filter = filter.spendable_at(spendable_height);
+            }
+            if let Some(limit_val) = filter_dict.get_item("limit")? {
+                let limit: usize = limit_val.extract()?;
+                filter = filter.with_limit(limit);
+            }
+            if let Some(offset_val) = filter_dict.get_item("offset")? {
+                let offset: usize = offset_val.extract()?;
+                filter = filter.with_offset(offset);
+            }
+        }
+
         execute_async(async move {
-            let storage_guard = storage_arc.lock()
-                .map_err(|_| {
-                    lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
+            let storage = {
+                let storage_guard = storage_arc.lock()
+                    .map_err(|_| lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
                         "Failed to lock storage".into()
-                    )
-                })?;
-            
-            let storage = storage_guard.as_ref()
-                .ok_or_else(|| {
+                    ))?;
+                storage_guard.as_ref().cloned().ok_or_else(||
                     lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
                         "Storage not initialized - call initialize() first".into()
                     )
-                })?;
+                )?
+            };
 
-            // Build filter
-            let mut filter = OutputFilter::new();
-            
-            if let Some(filter_dict) = filter_data {
-                // Parse filter parameters
-                if let Some(wallet_id_val) = filter_dict.get_item("wallet_id").map_err(|e| {
-                    lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(format!("Filter error: {}", e))
-                })? {
-                    let wallet_id: u32 = wallet_id_val.extract().map_err(|e| {
-                        lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(format!("Integer extraction error: {}", e))
-                    })?;
-                    filter = filter.with_wallet_id(wallet_id);
-                }
-                
-                if let Some(status_val) = filter_dict.get_item("status").map_err(|e| {
-                    lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(format!("Filter error: {}", e))
-                })? {
-                    let status_int: u32 = status_val.extract().map_err(|e| {
-                        lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(format!("Integer extraction error: {}", e))
-                    })?;
-                    let status = OutputStatus::from(status_int);
-                    filter = filter.with_status(status);
-                }
-                
-                if let Some(min_val) = filter_dict.get_item("min_value").map_err(|e| {
-                    lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(format!("Filter error: {}", e))
-                })? {
-                    let min_value: u64 = min_val.extract().map_err(|e| {
-                        lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(format!("Integer extraction error: {}", e))
-                    })?;
-                    if let Some(max_val) = filter_dict.get_item("max_value").map_err(|e| {
-                        lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(format!("Filter error: {}", e))
-                    })? {
-                        let max_value: u64 = max_val.extract().map_err(|e| {
-                            lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(format!("Integer extraction error: {}", e))
-                        })?;
-                        filter = filter.with_value_range(min_value, max_value);
-                    }
-                }
-                
-                if let Some(spendable_val) = filter_dict.get_item("spendable_at_height").map_err(|e| {
-                    lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(format!("Filter error: {}", e))
-                })? {
-                    let spendable_height: u64 = spendable_val.extract().map_err(|e| {
-                        lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(format!("Integer extraction error: {}", e))
-                    })?;
-                    filter = filter.spendable_at(spendable_height);
-                }
-                
-                if let Some(limit_val) = filter_dict.get_item("limit").map_err(|e| {
-                    lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(format!("Filter error: {}", e))
-                })? {
-                    let limit: usize = limit_val.extract().map_err(|e| {
-                        lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(format!("Integer extraction error: {}", e))
-                    })?;
-                    filter = filter.with_limit(limit);
-                }
-                
-                if let Some(offset_val) = filter_dict.get_item("offset").map_err(|e| {
-                    lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(format!("Filter error: {}", e))
-                })? {
-                    let offset: usize = offset_val.extract().map_err(|e| {
-                        lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(format!("Integer extraction error: {}", e))
-                    })?;
-                    filter = filter.with_offset(offset);
-                }
-            }
-
-            // Get outputs from storage
             let outputs = storage.get_outputs(Some(filter)).await?;
 
             // Convert to Python objects
@@ -1316,23 +1131,18 @@ impl TariWalletStorage {
         let storage_arc = Arc::clone(&self.inner);
         
         execute_async(async move {
-            let storage_guard = storage_arc.lock()
-                .map_err(|_| {
-                    lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
+            let storage = {
+                let storage_guard = storage_arc.lock()
+                    .map_err(|_| lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
                         "Failed to lock storage".into()
-                    )
-                })?;
-            
-            let storage = storage_guard.as_ref()
-                .ok_or_else(|| {
+                    ))?;
+                storage_guard.as_ref().cloned().ok_or_else(||
                     lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
                         "Storage not initialized - call initialize() first".into()
                     )
-                })?;
-
-            // Get spendable balance
+                )?
+            };
             let balance = storage.get_spendable_balance(wallet_id, block_height).await?;
-
             Ok(balance)
         })
     }
@@ -1349,23 +1159,18 @@ impl TariWalletStorage {
         let storage_arc = Arc::clone(&self.inner);
         
         execute_async(async move {
-            let storage_guard = storage_arc.lock()
-                .map_err(|_| {
-                    lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
+            let storage = {
+                let storage_guard = storage_arc.lock()
+                    .map_err(|_| lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
                         "Failed to lock storage".into()
-                    )
-                })?;
-            
-            let storage = storage_guard.as_ref()
-                .ok_or_else(|| {
+                    ))?;
+                storage_guard.as_ref().cloned().ok_or_else(||
                     lightweight_wallet_libs::errors::LightweightWalletError::ConversionError(
                         "Storage not initialized - call initialize() first".into()
                     )
-                })?;
-
-            // Mark output as spent
+                )?
+            };
             storage.mark_output_spent(output_id, spent_in_tx_id).await?;
-
             Ok(())
         })
     }
@@ -1382,23 +1187,91 @@ impl TariWalletStorage {
     fn __repr__(&self) -> String {
         self.__str__()
     }
+
+    /// Get a thread-safe handle that can be shared across threads
+    pub fn thread_safe(&self) -> PyResult<PyThreadSafeStorage> { PyThreadSafeStorage::new(self) }
 }
 
 impl TariWalletStorage {
     /// Get a shared storage Arc for use with UTXO manager
     /// Internal method not exposed to Python
-    pub(crate) fn get_shared_storage(&self) -> PyResult<Arc<Mutex<Option<SqliteStorage>>>> {
-        // Check if storage is initialized
+    pub(crate) fn get_shared_storage(&self) -> PyResult<Arc<Mutex<Option<Arc<SqliteStorage>>>>> {
         {
             let storage_guard = self.inner.lock()
                 .map_err(|_| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("Failed to lock storage"))?;
-            
             if storage_guard.is_none() {
                 return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("Storage not initialized - call initialize() first"));
             }
         }
-
-        // Return the shared Arc for use by UTXO manager
         Ok(Arc::clone(&self.inner))
     }
 }
+
+/// Thread-safe storage handle for sharing across threads/tasks
+#[pyclass]
+pub struct PyThreadSafeStorage {
+    inner: Arc<Mutex<Option<Arc<SqliteStorage>>>>,
+}
+
+#[pymethods]
+impl PyThreadSafeStorage {
+    #[new]
+    fn new(storage: &TariWalletStorage) -> PyResult<Self> {
+        Ok(Self { inner: storage.get_shared_storage()? })
+    }
+
+    /// Cloneable handle
+    pub fn clone_handle(&self) -> Self { Self { inner: Arc::clone(&self.inner) } }
+
+    fn __repr__(&self) -> String { "PyThreadSafeStorage(handle)".to_string() }
+}
+
+/// Python wrapper enum for OutputStatus
+#[pyclass(name = "OutputStatus")]
+#[derive(Clone, Copy, Debug)]
+pub struct PyOutputStatus {
+    inner: OutputStatus,
+}
+
+#[pymethods]
+impl PyOutputStatus {
+    #[staticmethod]
+    pub fn unspent() -> Self { Self { inner: OutputStatus::Unspent } }
+    #[staticmethod]
+    pub fn spent() -> Self { Self { inner: OutputStatus::Spent } }
+    #[staticmethod]
+    pub fn locked() -> Self { Self { inner: OutputStatus::Locked } }
+    #[staticmethod]
+    pub fn frozen() -> Self { Self { inner: OutputStatus::Frozen } }
+
+    #[staticmethod]
+    pub fn from_int(value: u32) -> Self { Self { inner: OutputStatus::from(value) } }
+
+    pub fn to_int(&self) -> u32 { self.inner.into() }
+
+    fn __repr__(&self) -> String { format!("OutputStatus({})", self.to_int()) }
+}
+
+impl PyOutputStatus { pub fn inner(&self) -> OutputStatus { self.inner } }
+
+/// Python wrapper for OutputFilter with builder methods
+#[pyclass(name = "OutputFilter")]
+#[derive(Clone, Debug, Default)]
+pub struct PyOutputFilter { inner: OutputFilter }
+
+#[pymethods]
+impl PyOutputFilter {
+    #[new]
+    pub fn new() -> Self { Self { inner: OutputFilter::new() } }
+
+    pub fn wallet_id(&mut self, wallet_id: u32) -> Self { self.inner = self.inner.clone().with_wallet_id(wallet_id); self.clone() }
+    pub fn status(&mut self, status: &PyOutputStatus) -> Self { self.inner = self.inner.clone().with_status(status.inner()); self.clone() }
+    pub fn value_range(&mut self, min_value: u64, max_value: u64) -> Self { self.inner = self.inner.clone().with_value_range(min_value, max_value); self.clone() }
+    pub fn spendable_at(&mut self, block_height: u64) -> Self { self.inner = self.inner.clone().spendable_at(block_height); self.clone() }
+    pub fn limit(&mut self, limit: usize) -> Self { self.inner = self.inner.clone().with_limit(limit); self.clone() }
+    pub fn offset(&mut self, offset: usize) -> Self { self.inner = self.inner.clone().with_offset(offset); self.clone() }
+
+    fn __repr__(&self) -> String { "OutputFilter(...)".to_string() }
+}
+
+impl PyOutputFilter { pub fn inner(&self) -> OutputFilter { self.inner.clone() } }

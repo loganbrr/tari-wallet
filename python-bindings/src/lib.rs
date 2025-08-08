@@ -114,7 +114,6 @@ mod secure_wrapper;
 #[macro_use]
 mod field_extraction_macros;
 mod transaction_utils;
-// mod storage; // Temporarily disabled due to async threading issues
 mod validation;
 mod key_derivation;
 mod key_manager; // Temporarily disabled due to syntax issues
@@ -123,6 +122,7 @@ mod stealth_address;
 mod extraction;
 mod batch_operations;
 mod utils;
+mod storage; // re-enabled
 // Legacy types removed - using native types only
 pub use validation::{BatchValidationResult};
 pub use key_derivation::KeyDerivationPath;
@@ -186,6 +186,12 @@ fn lightweight_wallet_libpy(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult
     m.add_class::<PyOutputValidationResult>()?;
     m.add_class::<PyBatchValidationSummary>()?;
     m.add_class::<PyBatchValidationResult>()?;
+
+    // Storage classes
+    m.add_class::<crate::storage::TariWalletStorage>()?;
+    m.add_class::<crate::storage::PyThreadSafeStorage>()?;
+    m.add_class::<crate::storage::PyOutputStatus>()?;
+    m.add_class::<crate::storage::PyOutputFilter>()?;
 
     // Register batch operations functions
     crate::batch_operations::register_batch_operation_functions(py, m)?;
