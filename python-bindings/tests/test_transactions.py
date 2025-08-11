@@ -70,7 +70,7 @@ def test_transaction_input_roundtrip():
         sender_pk,
         cov,
         stack,
-        "33" * 64,
+        "3f" * 128,
         0,
         "44" * 32,
         10,
@@ -108,7 +108,7 @@ def test_block_and_summary():
     stack = ExecutionStack()
     cov = Covenant.from_bytes(b"")
     ti = TransactionInput(
-        1, 0, "11" * 32, "22" * 32, sender_pk, cov, stack, "33" * 64, 0, "44" * 32, 0, MicroMinotari(0)
+        1, 0, "11" * 32, "22" * 32, sender_pk, cov, stack, "3f" * 128, 0, "44" * 32, 0, MicroMinotari(0)
     )
 
     blk = Block(123, "ab" * 32, 999999, outs, [ti])
