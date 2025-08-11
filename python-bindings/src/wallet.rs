@@ -112,10 +112,14 @@ impl PyTariWallet {
             PyWalletError::from_msg("Failed to lock wallet")
         })?;
         
-        let address = wallet.get_dual_address(features.inner().clone(), payment_id.map(|bytes| bytes.as_bytes().to_vec()))
+        let address = wallet
+            .get_dual_address(
+                features.inner().clone(),
+                payment_id.map(|bytes| bytes.as_bytes().to_vec()),
+            )
             .map_err(|e| PyWalletError::from_msg(&format!("Failed to create dual address: {}", e)))?;
-        
-        Ok(PyTariAddress::from_string(&format!("{:?}", address))?)
+
+        Ok(PyTariAddress::from_inner(address))
     }
 
     /// Get single address
@@ -124,10 +128,11 @@ impl PyTariWallet {
             PyWalletError::from_msg("Failed to lock wallet")
         })?;
         
-        let address = wallet.get_single_address(features.inner().clone())
+        let address = wallet
+            .get_single_address(features.inner().clone())
             .map_err(|e| PyWalletError::from_msg(&format!("Failed to create single address: {}", e)))?;
-        
-        Ok(PyTariAddress::from_string(&format!("{:?}", address))?)
+
+        Ok(PyTariAddress::from_inner(address))
     }
 
     /// Get view private key - returns native PyPrivateKey object

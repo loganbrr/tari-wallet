@@ -484,6 +484,11 @@ impl PyTariAddress {
     pub fn into_inner(self) -> TariAddress {
         self.inner
     }
+
+    /// Internal constructor for wrapping an existing TariAddress
+    pub fn from_inner(inner: TariAddress) -> Self {
+        Self { inner }
+    }
 }
 
 impl std::hash::Hash for PyTariAddress {
