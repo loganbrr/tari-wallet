@@ -30,6 +30,7 @@ try:
             TariWallet, TariAddressFeatures,
             PrivateKey, CompressedCommitment, RangeProof,
             PyWalletError, NativeCryptoStats,
+            Network,
         )
     except Exception as _e:
         TariWallet = None
@@ -39,9 +40,20 @@ try:
         RangeProof = None
         PyWalletError = None
         NativeCryptoStats = None
+        Network = None
 except ImportError as e:
     WALLET_LIB_AVAILABLE = False
     IMPORT_ERROR = str(e)
+
+# Helper: current effective network
+def current_network():
+    if not WALLET_LIB_AVAILABLE or Network is None:
+        return None
+    net = os.getenv('PREFERRED_TARI_NETWORK', 'esmeralda')
+    try:
+        return Network.from_str(net)
+    except Exception:
+        return Network.from_str('esmeralda')
 
 
 def pytest_configure(config):
@@ -141,9 +153,7 @@ def multiple_test_wallets():
     for i in range(3):
         wallet = wallet_lib.TariWallet.generate_new_with_seed_phrase(None)
         wallet.set_label(f"Test Wallet {i+1}")
-        # Use Network enum wrapper
-        network_name = ["mainnet", "stagenet", "localnet"][i]
-        wallet.set_network(wallet_lib.Network.from_str(network_name))
+        # Do not override global network; leave as module default
         wallets.append(wallet)
     
     return wallets

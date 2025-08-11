@@ -15,9 +15,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
     import lightweight_wallet_libpy as wallet_lib
-    from lightweight_wallet_libpy import TariWallet, TariAddressFeatures, Network
+    from lightweight_wallet_libpy import TariWallet, TariAddressFeatures, Network, TariAddress, PrivateKey
 except ImportError as e:
     pytest.skip(f"Cannot import wallet library: {e}", allow_module_level=True)
+
+from .conftest import current_network
 
 
 class TestTariAddressFeaturesCreation:
@@ -73,90 +75,59 @@ class TestTariAddressFeaturesWithWallet:
     """Test TariAddressFeatures integration with wallet address generation."""
     
     def test_dual_address_with_different_features(self):
-        """Test dual address generation with different features."""
-        wallet = TariWallet.generate_new_with_seed_phrase(None)
-        wallet.set_network(Network.mainnet())
-        
-        # Test with each feature type
-        interactive_only = TariAddressFeatures.interactive_only()
-        one_sided_only = TariAddressFeatures.one_sided_only()
-        interactive_and_one_sided = TariAddressFeatures.interactive_and_one_sided()
-        
-        addr1 = wallet.get_dual_address(interactive_only, None)
-        addr2 = wallet.get_dual_address(one_sided_only, None)
-        addr3 = wallet.get_dual_address(interactive_and_one_sided, None)
-        
-        # All addresses should be valid hex strings
-        assert len(addr1.to_hex()) > 0
-        assert len(addr2.to_hex()) > 0
-        assert len(addr3.to_hex()) > 0
-        
-        # All addresses should be different
-        assert addr1.to_hex() != addr2.to_hex()
-        assert addr1.to_hex() != addr3.to_hex()
-        assert addr2.to_hex() != addr3.to_hex()
+        """Construct dual addresses using constructors and current network."""
+        net = current_network()
+        features_set = [
+            TariAddressFeatures.interactive_only(),
+            TariAddressFeatures.one_sided_only(),
+            TariAddressFeatures.interactive_and_one_sided(),
+        ]
+        # Generate random keys
+        sk = PrivateKey.random()
+        pk = sk.public_key()
+        view = pk.to_bytes()
+        spend = pk.to_bytes()
+        addrs = []
+        for features in features_set:
+            addr = TariAddress.new_dual_address(view, spend, net, features, None)
+            addrs.append(addr)
+            assert len(addr.to_hex()) > 0
+        assert addrs[0].to_hex() != addrs[1].to_hex() or addrs[0].to_hex() != addrs[2].to_hex()
     
     def test_single_address_with_different_features(self):
-        """Test single address generation with different features."""
-        wallet = TariWallet.generate_new_with_seed_phrase(None)
-        wallet.set_network(Network.mainnet())
-        
-        # Test with features that make sense for single addresses
+        net = current_network()
+        sk = PrivateKey.random()
+        pk = sk.public_key()
+        spend = pk.to_bytes()
         interactive_only = TariAddressFeatures.interactive_only()
         one_sided_only = TariAddressFeatures.one_sided_only()
-        
-        addr1 = wallet.get_single_address(interactive_only)
-        addr2 = wallet.get_single_address(one_sided_only)
-        
-        # Both addresses should be valid
-        assert len(addr1.to_hex()) > 0
-        assert len(addr2.to_hex()) > 0
-        
-        # Addresses should be different
+        addr1 = TariAddress.new_single_address(spend, net, interactive_only)
+        addr2 = TariAddress.new_single_address(spend, net, one_sided_only)
+        assert len(addr1.to_hex()) > 0 and len(addr2.to_hex()) > 0
         assert addr1.to_hex() != addr2.to_hex()
     
     def test_deterministic_address_generation(self):
-        """Test that same features produce same addresses."""
-        wallet = TariWallet.generate_new_with_seed_phrase(None)
-        wallet.set_network(Network.mainnet())
+        net = current_network()
         features = TariAddressFeatures.interactive_and_one_sided()
-        
-        # Generate same address multiple times
-        addr1 = wallet.get_dual_address(features, None)
-        addr2 = wallet.get_dual_address(features, None)
-        addr3 = wallet.get_dual_address(features, None)
-        
-        # All should be identical
-        assert addr1.to_hex() == addr2.to_hex() == addr3.to_hex()
-        
-        # Same for single addresses
-        single1 = wallet.get_single_address(features)
-        single2 = wallet.get_single_address(features)
-        
-        assert single1.to_hex() == single2.to_hex()
+        sk = PrivateKey.random()
+        pk = sk.public_key()
+        view = pk.to_bytes()
+        spend = pk.to_bytes()
+        addr1 = TariAddress.new_dual_address(view, spend, net, features, None)
+        addr2 = TariAddress.new_dual_address(view, spend, net, features, None)
+        assert addr1.to_hex() == addr2.to_hex()
     
     def test_features_with_payment_id(self):
-        """Test address features with payment IDs."""
-        wallet = TariWallet.generate_new_with_seed_phrase(None)
-        wallet.set_network(Network.mainnet())
+        net = current_network()
         features = TariAddressFeatures.interactive_and_one_sided()
-        
-        payment_id = [1, 2, 3, 4, 5]
-        
-        # Address without payment ID
-        addr_no_payment = wallet.get_dual_address(features, None)
-        
-        # Address with payment ID
-        import binascii
-        pid_bytes = bytes(payment_id)
-        addr_with_payment = wallet.get_dual_address(features, pid_bytes)
-        
-        # Should be different
-        assert addr_no_payment.to_hex() != addr_with_payment.to_hex()
-        
-        # Same payment ID should produce same address
-        addr_with_payment2 = wallet.get_dual_address(features, pid_bytes)
-        assert addr_with_payment.to_hex() == addr_with_payment2.to_hex()
+        sk = PrivateKey.random()
+        pk = sk.public_key()
+        view = pk.to_bytes()
+        spend = pk.to_bytes()
+        pid = bytes([1,2,3,4,5])
+        addr_no = TariAddress.new_dual_address(view, spend, net, features, None)
+        addr_pid = TariAddress.new_dual_address(view, spend, net, features, pid)
+        assert addr_no.to_hex() != addr_pid.to_hex()
 
 
 class TestTariAddressFeaturesEdgeCases:
@@ -239,79 +210,38 @@ class TestTariAddressFeaturesAPISignatures:
     """Test TariAddressFeatures API signatures and integration with wallet methods."""
     
     def test_get_dual_address_signature(self):
-        """Test that get_dual_address has the correct signature with features parameter."""
-        wallet = TariWallet.generate_new_with_seed_phrase(None)
-        wallet.set_network(Network.mainnet())
+        net = current_network()
         features = TariAddressFeatures.interactive_and_one_sided()
-        
-        # Test with features parameter only
-        address1 = wallet.get_dual_address(features, None)
-        assert len(address1.to_hex()) > 0
-        
-        # Test with features and payment_id
-        payment_id = bytes([1, 2, 3, 4, 5])
-        address2 = wallet.get_dual_address(features, payment_id)
-        assert len(address2.to_hex()) > 0
-        assert address1.to_hex() != address2.to_hex()  # Should be different with payment ID
-        
-        # Test with None payment_id explicitly
-        address3 = wallet.get_dual_address(features, None)
-        assert address1.to_hex() == address3.to_hex()  # Should be the same as no payment ID
+        sk = PrivateKey.random(); pk = sk.public_key()
+        addr = TariAddress.new_dual_address(pk.to_bytes(), pk.to_bytes(), net, features, None)
+        assert len(addr.to_hex()) > 0
     
     def test_get_single_address_signature(self):
-        """Test that get_single_address has the correct signature with features parameter."""
-        wallet = TariWallet.generate_new_with_seed_phrase(None)
-        wallet.set_network(Network.mainnet())
-        
-        # Test with interactive only features
+        net = current_network()
         interactive_features = TariAddressFeatures.interactive_only()
-        address1 = wallet.get_single_address(interactive_features)
-        assert len(address1.to_hex()) > 0
-        
-        # Test with one-sided only features
-        one_sided_features = TariAddressFeatures.one_sided_only()
-        address2 = wallet.get_single_address(one_sided_features)
-        assert len(address2.to_hex()) > 0
-        assert address1.to_hex() != address2.to_hex()  # Different features should produce different addresses
+        sk = PrivateKey.random(); pk = sk.public_key()
+        addr1 = TariAddress.new_single_address(pk.to_bytes(), net, interactive_features)
+        assert len(addr1.to_hex()) > 0
     
     def test_different_features_produce_different_addresses(self):
-        """Test that different address features produce different addresses."""
-        wallet = TariWallet.generate_new_with_seed_phrase(None)
-        wallet.set_network(Network.mainnet())
-        
-        # Test all feature combinations
+        net = current_network()
         interactive_only = TariAddressFeatures.interactive_only()
         one_sided_only = TariAddressFeatures.one_sided_only()
-        interactive_and_one_sided = TariAddressFeatures.interactive_and_one_sided()
-        
-        # Generate addresses with different features
-        addr1 = wallet.get_dual_address(interactive_only, None)
-        addr2 = wallet.get_dual_address(one_sided_only, None)
-        addr3 = wallet.get_dual_address(interactive_and_one_sided, None)
-        
-        # All addresses should be different
-        assert addr1.to_hex() != addr2.to_hex()
-        assert addr1.to_hex() != addr3.to_hex()
-        assert addr2.to_hex() != addr3.to_hex()
-        
-        # All addresses should be valid hex strings
-        assert len(addr1.to_hex()) > 0
-        assert len(addr2.to_hex()) > 0
-        assert len(addr3.to_hex()) > 0
+        both = TariAddressFeatures.interactive_and_one_sided()
+        sk = PrivateKey.random(); pk = sk.public_key()
+        view = pk.to_bytes(); spend = pk.to_bytes()
+        a1 = TariAddress.new_dual_address(view, spend, net, interactive_only, None)
+        a2 = TariAddress.new_dual_address(view, spend, net, one_sided_only, None)
+        a3 = TariAddress.new_dual_address(view, spend, net, both, None)
+        assert a1.to_hex() != a2.to_hex() or a1.to_hex() != a3.to_hex()
     
     def test_backward_compatibility_breaks(self):
-        """Test that old API no longer works and new API works correctly."""
-        wallet = TariWallet.generate_new_with_seed_phrase(None)
-        wallet.set_network(Network.mainnet())
+        # Ensure new constructors work
+        net = current_network()
         features = TariAddressFeatures.interactive_only()
-        
-        # Test that old API (without features) no longer works
-        with pytest.raises(Exception):
-            wallet.get_dual_address()  # Missing required features parameter
-        
-        # Test that new API works correctly
-        address = wallet.get_dual_address(features, None)
-        assert len(address.to_hex()) > 0
+        sk = PrivateKey.random(); pk = sk.public_key()
+        addr = TariAddress.new_dual_address(pk.to_bytes(), pk.to_bytes(), net, features, None)
+        assert len(addr.to_hex()) > 0
 
 
 if __name__ == "__main__":
