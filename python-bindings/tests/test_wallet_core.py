@@ -35,9 +35,9 @@ def test_wallet_sign_and_verify_message_empty_message_allowed():
 
     msg = ""
     sig = w.sign_message(msg)
-    assert sig.signature_hex and sig.nonce_hex and sig.public_key_hex
+    assert sig.signature and sig.nonce and sig.public_key
 
-    ok = TariWallet.verify_message_signature(msg, sig.signature_hex, sig.nonce_hex, sig.public_key_hex)
+    ok = TariWallet.verify_message_signature(msg, sig.signature, sig.nonce, sig.public_key)
     assert ok is True
 
 
@@ -48,6 +48,6 @@ def test_wallet_sign_and_verify_message_negative_case():
     sig = w.sign_message(msg)
 
     # Tweak the signature to make it invalid
-    bad_sig = sig.signature_hex[:-2] + ("00" if sig.signature_hex[-2:] != "00" else "ff")
-    ok = TariWallet.verify_message_signature(msg, bad_sig, sig.nonce_hex, sig.public_key_hex)
+    bad_sig = sig.signature[:-2] + ("00" if sig.signature[-2:] != "00" else "ff")
+    ok = TariWallet.verify_message_signature(msg, bad_sig, sig.nonce, sig.public_key)
     assert ok is False
