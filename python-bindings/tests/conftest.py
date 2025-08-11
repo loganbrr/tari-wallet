@@ -141,7 +141,9 @@ def multiple_test_wallets():
     for i in range(3):
         wallet = wallet_lib.TariWallet.generate_new_with_seed_phrase(None)
         wallet.set_label(f"Test Wallet {i+1}")
-        wallet.set_network(["mainnet", "stagenet", "localnet"][i])
+        # Use Network enum wrapper
+        network_name = ["mainnet", "stagenet", "localnet"][i]
+        wallet.set_network(wallet_lib.Network.from_str(network_name))
         wallets.append(wallet)
     
     return wallets
