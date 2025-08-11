@@ -16,10 +16,19 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 try:
     import lightweight_wallet_libpy as wallet_lib
     from lightweight_wallet_libpy import TariWallet, TariAddressFeatures, Network, TariAddress, PrivateKey
+    from .conftest import current_network  # when run as a package
 except ImportError as e:
     pytest.skip(f"Cannot import wallet library: {e}", allow_module_level=True)
-
-from .conftest import current_network
+except Exception:
+    # Fallback when pytest runs modules without package context
+    import os
+    from lightweight_wallet_libpy import Network
+    def current_network():
+        net = os.getenv('PREFERRED_TARI_NETWORK', 'esmeralda')
+        try:
+            return Network.from_str(net)
+        except Exception:
+            return Network.from_str('esmeralda')
 
 
 class TestTariAddressFeaturesCreation:
